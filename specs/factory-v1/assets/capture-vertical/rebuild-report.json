@@ -1,0 +1,219 @@
+{
+  "canonicalBranch": "main",
+  "canonicalBranchDrift": false,
+  "hookTransactionPending": false,
+  "hooks": {
+    "executable": "/tmp/factory-capture-JPgZLT/bin/factory",
+    "providers": {
+      "claude": {
+        "fingerprints": [
+          {
+            "event": "SessionStart",
+            "fingerprint": "f7e863a75e34bd635b599baf46a0400e844c1902574aa167909c7b75545ffd8c"
+          },
+          {
+            "event": "SessionEnd",
+            "fingerprint": "f68c548e1fde0adeebcb8a3a2496419e596625a3b6a2cadf9e9884fa16ec3377"
+          },
+          {
+            "event": "UserPromptSubmit",
+            "fingerprint": "2aa54337e909f9ecd3ed2296f411e58904e96198c4af7b09f7199d2bc3c452e7"
+          },
+          {
+            "event": "PreToolUse",
+            "fingerprint": "0189791faac83300fdf586169ebede92856a3a88b45fadf8f2a919689199843a"
+          },
+          {
+            "event": "PermissionRequest",
+            "fingerprint": "3a5d5b3c8ebe54cc53c31c5a827f3de6dc359b02940d08b6b08c282956549883"
+          },
+          {
+            "event": "PostToolUse",
+            "fingerprint": "d8ac867a4480a24a24bf440dd0a61cce3d0bd58d860ff8b40945eb0200195c79"
+          },
+          {
+            "event": "PreCompact",
+            "fingerprint": "9ae0dc8bcfaad57c55b1d00f2447e65ef01396a90e9ab4a99505d63f380b2a5a"
+          },
+          {
+            "event": "PostCompact",
+            "fingerprint": "3bdf77704c4408b2473be524e14b83ac6a3c747c4314104bebf71c896ec3322e"
+          },
+          {
+            "event": "SubagentStart",
+            "fingerprint": "a4149988e4f7f716b51b500d088406cc76e02b9f0c746cdcc155036c11cda290"
+          },
+          {
+            "event": "SubagentStop",
+            "fingerprint": "15264c56e9c3eb8db485c7ca7355a10f8f3daa712e1856fd490365455f3bc485"
+          },
+          {
+            "event": "Stop",
+            "fingerprint": "41c05357c07db0f868ec743d4362dfa77aa450348d2061a3059a4630c662dc79"
+          },
+          {
+            "event": "Setup",
+            "fingerprint": "4fe397e303e21dffb83ad8a0aa173233bd91de7d9b4f8d35c10caaa960051ff1"
+          },
+          {
+            "event": "InstructionsLoaded",
+            "fingerprint": "93455cb625eaf51232a12f584faa928ac44d70706d39bfdf60af91b9fd78b236"
+          },
+          {
+            "event": "UserPromptExpansion",
+            "fingerprint": "ec5786d3e8b11889e7752904c1fd9868d667cbd8f4449024620045037a13e8bb"
+          },
+          {
+            "event": "PermissionDenied",
+            "fingerprint": "df5a9cb985ee817a14ca2f5052d57543a459589c9463c4704bbe217f6ab6eb5d"
+          },
+          {
+            "event": "PostToolUseFailure",
+            "fingerprint": "d468b1b44fc183a4237c36df638d7933d0c3b23c8d477a3b91b1991dfe68b114"
+          },
+          {
+            "event": "PostToolBatch",
+            "fingerprint": "dcde74ecf13163bf54ed6254f55bb24dc174bf00df1a60d997f1e9c6b19f4f37"
+          },
+          {
+            "event": "Notification",
+            "fingerprint": "fe07e223928b366ea84246bcd370036c6b3bb04f9efb13b20ee1c446ab025d4d"
+          },
+          {
+            "event": "TaskCreated",
+            "fingerprint": "9d56ff7bddec66b5a669b88c3de1a93b4fd2428a1c5beafe8c727b6ea02432fc"
+          },
+          {
+            "event": "TaskCompleted",
+            "fingerprint": "4d05fa23f56978464be7ad2bf2da418810d708709c99c280bf03322938683f23"
+          },
+          {
+            "event": "StopFailure",
+            "fingerprint": "f45213f8aa59ca2e3d5c0a410302e71ccc8ddeff52fd518acb681602bb29a278"
+          },
+          {
+            "event": "TeammateIdle",
+            "fingerprint": "b1fbff9b5166973762cda8732f2bdc35147a2f0305c9643f856a3d7badf0b674"
+          },
+          {
+            "event": "ConfigChange",
+            "fingerprint": "28ee46b0077d0aa0bdae4c977874bedb1f295b20a32b64ba2cd7f0f41da07e5d"
+          },
+          {
+            "event": "CwdChanged",
+            "fingerprint": "eaf8724c34dfa0347483d29b655f447c2ee36dbfd38b35d7bf3dd3d9913a381c"
+          },
+          {
+            "event": "DirectoryAdded",
+            "fingerprint": "8638e3b18a039727baf5c55e579151d9d9d97b4db35f80e4d2cbecf541058578"
+          },
+          {
+            "event": "WorktreeCreate",
+            "fingerprint": "bda667afaf803d047feff83fbeddb103cf4bf4aabcf5d15f8ef749d2b2a91780"
+          },
+          {
+            "event": "WorktreeRemove",
+            "fingerprint": "5144ef7b6f853c3e4bbc65b72009535718b75b723c5cb075460b9193cd371a38"
+          },
+          {
+            "event": "Elicitation",
+            "fingerprint": "78483558fc73db4516fd4ae04a9d152b40f3f0f0a5dcf3785361f5ad20359cc8"
+          },
+          {
+            "event": "ElicitationResult",
+            "fingerprint": "8ba96243fc1f65bc5eac9fa9abc408b00ca9456fc354050d39b37e331c7f3abc"
+          },
+          {
+            "event": "MessageDisplay",
+            "fingerprint": "97f84bc7ef48064180e01bf21a7ee490fbd4be1d6c0923a5d4cb4c9e4c4fe41f"
+          },
+          {
+            "event": "FileChanged",
+            "fingerprint": "50d6aba81445b97a051000ecbe13be4f4ca83bf07192e84c1b4b5a1fc00badc5"
+          }
+        ],
+        "path": "/tmp/factory-capture-JPgZLT/home/.claude/settings.json"
+      },
+      "codex": {
+        "fingerprints": [
+          {
+            "event": "SessionStart",
+            "fingerprint": "ee8408a7ab767a1dcb4e6403c72812339fe5a7dd8aa14baa191acfcb4dc57e3d"
+          },
+          {
+            "event": "SessionEnd",
+            "fingerprint": "e286ceafe96945edbb073bfb137e3b679451abf56c0fb5fd9f7b7ce1b6fa1e4f"
+          },
+          {
+            "event": "UserPromptSubmit",
+            "fingerprint": "6733d888b24ef9c8e494c3e11d9fc17257811b581794262aad779d159cebd8af"
+          },
+          {
+            "event": "PreToolUse",
+            "fingerprint": "d40a6fc0fa742751cec56270f1b598f38bc2ed2b73e60a6f810b1bd10cc6921d"
+          },
+          {
+            "event": "PermissionRequest",
+            "fingerprint": "9ecb4a95e9031e8aee1242e3e5803c5bc03cf579e1b0772d428f481a57b0aed8"
+          },
+          {
+            "event": "PostToolUse",
+            "fingerprint": "8ae28277e6cfc4525aa24b98090d171ae0ddf03661f60ada3a5b537f1e5f3552"
+          },
+          {
+            "event": "PreCompact",
+            "fingerprint": "0926bd868b9a9d7ae0ae046ffe82bc3b1da0703fec1202a184c95b9475e43675"
+          },
+          {
+            "event": "PostCompact",
+            "fingerprint": "001c5c071c07000f98ca8fae5d346d1ac3b9f806b399de2b513e4960ddb9bb1d"
+          },
+          {
+            "event": "SubagentStart",
+            "fingerprint": "9aa920e11772104b4058657896c538498a28d5fd0958347fbf5e30405a6dd95e"
+          },
+          {
+            "event": "SubagentStop",
+            "fingerprint": "7d01d370c17c25d022aae0b943ea6c505a7faddfdd9371ce8e1bfb7c098d70cd"
+          },
+          {
+            "event": "Stop",
+            "fingerprint": "647f211ff7ecdedd5c5b45ed99a1b13c216ab498f6ade1a3165e022ec15229eb"
+          }
+        ],
+        "path": "/tmp/factory-capture-JPgZLT/home/.codex/hooks.json"
+      }
+    },
+    "schemaVersion": 1
+  },
+  "issues": [],
+  "observedDefaultBranch": "main",
+  "pendingLifecycle": 0,
+  "pendingStops": 0,
+  "projection": {
+    "issues": [],
+    "sessions": [
+      {
+        "nativeSessionId": "claude-fixture-session",
+        "provider": "claude",
+        "sessionKey": "claude-8517449c789c7c7d7709a49d34f242d0",
+        "stops": [
+          "prompt-1"
+        ],
+        "turns": 1
+      },
+      {
+        "nativeSessionId": "codex-fixture-session",
+        "provider": "codex",
+        "sessionKey": "codex-0aafdd4a38b7d813ad95c5f15a6b3535",
+        "stops": [
+          "turn-1"
+        ],
+        "turns": 1
+      }
+    ],
+    "triggers": 2
+  },
+  "repair": false,
+  "repository": "ok"
+}

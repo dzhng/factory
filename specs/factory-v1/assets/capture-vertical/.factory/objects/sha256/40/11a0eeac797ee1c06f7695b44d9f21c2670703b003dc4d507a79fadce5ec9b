@@ -1,0 +1,1 @@
+{"session_id":"claude-fixture-session","prompt_id":"prompt-1","hook_event_name":"PostToolUse","tool_name":"Bash","tool_use_id":"tool-1","tool_response":{"stdout":"fidelity","stderr":""},"cwd":"/tmp/factory-capture-JPgZLT/repository"}

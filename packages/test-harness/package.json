@@ -9,6 +9,7 @@
     "lab:git-observation": "bun run src/run-git-observation.ts",
     "lab:provider-capture": "bun run src/run-provider-oracle.ts",
     "lab:journal-crash": "bun run src/run-journal-crash.ts",
+    "lab:capture-vertical": "bun run src/run-capture-vertical.ts",
     "lab:provider-clients": "bun run src/refresh-provider-client-inventory.ts",
     "lab:provider-processes": "bun run src/refresh-provider-process-probe.ts",
     "lab:repository-store": "bun run src/run-repository-workbench.ts",

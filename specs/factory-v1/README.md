@@ -1,19 +1,24 @@
 # Factory v1 specification
 
-Status: **in implementation; Slices 01–05 are complete**
+Status: **in implementation; Slices 01–06 are complete**
 
 ## Next Agent Prompt
 
-> Continue Factory v1 from this spec. Current status (2026-09-04): the shared
+> Continue Factory v1 from this spec. Current status (2026-09-05): the shared
 > workspace is bootstrapped; Slice 01's provider/reference oracle is implemented
 > at `ec8dae8`, and Slice 02's provider-independent reviewer-isolation oracle is
 > implemented at `b669b63`. Slice 03's public contract and sole repository
 > writer are implemented at `82856b7`. Slice 04's durable Git-common runtime
 > journal and Slice 05's safe Git observation plus exact confined reconstruction
-> are implemented through milestone `e4a92a5`. Begin
-> Slice 06: connect provider hooks through the journal, Git observer, and sole
-> repository writer into immutable per-Stop Turns. Read `AGENTS.md`,
-> `SECURITY.md`, this README, `choices.md`, `format.md`, and Slice 06 in full.
+> are implemented through milestone `e4a92a5`. Slice 06 connects provider hooks
+> through the journal, Git observer, and sole repository writer into immutable
+> per-Stop Turns at milestones `0cfee90` and
+> `52d488d`. Begin Slice 07: observe pull requests and associate Sessions only
+> when exact code-state continuity proves the relationship. Read `AGENTS.md`,
+> `SECURITY.md`, this README, `choices.md`, `format.md`, and Slice 07 in full.
+> Slice 06's packaged networkless Docker vertical passes both provider fixtures,
+> continuing/cross-repository Sessions, hook recovery, automatic initialization,
+> partial transcripts, Git sentinels, and rebuild after derived-index deletion.
 > Current evidence gaps: Docker registry DNS prevented the pinned current-client
 > refresh; no dedicated provider test credentials exist; native `linux/amd64`
 > isolation was not run; Docker repository/journal/Git evidence used locally

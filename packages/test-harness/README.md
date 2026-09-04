@@ -20,3 +20,8 @@ it records the evidence used to shape the capture contract.
 The governing capture contract and reslicing triggers live in the
 [Factory v1 specification](../../specs/factory-v1/README.md). Credential and
 container boundaries are owned by [`SECURITY.md`](../../SECURITY.md).
+
+`bun run lab:capture-vertical` runs the built CLI in a networkless disposable
+home, replays both provider fixtures, deletes the journal's derived index, and
+promotes the rebuilt portable tree and diagnostic report into the Slice 06
+evidence directory.

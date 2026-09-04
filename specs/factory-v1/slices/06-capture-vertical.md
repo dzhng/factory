@@ -8,7 +8,8 @@ real Docker-isolated user home and repository. A real provider Stop flows from a
 direct global hook through the durable journal into one immutable per-Stop Turn,
 repository observation, and trigger. Sessions enter `.factory` only after that
 materialization succeeds; failed materialization leaves recoverable runtime
-evidence, not a partial Session tree.
+evidence. A crash may leave immutable physical prefix files, but no partial
+Session is visible in the trigger-committed repository projection.
 
 ## API seam
 
@@ -24,7 +25,8 @@ executeTurn(plan: TurnWritePlan, store: RepositoryStore): Promise<TurnRef>;
 reduceRepository(records: RepositoryRecords): RepositoryProjection;
 ```
 
-Planning is pure; execution stages and atomically promotes one immutable Turn.
+Planning is pure; execution publishes deterministic immutable records with the
+trigger last as the logical commit point for one Turn.
 The first initialized repository observed owns the native Session.
 
 ## Runnable artifact
@@ -45,8 +47,9 @@ one Claude Turn, then run `factory doctor`. The artifact is the inspectable
 - Repeated Stop, continuing Session, transcript lag, SessionEnd recovery,
   unresolved `.factory` conflict, cross-repository activity, and branch switch
   retain raw evidence and correct limitations.
-- Promotion is object-first and atomic; only success creates Session/Turn/
-  trigger files. Runtime recovery resumes later through hooks or `doctor`.
+- Promotion is object-first and logically atomic; only a complete trigger-linked
+  graph enters the projection. Runtime recovery converges interrupted prefixes
+  later through hooks or explicit `doctor --repair`.
 
 ## Delegated decisions
 

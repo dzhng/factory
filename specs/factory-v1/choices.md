@@ -663,3 +663,48 @@ second normative schema; the master specification and format own mechanics.
 - **Verdict:** Sound. Never deleting potentially foreign data is more important
   than tidying a destination that cannot be trusted after failure.
 - **Confidence:** High.
+
+### Make the review trigger the Turn publication commit point
+
+- **When:** Slice 06 crash-recovery design.
+- **The choice:** The repository creates deterministic immutable Turn records
+  object-first and the review trigger last. Readers expose only a complete
+  trigger-linked graph. A crash may leave an immutable physical prefix, which
+  explicit repair either converges byte-for-byte or diagnoses as corrupt.
+- **The gap:** A portable filesystem cannot atomically rename a graph spread
+  across several existing directories, while per-file create-only writes are
+  necessary for convergence.
+- **The reach:** “No partial Session” means no partial Session in the public
+  projection, not that an interrupted disk can never contain unreachable files.
+- **Verdict:** Sound. The logical boundary is explicit, testable, and rebuilds
+  without private indexes.
+- **Confidence:** High.
+
+### Treat provider generation zero as the v1 native Session generation
+
+- **When:** Slice 06 provider identity mapping.
+- **The choice:** Codex and Claude events enter v1 as generation zero because
+  neither proved hook surface supplies a native generation. Generation remains
+  in every key and schema so a future provider signal can advance it without
+  conflating Sessions.
+- **The gap:** The public format has a generation field, but current provider
+  hook evidence has no authoritative reset counter.
+- **The reach:** Reuse of the same native Session ID is first-writer identity in
+  v1. Factory must not infer a new generation from time, branch, or repository.
+- **Verdict:** Sound with an explicit limitation; invented generation would be
+  less trustworthy than a documented zero convention.
+- **Confidence:** Medium.
+
+### Keep hook removal authority in private exact fingerprints
+
+- **When:** Slice 06 installation reconciliation.
+- **The choice:** Provider hook groups stay provider-native. Factory records the
+  exact provider/event/group fingerprints it installed in private global state,
+  and only those prior fingerprints authorize replacement or removal.
+- **The gap:** An embedded ownership marker can violate provider schemas, while
+  command-shape matching can steal an identical foreign hook.
+- **The reach:** A user-edited former Factory entry becomes foreign and survives
+  uninstall. Interrupted config/state writes converge through a private
+  transaction record tied to the expected provider path.
+- **Verdict:** Sound. Ownership is narrow without extending provider schemas.
+- **Confidence:** High.
