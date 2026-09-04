@@ -806,10 +806,11 @@ export async function inventoryConfinedTree(
     maximumBytes: number
     maximumDepth?: number
     afterEntryOpen?: (path: readonly Uint8Array[]) => Promise<void>
+    allowSymlinks?: boolean
   },
 ) {
   const inventory = await ConfinedWriter.inspectTree(path, bounds)
-  if (inventory.some(entry => entry.kind === 'symlink'))
+  if (!bounds.allowSymlinks && inventory.some(entry => entry.kind === 'symlink'))
     throw new Error('confined inventory refuses symbolic links')
   return inventory
 }

@@ -48,7 +48,6 @@ import {
 
 export {
   openReviewRepositoryReader,
-  trustReviewRepositoryReaderForTesting,
   type PortableRecordReader,
   type ReviewRepositoryReader,
 } from './repository-reader'
@@ -374,6 +373,8 @@ type LoadedReviewHistoryState = {
   reviews: readonly PriorReview[]
   coverageActions: readonly CoverageAction[]
   sources: readonly LoadedHistorySource[]
+  /** Exact historical manifest roots needed to validate limitation-object ownership. */
+  validationObjects: readonly ObjectRef[]
   reader?: ReviewRepositoryReader
 }
 
@@ -413,6 +414,7 @@ export type ReviewInputs = {
   reviewLimits?: { maxBundleBytes?: number; maxSessions?: number }
   /** Internal/testing seam; public callers receive this from loadReviewHistory. */
   historySources?: readonly LoadedHistorySource[]
+  historyValidationObjects?: readonly ObjectRef[]
   subjectLimitations?: readonly Limitation[]
   subjectObjectRefs?: readonly ObjectRef[]
   inputProblems?: readonly ReviewInputProblem[]
@@ -633,6 +635,7 @@ async function loadReviewHistoryFromRequest(
   }
   const reviews: PriorReview[] = []
   const sources: LoadedHistorySource[] = []
+  const validationObjects = new Map<string, ObjectRef>()
   const reviewIds = new Set<string>()
   for (const descriptor of reviewDescriptors) {
     const manifestRecord = await readRequiredRecord(reader, descriptor.manifestPath)
@@ -704,17 +707,32 @@ async function loadReviewHistoryFromRequest(
         }
         return undefined
       })()
-      if (
-        directReference === undefined &&
-        !(
-          problem.field === 'limitation' &&
-          manifest.codeManifest !== undefined &&
-          subject.observation.codeManifest !== undefined &&
-          canonicalJson(manifest.codeManifest) ===
-            canonicalJson(subject.observation.codeManifest) &&
-          canonicalJson(problem.limitation.object) === canonicalJson(problem.object)
+      if (directReference === undefined && problem.field === 'limitation') {
+        if (
+          manifest.codeManifest === undefined ||
+          subject.observation.codeManifest === undefined ||
+          canonicalJson(manifest.codeManifest) !==
+            canonicalJson(subject.observation.codeManifest) ||
+          canonicalJson(problem.limitation.object) !== canonicalJson(problem.object)
         )
-      ) {
+          throw new TypeError('history subject object problem is detached from its subject')
+        const codeManifest = await loadCodeManifestObject(
+          manifest.codeManifest,
+          async reference => {
+            const result = await reader.getObject(reference)
+            if (result.kind !== 'readable')
+              throw new Error(`history code manifest is ${result.kind}: ${result.detail}`)
+            return new Uint8Array(result.bytes)
+          },
+        )
+        if (
+          !codeManifest.limitations.some(
+            limitation => canonicalJson(limitation.object) === canonicalJson(problem.object),
+          )
+        )
+          throw new TypeError('history limitation object is not owned by its code manifest')
+        validationObjects.set(canonicalJson(manifest.codeManifest), manifest.codeManifest)
+      } else if (directReference === undefined) {
         throw new TypeError('history subject object problem is detached from its subject')
       }
       if (
@@ -809,6 +827,7 @@ async function loadReviewHistoryFromRequest(
     reviews,
     coverageActions: actions,
     sources: [...sourcesByPath.values()].sort((left, right) => left.path.localeCompare(right.path)),
+    validationObjects: [...validationObjects.values()].sort(compareCanonical),
     ...(repositoryReader === undefined ? {} : { reader: repositoryReader }),
   }
   const history = Object.freeze({}) as LoadedReviewHistory
@@ -843,12 +862,10 @@ export async function loadReviewHistoryForTesting(
 }
 
 /** Load and defensively freeze every repository-owned input before planning. */
-export async function loadReviewInputs(
+async function loadReviewInputsFromReader(
   reader: ReviewRepositoryReader,
   request: ReviewInputLoadRequest,
 ): Promise<LoadedReviewInputs> {
-  if (!isTrustedReviewRepositoryReader(reader))
-    throw new TypeError('review repository reader was not opened from a confined tree snapshot')
   const history = loadedHistories.get(request.history)
   if (history === undefined)
     throw new TypeError('review history was not produced by loadReviewHistory')
@@ -1100,6 +1117,9 @@ export async function loadReviewInputs(
       ...source,
       bytes: new Uint8Array(source.bytes),
     })),
+    historyValidationObjects: history.validationObjects.map(reference =>
+      structuredClone(reference),
+    ),
     subjectLimitations,
     subjectObjectRefs,
     inputProblems,
@@ -1107,6 +1127,23 @@ export async function loadReviewInputs(
   const loaded = Object.freeze({}) as LoadedReviewInputs
   loadedReviewInputs.set(loaded, snapshot)
   return loaded
+}
+
+export async function loadReviewInputs(
+  reader: ReviewRepositoryReader,
+  request: ReviewInputLoadRequest,
+): Promise<LoadedReviewInputs> {
+  if (!isTrustedReviewRepositoryReader(reader))
+    throw new TypeError('review repository reader was not opened from a confined tree snapshot')
+  return await loadReviewInputsFromReader(reader, request)
+}
+
+/** Test-only raw reader seam; it cannot mint the production repository-reader brand. */
+export async function loadReviewInputsForTesting(
+  reader: ReviewRepositoryReader,
+  request: ReviewInputLoadRequest,
+): Promise<LoadedReviewInputs> {
+  return await loadReviewInputsFromReader(reader, request)
 }
 
 function acceptedReviewWatermarks(review: PriorReview): Map<string, Set<number>> {
@@ -1966,6 +2003,9 @@ function planVerifiedReview(input: ReviewInputs): ReviewPlan {
   if (priorLedger !== undefined) collectObjectRefs(priorLedger.ledger, refs)
   if (priorLedger !== undefined) collectObjectRefs(priorLedger.object, refs)
   association.groups.forEach(group => collectObjectRefs(group, refs))
+  input.historyValidationObjects?.forEach(reference =>
+    refs.set(canonicalJson(reference), reference),
+  )
   const foundationalUnavailable =
     input.subject.kind === 'pull-request'
       ? input.subject.observation.availability !== 'available'
@@ -2904,7 +2944,23 @@ export async function verifyBundle(
               ? { kind: 'missing', detail: `bundle omits ${ownedPath}` }
               : { kind: 'readable', bytes }
           },
-          getObject: async () => ({ kind: 'missing', detail: 'history does not load objects' }),
+          getObject: async reference => {
+            if (!manifest.inventory.some(item => canonicalJson(item) === canonicalJson(reference)))
+              return { kind: 'missing', detail: `bundle omits history object ${reference.sha256}` }
+            try {
+              const bytes = await readConfinedFile(
+                path,
+                splitPortablePath(`.factory/${objectOwnedPath(reference.sha256)}`),
+                { maximumBytes: manifest.plan.limits.maxBundleBytes },
+              )
+              return { kind: 'readable', bytes }
+            } catch (error) {
+              return {
+                kind: 'unsafe',
+                detail: error instanceof Error ? error.message : String(error),
+              }
+            }
+          },
         },
         {
           reviews: manifest.plan.historySources
@@ -2981,6 +3037,35 @@ export async function verifyBundle(
     }
     const expectedObjectRefs = new Map<string, ObjectRef>()
     collectObjectRefs(bundledSubject, expectedObjectRefs)
+    for (const source of manifest.plan.historySources) {
+      if (source.kind !== 'review-manifest') continue
+      const historicalManifest = recordValues.get(source.path)?.[0] as ReviewManifest | undefined
+      if (historicalManifest?.codeManifest === undefined) continue
+      const historicalSubjectPath =
+        historicalManifest.subject.kind === 'workspace'
+          ? `repository-observations/${historicalManifest.subject.repositoryObservationId}.json`
+          : `pull-requests/${historicalManifest.subject.provider}/${historicalManifest.subject.repositoryKey}/${historicalManifest.subject.number}/observations/${historicalManifest.subject.observationId}.json`
+      const historicalSubject = recordValues.get(historicalSubjectPath)?.[0] as
+        | RepositoryObservation
+        | AvailablePullRequestObservation
+        | undefined
+      if (historicalSubject === undefined) continue
+      const directLimitationRefs = new Set(
+        historicalSubject.limitations.map(limitation => canonicalJson(limitation.object)),
+      )
+      if (
+        historicalManifest.inputProblems.some(
+          problem =>
+            problem.kind === 'subject-object' &&
+            problem.field === 'limitation' &&
+            !directLimitationRefs.has(canonicalJson(problem.object)),
+        )
+      )
+        expectedObjectRefs.set(
+          canonicalJson(historicalManifest.codeManifest),
+          historicalManifest.codeManifest,
+        )
+    }
     for (const problem of manifest.plan.inputProblems)
       if (problem.kind === 'subject-object')
         expectedObjectRefs.delete(canonicalJson(problem.object))

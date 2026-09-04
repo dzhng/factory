@@ -96,7 +96,8 @@ class FixtureStore implements ReviewRepositoryReader {
       await mkdir(dirname(destination), { recursive: true })
       const failure = this.failures.get(path)
       const value = this.records.get(path)
-      if (value !== undefined) await writeFile(destination, value)
+      if (failure?.kind === 'unsafe') await symlink('/etc/passwd', destination)
+      else if (value !== undefined) await writeFile(destination, value)
       else if (failure !== undefined) await writeFile(destination, bytes({}))
     }
     for (const [digest, value] of this.objects) {
@@ -105,11 +106,6 @@ class FixtureStore implements ReviewRepositoryReader {
       await writeFile(destination, value)
     }
     const reader = await openReviewRepositoryReader(this.root)
-    for (const [path, failure] of this.failures) {
-      const destination = join(this.root, path)
-      await rm(destination, { force: true })
-      if (failure.kind === 'unsafe') await symlink('/etc/passwd', destination)
-    }
     return reader
   }
 }
@@ -413,7 +409,7 @@ const action = {
   schemaVersion: 1,
   actionId: id('coverage-action', 1),
   reviewId: partialReview.reviewId,
-  acceptedLimitations: ['corrupt-input', 'unverified-object'],
+  acceptedLimitations: ['corrupt-input'],
   acceptedTriggerIds: [missingId, unavailableId],
   acceptedProblemIds: [],
   settledWatermarks: { [sessionKey]: 6 },
@@ -510,6 +506,25 @@ const prBundle = await buildBundle(
   join(output, 'pr-bundle'),
 )
 persistReview(prStore, prPlan, 3, 'complete')
+const continuingPrCandidate = addCandidate(prStore, 10, sessionObservation)
+const continuingAssociation = deriveAssociations({
+  pullRequest: pr,
+  sessions: [
+    {
+      provider: 'codex',
+      turn: continuingPrCandidate.turn,
+      repositoryObservation: sessionObservation,
+    },
+  ],
+  repositoryMappings: [],
+})
+addBatch(prStore, pr, continuingAssociation, 3, 'automatic')
+const incrementalPr = await loadPlan(prStore, prPath)
+const incrementalPrBundle = await buildBundle(
+  incrementalPr,
+  { getObject: async value => prStore.objects.get(value.sha256)! },
+  join(output, 'pr-incremental-bundle'),
+)
 const nextDiff = prStore.putObject(
   new TextEncoder().encode('diff --git a/src/reviewed.ts b/src/reviewed.ts\n+force push\n'),
   'text/x-diff',
@@ -632,6 +647,7 @@ const plans = [
   recoveredDefault,
   recoveredForce,
   prPlan,
+  incrementalPr,
   forcePush,
   prBadBatches,
   prMissingRaw,
@@ -647,6 +663,7 @@ const names = [
   'accepted-gap-recovered-default',
   'accepted-gap-recovered-force',
   'pr-exact-and-manual',
+  'pr-unchanged-diff-new-session-range',
   'pr-force-push-base-change',
   'pr-valid-association-with-corrupt-and-unsafe-batches',
   'pr-missing-raw-subject-provenance',
@@ -683,6 +700,7 @@ const report = {
     complete: completeBundle.sha256,
     partial: partialBundle.sha256,
     pullRequest: prBundle.sha256,
+    pullRequestIncremental: incrementalPrBundle.sha256,
   },
   noOpGate: {
     status: unchanged.status,
@@ -707,6 +725,9 @@ if (
   noOpObjectReads !== 0 ||
   unchanged.status !== 'already-reviewed' ||
   prPlan.selections[0]?.association?.proofs.length !== 2 ||
+  incrementalPr.subjectReview !== 'full-current-pr-diff' ||
+  incrementalPr.selections.filter(selection => selection.selectedForReview).length !== 1 ||
+  incrementalPr.priorLedger === undefined ||
   forcePush.subjectReview !== 'full-current-pr-diff'
 )
   throw new Error('review planning lab acceptance failed')

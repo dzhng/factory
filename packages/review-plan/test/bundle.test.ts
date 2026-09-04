@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
-import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -9,6 +9,8 @@ import {
   encodeGitPath,
   makeOwnedPath,
   newRecordId,
+  reviewInputProblemId,
+  reviewSubjectCoverageId,
   type ObjectRef,
   type RepositoryObservation,
   type ReviewTrigger,
@@ -22,9 +24,10 @@ import {
   loadReviewHistory,
   loadReviewHistoryForTesting,
   loadReviewInputs,
+  loadReviewInputsForTesting,
+  openReviewRepositoryReader,
   planReview as planLoadedReview,
   planReviewForTesting as planReview,
-  trustReviewRepositoryReaderForTesting,
   verifyBundle,
   type PortableRecordReader,
   type ReviewInputs,
@@ -161,6 +164,112 @@ function fixture(): { input: ReviewInputs; objects: Map<string, Uint8Array> } {
 }
 
 describe('verified review bundles', () => {
+  test('confined discovery ignores foreign Factory namespaces and inventories owned records', async () => {
+    const parent = await mkdtemp(join(tmpdir(), 'factory-review-reader-'))
+    roots.push(parent)
+    const factoryRoot = join(parent, '.factory')
+    const triggerPath = makeOwnedPath('review-triggers', [
+      'trigger_00000000000000000000000000.json',
+    ])
+    await mkdir(join(factoryRoot, 'review-triggers'), { recursive: true })
+    await mkdir(join(factoryRoot, 'objects', 'sha256', 'aa'), { recursive: true })
+    await mkdir(join(factoryRoot, 'future-owned-root'), { recursive: true })
+    await writeFile(join(factoryRoot, triggerPath), '{}\n')
+    await writeFile(join(factoryRoot, 'objects', 'sha256', 'aa', 'huge-foreign-cas'), 'ignored')
+    await writeFile(join(factoryRoot, 'future-owned-root', 'foreign.json'), 'not review data')
+    const reader = await openReviewRepositoryReader(factoryRoot)
+    expect(await reader.inventory()).toEqual([triggerPath])
+    expect((await reader.read(triggerPath)).kind).toBe('readable')
+  })
+
+  test('history limitation problems must name an object owned by the exact code manifest', async () => {
+    const value = fixture()
+    if (value.input.subject.kind !== 'workspace') throw new Error('expected workspace fixture')
+    const initial = planReview({ ...value.input, candidates: [] })
+    const reviewId = newRecordId('review', 2, new Uint8Array(10))
+    const manifestPath = makeOwnedPath('reviews', ['workspace', reviewId, 'manifest.json'])
+    const ledgerPath = makeOwnedPath('reviews', ['workspace', reviewId, 'ledger.json'])
+    const subjectPath = makeOwnedPath('repository-observations', [
+      `${value.input.subject.observation.observationId}.json`,
+    ])
+    const unrelatedBytes = new TextEncoder().encode('unrelated')
+    const unrelated = object(unrelatedBytes, 'application/octet-stream', 'limitation-evidence')
+    const limitation = {
+      code: 'unverified-object' as const,
+      detail: 'claimed historical code-manifest limitation',
+      object: unrelated,
+    }
+    const payload = {
+      kind: 'subject-object' as const,
+      field: 'limitation' as const,
+      object: unrelated,
+      classification: 'unavailable' as const,
+      limitation,
+    }
+    const problem = { ...payload, problemId: reviewInputProblemId(payload) }
+    const manifest = {
+      schemaVersion: 1 as const,
+      reviewId,
+      subject: {
+        kind: 'workspace' as const,
+        repositoryObservationId: value.input.subject.observation.observationId,
+      },
+      codeManifest: value.input.subject.observation.codeManifest,
+      patches: [],
+      sessionWatermarks: {},
+      coverageTargetWatermarks: {},
+      subjectFingerprint: initial.subjectFingerprint,
+      subjectAttempt: {
+        fingerprint: initial.subjectFingerprint,
+        coverageId: reviewSubjectCoverageId(initial.subjectFingerprint, [limitation]),
+        effect: 'reviewed-partial' as const,
+        limitations: [limitation],
+      },
+      evidenceSelections: [],
+      inputProblems: [problem],
+      triggerIds: [],
+      associationBatchIds: [],
+      limitations: [limitation],
+      reviewer: { provider: 'codex' as const },
+      analyzerVersion: 'analyzer-v1',
+      promptVersion: 'prompt-v1',
+      policyVersion: 'policy-v1',
+      formatVersion: 1 as const,
+      bundleSha256: 'a'.repeat(64),
+      containerImageDigest: `sha256:${'b'.repeat(64)}`,
+      providerCliVersion: '1',
+      hostPlatform: 'linux/arm64',
+      startedAt: '2026-09-05T00:00:00Z',
+      completedAt: '2026-09-05T00:00:01Z',
+      disposition: 'partial' as const,
+    }
+    const records = new Map<string, Uint8Array>([
+      [manifestPath, new TextEncoder().encode(canonicalJson(manifest))],
+      [
+        ledgerPath,
+        new TextEncoder().encode(canonicalJson({ schemaVersion: 1, reviewId, entries: [] })),
+      ],
+      [subjectPath, new TextEncoder().encode(canonicalJson(value.input.subject.observation))],
+    ])
+    const reader: ReviewRepositoryReader = {
+      inventory: async () => [...records.keys()].sort() as ReturnType<typeof makeOwnedPath>[],
+      read: async path => {
+        const bytes = records.get(path)
+        return bytes === undefined ? { kind: 'missing', detail: path } : { kind: 'readable', bytes }
+      },
+      getObject: async reference => ({
+        kind: 'readable',
+        bytes: value.objects.get(reference.sha256) ?? unrelatedBytes,
+      }),
+    }
+    await expect(
+      loadReviewHistoryForTesting(reader, {
+        reviews: [{ manifestPath }],
+        coverageActionPaths: [],
+      }),
+    ).rejects.toThrow('not owned by its code manifest')
+  })
+
   test('plans and bundles from immutable loaded history without old subject object closure', async () => {
     const value = fixture()
     const initial = planReview({ ...value.input, candidates: [] })
@@ -217,8 +326,7 @@ describe('verified review bundles', () => {
       getObject: async ref => ({ kind: 'readable', bytes: value.objects.get(ref.sha256)! }),
     }
     await expect(loadReviewHistory(reader)).rejects.toThrow('confined tree snapshot')
-    const trustedReader = trustReviewRepositoryReaderForTesting(reader)
-    const history = await loadReviewHistoryForTesting(trustedReader, {
+    const history = await loadReviewHistoryForTesting(reader, {
       reviews: [{ manifestPath }],
       coverageActionPaths: [],
     })
@@ -233,26 +341,26 @@ describe('verified review bundles', () => {
         },
       ),
     ).rejects.toThrow('confined tree snapshot')
-    const missingLeafReader = trustReviewRepositoryReaderForTesting({
+    const missingLeafReader: ReviewRepositoryReader = {
       ...reader,
       getObject: async ref =>
         ref.role === 'workspace-file'
           ? { kind: 'missing', detail: 'nested leaf missing' }
           : { kind: 'readable', bytes: value.objects.get(ref.sha256)! },
-    })
+    }
     const missingLeafHistory = await loadReviewHistoryForTesting(missingLeafReader, {
       reviews: [{ manifestPath }],
       coverageActionPaths: [],
     })
     await expect(
-      loadReviewInputs(missingLeafReader, {
+      loadReviewInputsForTesting(missingLeafReader, {
         mode: 'incremental',
         subjectPath,
         history: missingLeafHistory,
         policies: value.input.policies,
       }),
     ).rejects.toThrow('foundational subject object')
-    const loaded = await loadReviewInputs(trustedReader, {
+    const loaded = await loadReviewInputsForTesting(reader, {
       mode: 'incremental',
       subjectPath,
       history,
@@ -333,12 +441,11 @@ describe('verified review bundles', () => {
           ? { kind: 'missing', detail: 'optional provenance was not captured' }
           : { kind: 'readable', bytes: value.objects.get(reference.sha256)! },
     }
-    const trustedReader = trustReviewRepositoryReaderForTesting(reader)
-    const history = await loadReviewHistoryForTesting(trustedReader, {
+    const history = await loadReviewHistoryForTesting(reader, {
       reviews: [],
       coverageActionPaths: [],
     })
-    const loaded = await loadReviewInputs(trustedReader, {
+    const loaded = await loadReviewInputsForTesting(reader, {
       mode: 'incremental',
       subjectPath,
       history,
