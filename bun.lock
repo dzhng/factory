@@ -26,12 +26,15 @@
       "name": "@factory/cli",
       "version": "0.0.0",
       "bin": {
-        "factory": "./src/main.ts",
+        "factory": "./dist/factory.js",
       },
       "dependencies": {
         "@factory/capture": "workspace:*",
         "@factory/contract": "workspace:*",
         "@factory/repository": "workspace:*",
+        "@factory/review": "workspace:*",
+        "@factory/review-plan": "workspace:*",
+        "@factory/reviewer": "workspace:*",
         "@factory/runtime-journal": "workspace:*",
       },
     },
@@ -87,6 +90,7 @@
         "@factory/contract": "workspace:*",
         "@factory/repository": "workspace:*",
         "@factory/review-plan": "workspace:*",
+        "@factory/runtime-journal": "workspace:*",
       },
     },
     "packages/runtime-journal": {
@@ -100,6 +104,7 @@
       "name": "@factory/test-harness",
       "version": "0.0.0",
       "dependencies": {
+        "@factory/cli": "workspace:*",
         "@factory/contract": "workspace:*",
         "@factory/domain": "workspace:*",
         "@factory/github": "workspace:*",

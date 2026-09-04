@@ -6,7 +6,7 @@ import { dirname } from 'node:path'
 
 const scenario = process.argv[2] ?? 'success'
 const provider = process.argv[3] ?? 'fake'
-const authPath = `/auth/${provider}/credentials.json`
+const authPath = provider === 'codex' ? '/auth/codex/auth.json' : '/auth/claude/.credentials.json'
 
 if (scenario === 'hang') {
   await new Promise(() => undefined)
@@ -86,8 +86,7 @@ if (scenario === 'review') {
   await inventory('/bundle')
   if (JSON.stringify([...actualEntries].sort()) !== JSON.stringify([...expectedEntries].sort()))
     throw new Error('bundle tree differs inside reviewer container')
-  await mkdir('/tmp/verified-bundle')
-  await writeFile('/tmp/verified-bundle/bundle.json', manifestBytes)
+  await writeFile('/review-input/bundle.json', manifestBytes)
   for (const file of bundle.files) {
     const bytes = await readFile(`/bundle/${file.path}`)
     if (
@@ -95,7 +94,7 @@ if (scenario === 'review') {
       createHash('sha256').update(bytes).digest('hex') !== file.sha256
     )
       throw new Error('bundle file differs inside reviewer container')
-    const snapshotPath = `/tmp/verified-bundle/${file.path}`
+    const snapshotPath = `/review-input/${file.path}`
     await mkdir(dirname(snapshotPath), { recursive: true })
     await writeFile(snapshotPath, bytes)
   }

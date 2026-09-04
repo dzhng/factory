@@ -7,11 +7,13 @@ import {
   lstat,
   link,
   mkdir,
+  mkdtemp,
   open,
   opendir,
   readFile,
   realpath,
   rename,
+  rm,
   unlink,
   writeFile,
 } from 'node:fs/promises'
@@ -40,6 +42,8 @@ import {
   type JsonValue,
   type RepositoryConfig,
   type RepositoryId,
+  type OwnedPath,
+  type ReviewLedger,
 } from '@factory/contract'
 import {
   initializeRepositoryStore,
@@ -47,6 +51,27 @@ import {
   withAdvisoryFileLock,
   type RepositoryStore,
 } from '@factory/repository'
+import { acceptReview, validateReview } from '@factory/review'
+import {
+  bindReviewPolicies,
+  buildBundle,
+  loadReviewHistory,
+  loadReviewInputs,
+  openReviewRepositoryReader,
+  planReview,
+  reviewAuthoringProvider,
+} from '@factory/review-plan'
+import {
+  REVIEW_PROMPT_VERSION,
+  ReviewAttemptCoordinator,
+  dockerReviewerExecutor,
+  openVerifiedReviewBundle,
+  selectReviewer,
+  unavailableReviewerExecutor,
+  type ReadonlyAuthMount,
+  type ReviewerAvailability,
+  type ReviewerDefaults,
+} from '@factory/reviewer'
 import {
   openRuntimeJournal,
   type CaptureProvider,
@@ -969,6 +994,205 @@ async function doctor(
   }
 }
 
+function requiredReviewDefaults(environment: NodeJS.ProcessEnv): ReviewerDefaults {
+  const values = {
+    codex: {
+      model: environment.FACTORY_CODEX_REVIEW_MODEL,
+      effort: environment.FACTORY_CODEX_REVIEW_EFFORT,
+    },
+    claude: {
+      model: environment.FACTORY_CLAUDE_REVIEW_MODEL,
+      effort: environment.FACTORY_CLAUDE_REVIEW_EFFORT,
+    },
+  }
+  for (const [provider, value] of Object.entries(values))
+    if (!value.model?.trim() || !value.effort?.trim())
+      throw new Error(`Factory reviewer defaults are not configured for ${provider}`)
+  return values as ReviewerDefaults
+}
+
+async function dedicatedReviewerAuth(environment: NodeJS.ProcessEnv): Promise<{
+  availability: ReviewerAvailability
+  mounts: Partial<Record<'codex' | 'claude', Omit<ReadonlyAuthMount, 'mode'>>>
+}> {
+  const configured = {
+    codex: environment.FACTORY_CODEX_AUTH_FILE,
+    claude: environment.FACTORY_CLAUDE_AUTH_FILE,
+  }
+  const mounts: Partial<Record<'codex' | 'claude', Omit<ReadonlyAuthMount, 'mode'>>> = {}
+  const availability: Record<'codex' | 'claude', boolean> = { codex: false, claude: false }
+  for (const provider of ['codex', 'claude'] as const) {
+    const path = configured[provider]
+    if (path === undefined || !isAbsolute(path)) continue
+    const metadata = await lstat(path).catch(() => undefined)
+    if (
+      metadata === undefined ||
+      metadata.isSymbolicLink() ||
+      !metadata.isFile() ||
+      metadata.size > 1024 * 1024 ||
+      (metadata.mode & 0o004) === 0
+    )
+      continue
+    availability[provider] = true
+    mounts[provider] = {
+      hostPath: await realpath(path),
+      containerPath:
+        provider === 'codex' ? '/auth/codex/auth.json' : '/auth/claude/.credentials.json',
+    }
+  }
+  return { availability, mounts }
+}
+
+function latestSubjectPath(
+  records: Awaited<ReturnType<RepositoryStore['readRecords']>>['records'],
+  pullRequest?: number,
+): OwnedPath {
+  const candidates = records
+    .filter(record =>
+      pullRequest === undefined
+        ? /^repository-observations\/[^/]+\.json$/.test(record.path)
+        : /^pull-requests\/github\/[^/]+\/[1-9]\d*\/observations\/[^/]+\.json$/.test(record.path) &&
+          typeof record.value === 'object' &&
+          record.value !== null &&
+          !Array.isArray(record.value) &&
+          record.value.number === pullRequest,
+    )
+    .sort((left, right) => canonicalJson(right.value).localeCompare(canonicalJson(left.value)))
+  if (candidates[0] === undefined) throw new Error('Factory has no captured review subject')
+  return candidates[0].path
+}
+
+type ReviewCliOptions = {
+  mode: 'incremental' | 'full' | 'force'
+  pullRequest?: number
+  sessionKey?: string
+  failOn?: 'low' | 'medium' | 'high' | 'critical'
+}
+
+function parseReviewOptions(args: readonly string[]): ReviewCliOptions {
+  const valueFlags = new Set(['--pr', '--session', '--fail-on'])
+  const booleanFlags = new Set(['--full', '--force'])
+  const seen = new Set<string>()
+  const values = new Map<string, string>()
+  for (let index = 1; index < args.length; index += 1) {
+    const flag = args[index]!
+    if (!valueFlags.has(flag) && !booleanFlags.has(flag))
+      throw new TypeError(`unknown factory review option: ${flag}`)
+    if (seen.has(flag)) throw new TypeError(`factory review option repeated: ${flag}`)
+    seen.add(flag)
+    if (valueFlags.has(flag)) {
+      const value = args[index + 1]
+      if (value === undefined || value.startsWith('--'))
+        throw new TypeError(`${flag} requires a value`)
+      values.set(flag, value)
+      index += 1
+    }
+  }
+  if (seen.has('--full') && seen.has('--force'))
+    throw new TypeError('--full and --force are mutually exclusive')
+  const pullRequestText = values.get('--pr')
+  if (pullRequestText !== undefined && !/^[1-9]\d*$/.test(pullRequestText))
+    throw new TypeError('--pr must be a positive integer')
+  const sessionKey = values.get('--session')
+  if (sessionKey !== undefined && (!sessionKey.trim() || Buffer.byteLength(sessionKey) > 1024))
+    throw new TypeError('--session must be nonblank and bounded')
+  const failOn = values.get('--fail-on')
+  if (failOn !== undefined && !['low', 'medium', 'high', 'critical'].includes(failOn))
+    throw new TypeError('--fail-on must be low, medium, high, or critical')
+  return {
+    mode: seen.has('--force') ? 'force' : seen.has('--full') ? 'full' : 'incremental',
+    ...(pullRequestText === undefined ? {} : { pullRequest: Number(pullRequestText) }),
+    ...(sessionKey === undefined ? {} : { sessionKey }),
+    ...(failOn === undefined ? {} : { failOn: failOn as ReviewCliOptions['failOn'] & string }),
+  }
+}
+
+async function reviewCommand(
+  repositoryRoot: string,
+  args: readonly string[],
+  environment: NodeJS.ProcessEnv,
+  output: Output,
+): Promise<number> {
+  const options = parseReviewOptions(args)
+  if (environment.FACTORY_REVIEW_TEST_MODE !== '1')
+    throw new Error(
+      'factory review execution is unavailable until current-subject observation and packaged reviewer authority are configured',
+    )
+  const store = await openRepositoryStore(repositoryRoot)
+  const subjectPath = latestSubjectPath((await store.readRecords()).records, options.pullRequest)
+  const reader = await openReviewRepositoryReader(store.factoryRoot)
+  const history = await loadReviewHistory(reader)
+  const evidence = await loadReviewInputs(reader, {
+    mode: options.mode,
+    subjectPath,
+    history,
+    reviewLimits: (await repositoryConfig(repositoryRoot)).reviewLimits,
+    ...(options.sessionKey === undefined ? {} : { sessionKey: options.sessionKey }),
+  })
+  const authoringProvider = reviewAuthoringProvider(evidence)
+  const auth = await dedicatedReviewerAuth(environment)
+  const repositorySettings = await repositoryConfig(repositoryRoot)
+  const selected = selectReviewer(
+    repositorySettings.reviewer ?? 'auto',
+    authoringProvider,
+    auth.availability,
+    requiredReviewDefaults(environment),
+  )
+  const policies = {
+    reviewer: selected.choice.settings,
+    analyzerVersion: 'factory-review-analyzer-v1',
+    promptVersion: REVIEW_PROMPT_VERSION,
+    policyVersion: 'factory-review-policy-v1',
+    formatVersion: 1 as const,
+  }
+  const plan = planReview(bindReviewPolicies(evidence, policies))
+  if (plan.status !== 'ready') {
+    output.stdout(
+      canonicalJson({ schemaVersion: 1, status: plan.status, limitations: plan.limitations }),
+    )
+    return plan.status === 'unavailable' ? 1 : 0
+  }
+  const imageDigest = environment.FACTORY_REVIEWER_IMAGE_DIGEST
+  if (!imageDigest || !/^sha256:[0-9a-f]{64}$/.test(imageDigest))
+    throw new Error('FACTORY_REVIEWER_IMAGE_DIGEST must pin an immutable reviewer image')
+  const coordinator = await ReviewAttemptCoordinator.open({ repositoryRoot })
+  const bundleParent = await mkdtemp(join(coordinator.runtimeRoot, 'review-bundle-'))
+  try {
+    const built = await buildBundle(plan, store, join(bundleParent, 'bundle'))
+    const bundle = await openVerifiedReviewBundle(built.path, built.sha256)
+    const mount = auth.mounts[selected.choice.settings.provider]
+    const raw = await coordinator.run(
+      bundle,
+      selected.choice,
+      selected.kind === 'selected' ? dockerReviewerExecutor : unavailableReviewerExecutor(),
+      {
+        imageDigest,
+        auth: mount === undefined ? [] : [mount],
+        timeoutMs: 10 * 60 * 1000,
+      },
+    )
+    const accepted = await acceptReview(await validateReview(bundle, raw), store)
+    let enforced = false
+    const failOn = options.failOn
+    if (failOn !== undefined && accepted.disposition !== 'failed') {
+      const ledgerPath = accepted.path.replace(/manifest\.json$/, 'ledger.json') as OwnedPath
+      const ledger = JSON.parse(
+        textDecoder.decode(await store.readImmutable(ledgerPath)),
+      ) as ReviewLedger
+      const ranks = { low: 1, medium: 2, high: 3, critical: 4 } as const
+      enforced = ledger.entries.some(
+        entry => entry.kind === 'finding' && ranks[entry.severity] >= ranks[failOn],
+      )
+    }
+    output.stdout(
+      canonicalJson({ schemaVersion: 1, ...accepted, reviewer: selected.choice.settings }),
+    )
+    return accepted.executionFailed || enforced ? 1 : 0
+  } finally {
+    await rm(bundleParent, { recursive: true, force: true })
+  }
+}
+
 export async function runFactoryCli(
   args: readonly string[],
   options: { environment?: NodeJS.ProcessEnv; cwd?: string; output?: Output } = {},
@@ -1076,7 +1300,12 @@ export async function runFactoryCli(
       output.stdout(canonicalJson(await doctor(root, args.includes('--repair'), environment)))
       return 0
     }
-    throw new Error('Usage: factory configure|init|install|uninstall|capture|doctor')
+    if (command === 'review') {
+      const root = await gitRoot(cwd, environment)
+      if (root === undefined) throw new Error('factory review requires a Git repository')
+      return await reviewCommand(root, args, environment, output)
+    }
+    throw new Error('Usage: factory configure|init|install|uninstall|capture|doctor|review')
   } catch (error) {
     output.stderr(`${error instanceof Error ? error.message : String(error)}\n`)
     return 1

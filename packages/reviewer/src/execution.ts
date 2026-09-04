@@ -1,6 +1,7 @@
 import { constants } from 'node:fs'
-import { chmod, mkdtemp, open, rm } from 'node:fs/promises'
+import { chmod, lstat, mkdtemp, open, readdir, rm } from 'node:fs/promises'
 import { platform, arch } from 'node:os'
+import { join } from 'node:path'
 
 import type { RecordId } from '@factory/contract'
 import { canonicalJson } from '@factory/contract'
@@ -8,7 +9,7 @@ import { canonicalJson } from '@factory/contract'
 import { sealReviewerRawAttempt, type ReviewerRawAttempt } from './attempt'
 import { readVerifiedReviewBundle, type ReviewerChoice, type VerifiedReviewBundle } from './bundle'
 import { planReviewerIsolation, type ReadonlyAuthMount } from './index'
-import { runIsolationProbe } from './probe'
+import { cleanupOwnedReviewerContainer, runIsolationProbe } from './probe'
 
 export type ReviewerExecutionInput = {
   reviewId: RecordId
@@ -19,6 +20,7 @@ export type ReviewerExecutionInput = {
   timeoutMs: number
   signal?: AbortSignal
   now?: () => Date
+  containerIdentity: { name: string; label: string }
 }
 
 async function readResponsePrefix(
@@ -60,6 +62,30 @@ export interface ReviewerExecutor {
   ): Promise<ReviewerRawAttempt>
 }
 
+export function unavailableReviewerExecutor(): ReviewerExecutor {
+  return {
+    async run(bundle, choice, input) {
+      const verified = await readVerifiedReviewBundle(bundle)
+      const now = input.now ?? (() => new Date())
+      const at = now().toISOString()
+      return sealReviewerRawAttempt({
+        reviewId: input.reviewId,
+        bundleSha256: verified.sha256,
+        response: new Uint8Array(),
+        termination: 'authentication-unavailable',
+        exitCode: null,
+        outputTruncated: false,
+        reviewer: choice,
+        imageDigest: input.imageDigest,
+        providerCliVersion: null,
+        hostPlatform: `${platform()}/${arch()}`,
+        startedAt: at,
+        completedAt: at,
+      })
+    },
+  }
+}
+
 /** Production Docker execution through the same observed isolation boundary as the Slice 02 oracle. */
 export const dockerReviewerExecutor: ReviewerExecutor = {
   async run(bundle, choice, input) {
@@ -67,10 +93,20 @@ export const dockerReviewerExecutor: ReviewerExecutor = {
     if (canonicalJson(choice.settings) !== canonicalJson(before.manifest.plan.policies.reviewer)) {
       throw new TypeError('reviewer choice differs from the verified plan')
     }
-    const outputHostPath = await mkdtemp(`${input.runtimeRoot}/review-output-`)
     const now = input.now ?? (() => new Date())
     const startedAt = now().toISOString()
+    let outputHostPath: string | undefined
     try {
+      await cleanupOwnedReviewerContainer(input.containerIdentity, input.timeoutMs)
+      for (const entry of await readdir(input.runtimeRoot, { withFileTypes: true })) {
+        if (!entry.name.startsWith('review-output-')) continue
+        const path = join(input.runtimeRoot, entry.name)
+        const info = await lstat(path)
+        if (info.isSymbolicLink() || !info.isDirectory())
+          throw new Error('review runtime contains an unsafe output artifact')
+        await rm(path, { recursive: true })
+      }
+      outputHostPath = await mkdtemp(`${input.runtimeRoot}/review-output-`)
       await chmod(outputHostPath, 0o777)
       const plan = planReviewerIsolation({
         provider: choice.settings.provider,
@@ -82,11 +118,15 @@ export const dockerReviewerExecutor: ReviewerExecutor = {
       const report = await runIsolationProbe(plan.plan, {
         imageDigest: input.imageDigest,
         expectedBundleSha256: before.sha256,
+        bundleBytes:
+          Buffer.byteLength(canonicalJson(before.manifest)) +
+          before.manifest.files.reduce((total, file) => total + file.bytes, 0),
         reviewer: {
           model: choice.settings.model,
           effort: choice.settings.effort,
           promptVersion: before.manifest.plan.policies.promptVersion,
         },
+        containerIdentity: input.containerIdentity,
         scenario: 'review',
         timeoutMs: input.timeoutMs,
         ...(input.signal === undefined ? {} : { signal: input.signal }),
@@ -115,13 +155,13 @@ export const dockerReviewerExecutor: ReviewerExecutor = {
         completedAt: now().toISOString(),
       })
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
       await readVerifiedReviewBundle(bundle)
       return sealReviewerRawAttempt({
         reviewId: input.reviewId,
         bundleSha256: before.sha256,
         response: new Uint8Array(),
-        termination: 'docker-unavailable',
+        termination:
+          (error as NodeJS.ErrnoException).code === 'ENOENT' ? 'docker-unavailable' : 'crashed',
         exitCode: null,
         outputTruncated: false,
         reviewer: choice,
@@ -132,7 +172,7 @@ export const dockerReviewerExecutor: ReviewerExecutor = {
         completedAt: now().toISOString(),
       })
     } finally {
-      await rm(outputHostPath, { recursive: true, force: true })
+      if (outputHostPath !== undefined) await rm(outputHostPath, { recursive: true, force: true })
     }
   },
 }

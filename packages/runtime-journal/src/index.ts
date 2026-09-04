@@ -1531,7 +1531,8 @@ async function validateTestRuntimeRoot(path: string): Promise<string> {
   return path
 }
 
-async function locateGitCommonRuntime(repositoryRoot: string): Promise<string> {
+/** Resolve the private runtime root shared by every worktree of one Git repository. */
+export async function locateGitCommonRuntime(repositoryRoot: string): Promise<string> {
   if (!isAbsolute(repositoryRoot)) throw new TypeError('repositoryRoot must be absolute')
   const worktree = await realpath(repositoryRoot)
   const dotGit = join(worktree, '.git')

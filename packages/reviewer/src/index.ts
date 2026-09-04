@@ -20,6 +20,7 @@ export {
 } from './bundle.js'
 export {
   dockerReviewerExecutor,
+  unavailableReviewerExecutor,
   type ReviewerExecutionInput,
   type ReviewerExecutor,
 } from './execution.js'
@@ -34,6 +35,11 @@ export {
   type ReviewAttemptBoundary,
   type ReviewAttemptCoordinatorOptions,
 } from './coordinator.js'
+export {
+  REVIEW_PROMPT_VERSION,
+  reviewerAdapter,
+  type ReviewerAdapterInvocation,
+} from './adapter.js'
 
 export type ReviewerProvider = 'codex' | 'claude' | 'fake'
 

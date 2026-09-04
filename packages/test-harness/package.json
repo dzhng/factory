@@ -16,11 +16,13 @@
     "lab:pr-workbench": "bun run src/run-pr-workbench.ts",
     "lab:review-plan": "bun run src/run-review-plan.ts",
     "lab:review-execution": "bun run src/run-review-execution.ts",
+    "lab:review-cli": "bun run src/run-review-cli.ts",
     "lab:reviewer-isolation": "bun run src/reviewer-isolation.ts",
     "lint": "oxlint src test docker",
     "test": "bun test"
   },
   "dependencies": {
+    "@factory/cli": "workspace:*",
     "@factory/contract": "workspace:*",
     "@factory/domain": "workspace:*",
     "@factory/github": "workspace:*",

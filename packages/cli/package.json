@@ -17,6 +17,9 @@
     "@factory/capture": "workspace:*",
     "@factory/contract": "workspace:*",
     "@factory/repository": "workspace:*",
+    "@factory/review": "workspace:*",
+    "@factory/review-plan": "workspace:*",
+    "@factory/reviewer": "workspace:*",
     "@factory/runtime-journal": "workspace:*"
   }
 }

@@ -42,7 +42,7 @@ async function main() {
     const imageDigest = await command(['docker', 'image', 'inspect', '--format', '{{.Id}}', image])
     const authRoot = join(root, 'auth')
     await mkdir(authRoot)
-    const auth = join(authRoot, 'credentials.json')
+    const auth = join(authRoot, 'auth.json')
     await writeFile(auth, 'dedicated-fake-credential\n', { mode: 0o444 })
     const raw = await dockerReviewerExecutor.run(
       bundle,
@@ -51,8 +51,9 @@ async function main() {
         reviewId: 'review_00000000000000000000000009',
         imageDigest,
         runtimeRoot: root,
-        auth: [{ hostPath: auth, containerPath: '/auth/codex/credentials.json' }],
+        auth: [{ hostPath: auth, containerPath: '/auth/codex/auth.json' }],
         timeoutMs: 5_000,
+        containerIdentity: { name: 'factory-review-execution-lab', label: 'execution-lab' },
       },
     )
     const observation = readReviewerRawAttempt(raw)

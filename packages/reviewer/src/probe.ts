@@ -48,7 +48,10 @@ export type IsolationProbeOptions = {
   /** Exact immutable image identity; mutable tags are refused. */
   imageDigest: string
   expectedBundleSha256?: string
+  /** Exact verified bundle bytes copied into the private in-container snapshot. */
+  bundleBytes?: number
   reviewer?: { model: string; effort: string; promptVersion: string }
+  containerIdentity?: { name: string; label: string }
   scenario?: 'success' | 'hang' | 'descendant' | 'review'
   timeoutMs?: number
   signal?: AbortSignal
@@ -56,11 +59,46 @@ export type IsolationProbeOptions = {
   sensitiveValues?: readonly string[]
 }
 
+const SNAPSHOT_OVERHEAD_BYTES = 16 * 1024 * 1024
+const MAX_SNAPSHOT_TMPFS_BYTES = 768 * 1024 * 1024
+
+function snapshotTmpfsBytes(bundleBytes: number | undefined): number {
+  if (bundleBytes === undefined) return SNAPSHOT_OVERHEAD_BYTES
+  if (!Number.isSafeInteger(bundleBytes) || bundleBytes <= 0)
+    throw new TypeError('verified bundle byte length must be a positive safe integer')
+  const required = bundleBytes + SNAPSHOT_OVERHEAD_BYTES
+  if (required > MAX_SNAPSHOT_TMPFS_BYTES)
+    throw new Error('verified bundle exceeds reviewer snapshot capacity')
+  const mebibyte = 1024 * 1024
+  return Math.ceil(required / mebibyte) * mebibyte
+}
+
 type CommandResult = {
   exitCode: number | null
   stdout: string
   stderr: string
   termination: ProbeTermination
+}
+
+/** Remove only the exact durable Factory-owned container for one logical attempt. */
+export async function cleanupOwnedReviewerContainer(
+  identity: { name: string; label: string },
+  timeoutMs = 30_000,
+): Promise<void> {
+  const inspected = await runCommand(
+    'docker',
+    ['inspect', '--format', '{{ index .Config.Labels "factory.review-attempt" }}', identity.name],
+    { timeoutMs },
+  )
+  if (inspected.exitCode !== 0) {
+    if (inspected.stderr.toLowerCase().includes('no such object')) return
+    throw new Error('Docker could not inspect the prior reviewer container')
+  }
+  if (inspected.stdout.trim() !== identity.label)
+    throw new Error('Factory refuses to remove a reviewer container it does not own')
+  const removed = await runCommand('docker', ['rm', '--force', identity.name], { timeoutMs })
+  if (removed.exitCode !== 0)
+    throw new Error('Docker could not remove the prior reviewer container')
 }
 
 async function runCommand(
@@ -199,7 +237,8 @@ export async function runIsolationProbe(
   if (!bundle.isDirectory() || !output.isDirectory() || auth.some(entry => !entry.isFile())) {
     throw new Error('Reviewer mounts require bundle/output directories and auth files')
   }
-  const containerName = `factory-isolation-${randomUUID()}`
+  const containerName = options.containerIdentity?.name ?? `factory-isolation-${randomUUID()}`
+  const reviewSnapshotBytes = snapshotTmpfsBytes(options.bundleBytes)
   const observedImage = await runCommand('docker', [
     'image',
     'inspect',
@@ -214,6 +253,9 @@ export async function runIsolationProbe(
     'create',
     '--name',
     containerName,
+    ...(options.containerIdentity === undefined
+      ? []
+      : ['--label', `factory.review-attempt=${options.containerIdentity.label}`]),
     '--network',
     'bridge',
     '--read-only',
@@ -225,6 +267,8 @@ export async function runIsolationProbe(
     'no-new-privileges',
     '--tmpfs',
     '/tmp:rw,noexec,nosuid,nodev,size=16m',
+    '--tmpfs',
+    `/review-input:rw,noexec,nosuid,nodev,size=${reviewSnapshotBytes}`,
     '--mount',
     dockerMount(plan.bundle.hostPath, plan.bundle.containerPath, true),
     '--mount',
@@ -267,7 +311,7 @@ export async function runIsolationProbe(
     }
     const [container] = JSON.parse(inspected.stdout) as [
       {
-        Config: { User: string }
+        Config: { User: string; Labels?: Record<string, string> }
         HostConfig: {
           NetworkMode: string
           ReadonlyRootfs: boolean
@@ -281,6 +325,11 @@ export async function runIsolationProbe(
     if (container === undefined) {
       throw new Error('Docker returned no reviewer container inspection')
     }
+    if (
+      options.containerIdentity !== undefined &&
+      container.Config.Labels?.['factory.review-attempt'] !== options.containerIdentity.label
+    )
+      throw new Error('Docker reviewer container has the wrong Factory ownership label')
     inspectedMounts = container.Mounts.map(
       ({ Destination, RW }): IsolationReport['mounts'][number] => ({
         role: Destination === '/bundle' ? 'bundle' : Destination === '/out' ? 'output' : 'auth',
@@ -334,7 +383,10 @@ export async function runIsolationProbe(
       containerPolicy.user !== '65532:65532' ||
       !containerPolicy.capDrop.includes('ALL') ||
       !containerPolicy.securityOptions.some(option => option.startsWith('no-new-privileges')) ||
-      !containerPolicy.tmpfsTargets.includes('/tmp')
+      canonicalTmpfs(container.HostConfig.Tmpfs?.['/review-input']) !==
+        canonicalTmpfs(`rw,noexec,nosuid,nodev,size=${reviewSnapshotBytes}`) ||
+      canonicalTmpfs(container.HostConfig.Tmpfs?.['/tmp']) !==
+        canonicalTmpfs('rw,noexec,nosuid,nodev,size=16m')
     ) {
       throw new Error('Docker reviewer container did not satisfy the required security policy')
     }
@@ -423,4 +475,8 @@ export async function runIsolationProbe(
     outputHashes: await hashOutputs(outputFiles),
     cleanup: { containerRemoved: true },
   }
+}
+
+function canonicalTmpfs(value: string | undefined): string {
+  return (value ?? '').split(',').filter(Boolean).sort().join(',')
 }
