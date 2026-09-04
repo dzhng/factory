@@ -4,10 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc --noEmit",
+    "build": "bun build src/reviewer-isolation.ts --target=bun --outdir=dist",
     "check-types": "tsc --noEmit",
     "lab:reviewer-isolation": "bun run src/reviewer-isolation.ts",
-    "lint": "oxlint src"
+    "lint": "oxlint src docker"
   },
   "dependencies": {
     "@factory/reviewer": "workspace:*"

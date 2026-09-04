@@ -155,3 +155,58 @@ second normative schema; the master specification and format own mechanics.
 - **Verdict:** Sound. It proves the stronger isolation shape while leaving one
   reversible size knob for measured provider needs.
 - **Confidence:** Medium.
+
+### Make the build gate produce distributable package output
+
+- **When:** Slice 02 integration on `main`.
+- **The choice:** The production package build emits JavaScript and declarations
+  under `dist`, while the executable test harness emits a bundled lab. In both,
+  `check-types` remains the no-output compiler check. The alternative was to
+  call `tsc --noEmit` from both commands, which let type checking pass but left
+  Turbo's promised build output empty.
+- **The gap:** The workspace bootstrap named separate build and type gates but
+  did not state whether library packages should emit artifacts this early.
+- **The reach:** Every package added later should keep build output and type-only
+  validation as distinct contracts, so release tests can exercise what is
+  actually shipped.
+- **Verdict:** Sound. A green build now proves an artifact exists instead of
+  renaming another check.
+- **Confidence:** High.
+
+### Authorize mounts by canonical filesystem identity
+
+- **When:** Slice 02 integration security review.
+- **The choice:** Resolve every bind-mount source to its real host path, rerun
+  overlap policy on those canonical identities, pass only the canonical paths
+  to Docker, and refuse commas that Docker's mount-option grammar can
+  reinterpret. Factory creates the stopped container, verifies Docker's
+  observed sources, targets, modes, and policy, and only then starts it. The
+  alternative was to trust lexically distinct input strings and requested
+  arguments, which allowed either a symlink or option injection to change what
+  the reviewer could access before a post-start check noticed.
+- **The gap:** The planned pure mount API described path overlap but did not say
+  whether identity meant spelling or the filesystem object Docker would mount.
+- **The reach:** Every future reviewer adapter inherits the same pre-execution
+  boundary. Symlinks cannot widen writable authority or disguise auth/bundle
+  aliasing, and Docker inspection detects disagreement with the verified plan.
+- **Verdict:** Sound. Security follows the resources Docker receives rather than
+  user-controlled path notation.
+- **Confidence:** High.
+
+### Certify real providers only through the production execution path
+
+- **When:** Slice 02 integration authority review.
+- **The choice:** Slice 02 proves the provider-independent isolation boundary
+  with an instrumented fake image and records unavailable authorities exactly.
+  Authenticated Codex and Claude certification moves to Slice 09, where the
+  packaged images and real invocation adapters exist. The alternative was a
+  second oracle-only provider launcher that would either be throwaway code or a
+  parallel security boundary.
+- **The gap:** The original Slice 02 text required real provider execution
+  before the production images and invocation seam were scheduled to exist.
+- **The reach:** Slice 09 is a release blocker until both current providers run
+  with dedicated test credentials on required platforms; unavailable remains a
+  typed result and never counts as a pass.
+- **Verdict:** Sound. It retains the acceptance authority while ensuring the
+  certified path is the one Factory actually ships.
+- **Confidence:** High.

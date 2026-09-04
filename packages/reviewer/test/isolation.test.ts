@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'bun:test'
+import { mkdir, mkdtemp, symlink } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
-import { planReviewerIsolation } from '../src/index'
+import { planReviewerIsolation, resolveReviewerIsolation } from '../src/index'
 
 describe('reviewer isolation plan', () => {
   test('allows only the bundle, output, and selected provider auth', () => {
@@ -78,5 +81,32 @@ describe('reviewer isolation plan', () => {
       ok: false,
       reason: 'auth-target-outside-provider-scope',
     })
+  })
+
+  test('refuses a mount source Docker could parse as extra options', () => {
+    expect(
+      planReviewerIsolation({
+        provider: 'fake',
+        bundleHostPath: '/tmp/factory/bundle,readonly',
+        outputHostPath: '/tmp/factory/output',
+        auth: [],
+      }),
+    ).toMatchObject({ ok: false, reason: 'host-path-unsupported' })
+  })
+
+  test('refuses writable output that aliases the bundle through a symlink', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'factory-isolation-plan-'))
+    const bundle = join(root, 'bundle')
+    await mkdir(bundle)
+    await symlink(bundle, join(root, 'output'))
+
+    const result = await resolveReviewerIsolation({
+      provider: 'fake',
+      bundleHostPath: bundle,
+      outputHostPath: join(root, 'output'),
+      auth: [],
+    })
+
+    expect(result).toMatchObject({ ok: false, reason: 'host-path-overlap' })
   })
 })

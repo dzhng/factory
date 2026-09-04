@@ -1,3 +1,4 @@
+import { realpath } from 'node:fs/promises'
 import { isAbsolute, normalize, posix, sep } from 'node:path'
 
 export {
@@ -6,7 +7,7 @@ export {
   type IsolationProbeOptions,
   type IsolationReport,
   type ProbeTermination,
-} from './probe'
+} from './probe.js'
 
 export type ReviewerProvider = 'codex' | 'claude' | 'fake'
 
@@ -43,6 +44,7 @@ export type IsolationRefusal = {
   reason:
     | 'host-path-not-absolute'
     | 'host-root-forbidden'
+    | 'host-path-unsupported'
     | 'host-path-overlap'
     | 'auth-target-outside-provider-scope'
     | 'auth-target-duplicate'
@@ -79,6 +81,13 @@ export function planReviewerIsolation(input: IsolationInput): IsolationPlanResul
         ok: false,
         reason: 'host-root-forbidden',
         detail: `${mount.role} mount may not expose the host root`,
+      }
+    }
+    if (mount.hostPath.includes(',')) {
+      return {
+        ok: false,
+        reason: 'host-path-unsupported',
+        detail: `${mount.role} mount path contains a comma that Docker --mount cannot represent safely`,
       }
     }
   }
@@ -140,4 +149,29 @@ export function planReviewerIsolation(input: IsolationInput): IsolationPlanResul
       auth: input.auth.map(auth => ({ ...auth, mode: 'ro' })),
     },
   }
+}
+
+/** Resolve host filesystem identities before applying the mount policy.
+ *
+ * Docker follows symlinks in bind-mount sources. Comparing only the user-supplied
+ * path strings would therefore allow a writable mount to alias a read-only one.
+ */
+export async function resolveReviewerIsolation(
+  input: IsolationInput,
+): Promise<IsolationPlanResult> {
+  const [bundleHostPath, outputHostPath, ...authHostPaths] = await Promise.all([
+    realpath(input.bundleHostPath),
+    realpath(input.outputHostPath),
+    ...input.auth.map(({ hostPath }) => realpath(hostPath)),
+  ])
+
+  return planReviewerIsolation({
+    ...input,
+    bundleHostPath,
+    outputHostPath,
+    auth: input.auth.map((auth, index) => ({
+      ...auth,
+      hostPath: authHostPaths[index] ?? auth.hostPath,
+    })),
+  })
 }

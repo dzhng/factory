@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -152,6 +152,7 @@ async function probe(
   root: string,
   scenario: 'success' | 'hang' | 'descendant',
   termination: 'completed' | 'timed-out' | 'cancelled',
+  secret: string,
 ): Promise<IsolationReport> {
   const output = join(root, `output-${termination}-${scenario}`)
   await mkdir(output)
@@ -176,12 +177,14 @@ async function probe(
       imageDigest,
       scenario,
       signal: controller.signal,
+      sensitiveValues: [secret],
     })
   }
   return await runIsolationProbe(plan.plan, {
     imageDigest,
     scenario,
     ...(termination === 'timed-out' ? { timeoutMs: 250 } : {}),
+    sensitiveValues: [secret],
   })
 }
 
@@ -189,8 +192,8 @@ async function main(): Promise<void> {
   const outputFlag = process.argv.indexOf('--output')
   const outputRoot = resolve(
     outputFlag === -1
-      ? 'artifacts/reviewer-isolation'
-      : (process.argv[outputFlag + 1] ?? 'artifacts/reviewer-isolation'),
+      ? join(tmpdir(), 'factory-reviewer-isolation-report')
+      : (process.argv[outputFlag + 1] ?? join(tmpdir(), 'factory-reviewer-isolation-report')),
   )
   const root = await mkdtemp(join(tmpdir(), 'factory-reviewer-isolation-'))
   const secret = `fixture-credential-${crypto.randomUUID()}`
@@ -207,11 +210,18 @@ async function main(): Promise<void> {
     await command(['docker', 'build', '--quiet', '--tag', image, context])
     const imageDigest = await command(['docker', 'image', 'inspect', '--format', '{{.Id}}', image])
 
-    const success = await probe('fake', imageDigest, root, 'success', 'completed')
+    const success = await probe('fake', imageDigest, root, 'success', 'completed', secret)
     assertSuccessful(success)
-    const timeout = await probe('fake', imageDigest, root, 'hang', 'timed-out')
-    const cancellation = await probe('fake', imageDigest, root, 'hang', 'cancelled')
-    const descendantCleanup = await probe('fake', imageDigest, root, 'descendant', 'timed-out')
+    const timeout = await probe('fake', imageDigest, root, 'hang', 'timed-out', secret)
+    const cancellation = await probe('fake', imageDigest, root, 'hang', 'cancelled', secret)
+    const descendantCleanup = await probe(
+      'fake',
+      imageDigest,
+      root,
+      'descendant',
+      'timed-out',
+      secret,
+    )
     for (const [expected, report] of [
       ['timed-out', timeout],
       ['cancelled', cancellation],
@@ -222,9 +232,34 @@ async function main(): Promise<void> {
       }
     }
 
+    const outputAlias = join(root, 'output-symlink-alias')
+    await symlink(join(root, 'bundle'), outputAlias)
+    const aliased = planReviewerIsolation({
+      provider: 'fake',
+      bundleHostPath: join(root, 'bundle'),
+      outputHostPath: outputAlias,
+      auth: [],
+    })
+    if (!aliased.ok) throw new Error('symlink regression did not reach filesystem validation')
+    try {
+      await runIsolationProbe(aliased.plan, { imageDigest })
+      throw new Error('writable output symlink alias was accepted')
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.includes('host-path-overlap')) throw error
+    }
+    try {
+      await readFile(join(root, 'bundle', 'result.txt'))
+      throw new Error('writable output alias mutated the immutable bundle')
+    } catch (error) {
+      if (!(error instanceof Error) || (error as NodeJS.ErrnoException).code !== 'ENOENT')
+        throw error
+    }
+
     const imageHistory = await command(['docker', 'image', 'history', '--no-trunc', image])
     const scanned = [
       imageHistory,
+      await readFile(join(context, 'Dockerfile'), 'utf8'),
+      await readFile(join(context, 'probe.ts'), 'utf8'),
       JSON.stringify({ success, timeout, cancellation, descendantCleanup }),
       await readFile(join(root, 'output-completed-success', 'result.txt'), 'utf8'),
     ]
@@ -264,7 +299,13 @@ async function main(): Promise<void> {
       ],
       credentialLeakScan: {
         matches: 0,
-        surfaces: ['image-history', 'container-logs-and-sanitized-reports', 'review-output'],
+        surfaces: [
+          'image-history',
+          'fake-image-context',
+          'all-scenario-container-logs',
+          'all-recursive-review-outputs',
+          'sanitized-reports',
+        ],
       },
     }
 

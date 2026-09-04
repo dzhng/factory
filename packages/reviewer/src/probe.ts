@@ -1,8 +1,9 @@
 import { spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { readdir, readFile, stat } from 'node:fs/promises'
+import { join, relative } from 'node:path'
 
-import type { MountPlan, ReviewerProvider } from './index'
+import { resolveReviewerIsolation, type MountPlan, type ReviewerProvider } from './index.js'
 
 export type ProbeTermination = 'completed' | 'timed-out' | 'cancelled'
 
@@ -43,10 +44,13 @@ export type IsolationReport = {
 }
 
 export type IsolationProbeOptions = {
+  /** Exact immutable image identity; mutable tags are refused. */
   imageDigest: string
   scenario?: 'success' | 'hang' | 'descendant'
   timeoutMs?: number
   signal?: AbortSignal
+  /** Ephemeral test-only sentinels that must not appear in logs or recursive output. */
+  sensitiveValues?: readonly string[]
 }
 
 type CommandResult = {
@@ -98,13 +102,24 @@ async function runCommand(
   })
 }
 
+async function readOutputFiles(root: string, current = root): Promise<Map<string, Buffer>> {
+  const files = new Map<string, Buffer>()
+  const entries = await readdir(current, { withFileTypes: true })
+  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+    const path = join(current, entry.name)
+    if (entry.isDirectory()) {
+      for (const [name, bytes] of await readOutputFiles(root, path)) files.set(name, bytes)
+    } else if (entry.isFile()) {
+      files.set(relative(root, path), await readFile(path))
+    }
+  }
+  return files
+}
+
 async function hashOutputs(root: string): Promise<Record<string, string>> {
   const hashes: Record<string, string> = {}
-  const entries = await readdir(root, { withFileTypes: true })
-  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
-    if (!entry.isFile()) continue
-    const bytes = await readFile(`${root}/${entry.name}`)
-    hashes[entry.name] = createHash('sha256').update(bytes).digest('hex')
+  for (const [name, bytes] of await readOutputFiles(root)) {
+    hashes[name] = createHash('sha256').update(bytes).digest('hex')
   }
   return hashes
 }
@@ -117,6 +132,20 @@ export async function runIsolationProbe(
   plan: MountPlan,
   options: IsolationProbeOptions,
 ): Promise<IsolationReport> {
+  if (!/^sha256:[0-9a-f]{64}$/.test(options.imageDigest)) {
+    throw new Error('Reviewer image must be addressed by an immutable sha256 image ID')
+  }
+  const resolved = await resolveReviewerIsolation({
+    provider: plan.provider,
+    bundleHostPath: plan.bundle.hostPath,
+    outputHostPath: plan.output.hostPath,
+    auth: plan.auth.map(({ hostPath, containerPath }) => ({ hostPath, containerPath })),
+  })
+  if (!resolved.ok) {
+    throw new Error(`Reviewer mount plan refused (${resolved.reason}): ${resolved.detail}`)
+  }
+  plan = resolved.plan
+
   const [bundle, output, ...auth] = await Promise.all([
     stat(plan.bundle.hostPath),
     stat(plan.output.hostPath),
@@ -126,9 +155,18 @@ export async function runIsolationProbe(
     throw new Error('Reviewer mounts require bundle/output directories and auth files')
   }
   const containerName = `factory-isolation-${randomUUID()}`
+  const observedImage = await runCommand('docker', [
+    'image',
+    'inspect',
+    '--format',
+    '{{.Id}}',
+    options.imageDigest,
+  ])
+  if (observedImage.exitCode !== 0 || observedImage.stdout.trim() !== options.imageDigest) {
+    throw new Error('Docker could not verify the requested reviewer image ID')
+  }
   const dockerArgs = [
-    'run',
-    '--detach',
+    'create',
     '--name',
     containerName,
     '--network',
@@ -156,10 +194,15 @@ export async function runIsolationProbe(
   let observation: ContainerObservation | undefined
   let inspectedMounts: IsolationReport['mounts'] = []
   let containerPolicy: IsolationReport['containerPolicy'] | undefined
+  let creationAttempted = false
+  let capturedLogs = ''
+  let probeFailure: unknown
+  let removalFailure: Error | undefined
   try {
-    const started = await runCommand('docker', dockerArgs)
-    if (started.exitCode !== 0) {
-      throw new Error(`Docker refused reviewer container: ${started.stderr.trim()}`)
+    creationAttempted = true
+    const created = await runCommand('docker', dockerArgs)
+    if (created.exitCode !== 0) {
+      throw new Error(`Docker refused reviewer container: ${created.stderr.trim()}`)
     }
     const inspected = await runCommand('docker', ['inspect', containerName])
     if (inspected.exitCode !== 0) {
@@ -169,12 +212,13 @@ export async function runIsolationProbe(
       {
         Config: { User: string }
         HostConfig: {
+          NetworkMode: string
           ReadonlyRootfs: boolean
           CapDrop: string[] | null
           SecurityOpt: string[] | null
           Tmpfs: Record<string, string> | null
         }
-        Mounts: { Destination: string; RW: boolean }[]
+        Mounts: { Source: string; Destination: string; RW: boolean }[]
       },
     ]
     if (container === undefined) {
@@ -198,12 +242,48 @@ export async function runIsolationProbe(
     ) {
       throw new Error('Docker reviewer container received an unexpected mount')
     }
+    const expectedSources = new Map([
+      ['/bundle', plan.bundle.hostPath],
+      ['/out', plan.output.hostPath],
+      ...plan.auth.map(({ containerPath, hostPath }) => [containerPath, hostPath] as const),
+    ])
+    if (
+      container.Mounts.some(
+        ({ Source, Destination }) => expectedSources.get(Destination) !== Source,
+      )
+    ) {
+      throw new Error('Docker reviewer container received an unexpected mount source')
+    }
+    const expectedModes = new Map([
+      ['/bundle', 'ro'],
+      ['/out', 'rw'],
+      ...plan.auth.map(({ containerPath }) => [containerPath, 'ro'] as const),
+    ])
+    if (
+      inspectedMounts.some(({ containerPath, mode }) => expectedModes.get(containerPath) !== mode)
+    ) {
+      throw new Error('Docker reviewer container received an unexpected mount mode')
+    }
     containerPolicy = {
       readonlyRootfs: container.HostConfig.ReadonlyRootfs,
       user: container.Config.User,
       capDrop: container.HostConfig.CapDrop ?? [],
       securityOptions: container.HostConfig.SecurityOpt ?? [],
       tmpfsTargets: Object.keys(container.HostConfig.Tmpfs ?? {}).sort(),
+    }
+    if (
+      container.HostConfig.NetworkMode !== 'bridge' ||
+      !containerPolicy.readonlyRootfs ||
+      containerPolicy.user !== '65532:65532' ||
+      !containerPolicy.capDrop.includes('ALL') ||
+      !containerPolicy.securityOptions.some(option => option.startsWith('no-new-privileges')) ||
+      !containerPolicy.tmpfsTargets.includes('/tmp')
+    ) {
+      throw new Error('Docker reviewer container did not satisfy the required security policy')
+    }
+    const started = await runCommand('docker', ['start', containerName])
+    if (started.exitCode !== 0) {
+      throw new Error(`Docker could not start reviewer container: ${started.stderr.trim()}`)
     }
     const waited = await runCommand('docker', ['wait', containerName], {
       timeoutMs: options.timeoutMs,
@@ -212,19 +292,56 @@ export async function runIsolationProbe(
     const containerExitCode =
       waited.termination === 'completed' ? Number.parseInt(waited.stdout.trim(), 10) : null
     result = { ...waited, exitCode: containerExitCode }
+    if (waited.termination !== 'completed') {
+      const killed = await runCommand('docker', ['kill', containerName])
+      if (killed.exitCode !== 0) {
+        throw new Error(`Docker could not stop reviewer container: ${killed.stderr.trim()}`)
+      }
+    }
+    const logs = await runCommand('docker', ['logs', containerName])
+    if (logs.exitCode !== 0) {
+      throw new Error(`Docker could not read reviewer logs: ${logs.stderr.trim()}`)
+    }
+    capturedLogs = `${logs.stdout}\n${logs.stderr}`
     if (result.termination === 'completed' && result.exitCode === 0) {
-      const logs = await runCommand('docker', ['logs', containerName])
       observation = JSON.parse(logs.stdout) as ContainerObservation
     }
+  } catch (error) {
+    probeFailure = error
   } finally {
-    await runCommand('docker', ['rm', '--force', containerName])
+    if (creationAttempted) {
+      const removed = await runCommand('docker', ['rm', '--force', containerName])
+      if (removed.exitCode !== 0 && !removed.stderr.toLowerCase().includes('no such container'))
+        removalFailure = new Error(
+          `Docker could not remove reviewer container: ${removed.stderr.trim()}`,
+        )
+    }
   }
+
+  if (removalFailure !== undefined && probeFailure !== undefined) {
+    throw new AggregateError(
+      [probeFailure, removalFailure],
+      'Reviewer probe and cleanup both failed',
+    )
+  }
+  if (removalFailure !== undefined) throw removalFailure
+  if (probeFailure !== undefined) throw probeFailure
 
   if (result === undefined) throw new Error('Docker probe did not start')
   if (containerPolicy === undefined) {
     throw new Error('Docker probe policy was not observed')
   }
   const inspect = await runCommand('docker', ['inspect', containerName])
+  if (inspect.exitCode === 0 || !inspect.stderr.toLowerCase().includes('no such object')) {
+    throw new Error('Docker could not prove the reviewer container was removed')
+  }
+  const outputFiles = await readOutputFiles(plan.output.hostPath)
+  const leakSurfaces = [capturedLogs, ...outputFiles.values()].map(value => value.toString())
+  if (
+    options.sensitiveValues?.some(secret => leakSurfaces.some(surface => surface.includes(secret)))
+  ) {
+    throw new Error('Sensitive value escaped into reviewer logs or output')
+  }
 
   return {
     schemaVersion: 1,
@@ -237,6 +354,6 @@ export async function runIsolationProbe(
     exitCode: result.exitCode,
     ...(observation === undefined ? {} : { observation }),
     outputHashes: await hashOutputs(plan.output.hostPath),
-    cleanup: { containerRemoved: inspect.exitCode !== 0 },
+    cleanup: { containerRemoved: true },
   }
 }
