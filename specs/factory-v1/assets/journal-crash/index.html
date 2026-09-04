@@ -1,0 +1,123 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Factory journal crash lab</title><style>body{font:15px/1.5 system-ui;max-width:1080px;margin:2rem auto;padding:0 1rem;background:#101416;color:#e8efed}h1{margin-bottom:.25rem;color:#9ee7d7}.lead{font-size:1.1rem;color:#cbd8d5}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem;margin:1.5rem 0}.card,table,pre{background:#182023;border:1px solid #344348;border-radius:10px}.card{padding:1rem}.card strong{display:block;font-size:1.45rem;color:#9ee7d7}.label{color:#9aa9a6}table{width:100%;border-collapse:separate;border-spacing:0;overflow:hidden}th,td{text-align:left;padding:.7rem;border-bottom:1px solid #344348}th{color:#9ee7d7}tr:last-child td{border:0}.pass{color:#8ee28a}.fail{color:#ffad8f}details{margin-top:1.5rem}summary{cursor:pointer;color:#9ee7d7}pre{padding:1rem;overflow:auto;font-size:.82rem}</style></head><body><h1>Durable runtime journal</h1><p class="lead">SQLite is the measured choice over the tested mkdir-lock segmented candidate: killed processes release transaction locks, while that candidate leaves an unsafe stale lock.</p><div class="grid"><div class="card"><span class="label">Shared order</span><strong>200 / 200</strong>rows, no gaps</div><div class="card"><span class="label">8×25 contention</span><strong>259.4 ms</strong>all writers exited zero</div><div class="card"><span class="label">Non-Stop p95</span><strong>2.45 ms</strong>measured, not a budget</div><div class="card"><span class="label">Stop p95</span><strong>1.55 ms</strong>measured, not a budget</div></div><table><thead><tr><th>Candidate</th><th>Crash safety</th><th>Contention</th><th>Packaging</th></tr></thead><tbody><tr><td>SQLite + raw CAS</td><td class="pass">Passed tested boundaries</td><td>259.4 ms</td><td>pass on host Node v24.14.0; exact Node 22 unavailable</td></tr><tr><td>mkdir-lock segmented log</td><td class="fail">Unsafe stale lock</td><td>90.9 ms</td><td>Node/Bun filesystem APIs</td></tr></tbody></table><div class="grid"><div class="card"><span class="label">Crash retries</span><strong class="pass">sequence 0</strong>at every injected boundary</div><div class="card"><span class="label">Git-common locator</span><strong class="pass">linked worktree</strong>pass with real Git linked worktree</div><div class="card"><span class="label">Disk full</span><strong class="pass">no ack</strong>raw and injected DB commit recovery</div><div class="card"><span class="label">Known gap</span><strong>Node 22</strong>exact runtime unavailable</div></div><details><summary>Raw report JSON</summary><pre>{
+  "schemaVersion": 1,
+  "selectedEngine": "sqlite-with-external-raw-cas",
+  "runtime": {
+    "bun": "1.3.11",
+    "platform": "linux",
+    "nodePackagingSmoke": "pass on host Node v24.14.0; exact Node 22 unavailable",
+    "linkedWorktreeSmoke": "pass with real Git linked worktree"
+  },
+  "engines": {
+    "sqlite": {
+      "durability": "pass",
+      "contention": {
+        "writers": 8,
+        "eventsPerWriter": 25,
+        "exits": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "rows": 200,
+        "elapsedMs": 259.41137499999996
+      },
+      "latencyMs": {
+        "nonStop": {
+          "p50": 1.4950000000000045,
+          "p95": 2.4482500000000016,
+          "max": 2.530833000000001
+        },
+        "stop": {
+          "p50": 1.487125000000006,
+          "p95": 1.5495829999999984,
+          "max": 1.5495829999999984
+        }
+      },
+      "packaging": "Bun 1.3.11 pass; Node smoke reported separately"
+    },
+    "segmentedAppendLog": {
+      "durability": "fail: killed owner leaves a lock that cannot be stolen safely",
+      "contention": {
+        "writers": 8,
+        "eventsPerWriter": 25,
+        "exits": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "rows": 200,
+        "elapsedMs": 90.93341699999996
+      },
+      "packaging": "dependency-free Node/Bun filesystem APIs"
+    }
+  },
+  "crashMatrix": {
+    "raw-file-synced": {
+      "retrySequence": 0,
+      "orphansBeforeRetry": 1,
+      "orphansAfterRetry": 1
+    },
+    "raw-published": {
+      "retrySequence": 0,
+      "orphansBeforeRetry": 2,
+      "orphansAfterRetry": 1
+    },
+    "raw-directory-synced": {
+      "retrySequence": 0,
+      "orphansBeforeRetry": 2,
+      "orphansAfterRetry": 1
+    },
+    "journal-transaction-staged": {
+      "retrySequence": 0,
+      "orphansBeforeRetry": 1,
+      "orphansAfterRetry": 0
+    },
+    "journal-commit-attempt": {
+      "retrySequence": 0,
+      "orphansBeforeRetry": 1,
+      "orphansAfterRetry": 0
+    },
+    "journal-transaction-committed": {
+      "retrySequence": 0,
+      "orphansBeforeRetry": 0,
+      "orphansAfterRetry": 0
+    }
+  },
+  "stateMachine": {
+    "claimId": "claim_98ecd18bb867df95b8172e0822ce970eaf240a1c50c6046d22734fc2bd02ac80",
+    "recoveredSameClaim": true,
+    "pendingAfterCompletion": 0
+  },
+  "diskFull": {
+    "rejectedBeforeAcknowledgement": true,
+    "retrySequence": 0
+  },
+  "databaseFull": {
+    "commitRejectedBeforeAcknowledgement": true,
+    "retrySequence": 0,
+    "claimRejectedBeforeAcknowledgement": true,
+    "claimRetryAcquired": true,
+    "completionRejectedBeforeAcknowledgement": true,
+    "completionStillPending": 1
+  },
+  "acceptance": {
+    "nodePackaging": true,
+    "linkedWorktree": true,
+    "contiguous": true,
+    "everyRetryAtZero": true,
+    "staleLockCounterexample": true,
+    "claimRecovery": true,
+    "diskFullRecovery": true,
+    "databaseFullRecovery": true
+  }
+}</pre></details></body></html>
