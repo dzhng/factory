@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Factory v1 implementation roadmap</title>
+  <style>
+    :root { color-scheme: dark; --bg:#101312; --panel:#191e1b; --ink:#edf3ee; --muted:#9eaaa2; --line:#3b4940; --mint:#79e2ae; --amber:#f5bf69; --blue:#83b8ff; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:radial-gradient(circle at 15% -10%,#21362c 0,transparent 36%),var(--bg); color:var(--ink); font:15px/1.45 ui-sans-serif,system-ui,-apple-system,sans-serif; }
+    main { width:min(1160px,calc(100% - 32px)); margin:48px auto 72px; }
+    h1 { margin:0 0 8px; font-size:clamp(32px,5vw,60px); letter-spacing:-.045em; }
+    .lede { max-width:760px; color:var(--muted); font-size:18px; }
+    .legend { display:flex; gap:18px; flex-wrap:wrap; margin:28px 0; color:var(--muted); }
+    .legend span::before { content:""; display:inline-block; width:9px; height:9px; margin-right:7px; border-radius:50%; background:var(--mint); }
+    .legend .risk::before { background:var(--amber); }
+    .legend .human::before { background:var(--blue); }
+    .grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:14px; }
+    article { position:relative; min-height:166px; padding:18px; border:1px solid var(--line); border-radius:14px; background:linear-gradient(145deg,rgba(255,255,255,.035),transparent),var(--panel); }
+    article::after { content:"→"; position:absolute; right:-13px; top:44%; z-index:2; color:var(--muted); font-size:22px; }
+    article:nth-child(4n)::after, article:last-child::after { content:""; }
+    .num { color:var(--mint); font:700 12px/1 ui-monospace,SFMono-Regular,monospace; letter-spacing:.12em; }
+    h2 { margin:10px 0 6px; font-size:19px; letter-spacing:-.02em; }
+    p { margin:0; color:var(--muted); }
+    .risk-card { border-color:#66502e; }
+    .risk-card .num { color:var(--amber); }
+    .human-card { border-color:#365477; }
+    .human-card .num { color:var(--blue); }
+    .gate { margin-top:24px; padding:20px; border-left:3px solid var(--mint); background:#151a17; color:var(--muted); }
+    .gate strong { color:var(--ink); }
+    @media (max-width:900px) { .grid { grid-template-columns:repeat(2,1fr); } article:nth-child(4n)::after { content:"→"; } article:nth-child(2n)::after { content:""; } }
+    @media (max-width:540px) { main { margin-top:28px; } .grid { grid-template-columns:1fr; } article::after { content:"" !important; } }
+  </style>
+</head>
+<body>
+<main>
+  <div class="num">FACTORY / V1 / PLAN</div>
+  <h1>Evidence before architecture.</h1>
+  <p class="lede">Two feasibility oracles burn down provider uncertainty. Ten independently reviewable slices then turn raw local evidence into reproducible reviews and canonical decisions—without inventing an Epic layer or mutating Git.</p>
+  <div class="legend"><span>contract slice</span><span class="risk">fog-burning oracle</span><span class="human">visual checkpoint</span></div>
+  <section class="grid">
+    <article class="risk-card"><div class="num">01 / ORACLE</div><h2>Provider + donor reality</h2><p>Recertify Session, Stop, transcript, ordering, and byte-fidelity assumptions against current clients.</p></article>
+    <article class="risk-card"><div class="num">02 / ORACLE</div><h2>Reviewer isolation</h2><p>Prove read-only provider auth, immutable bundle input, one writable output, and cleanup.</p></article>
+    <article><div class="num">03 / FORMAT</div><h2>Repository store</h2><p>Freeze v1 schemas and create the sole writer for owned <code>.factory</code> paths.</p></article>
+    <article><div class="num">04 / CAPTURE</div><h2>Runtime journal</h2><p>Make hook acknowledgement durable, ordered, idempotent, recoverable, and fast.</p></article>
+    <article><div class="num">05 / CODE</div><h2>Git observation</h2><p>Snapshot exact code and races while proving refs, index, branch, and worktree never change.</p></article>
+    <article><div class="num">06 / VERTICAL</div><h2>Immutable Turns</h2><p>Connect init and direct hooks through Stop materialization, triggers, recovery, and rebuild.</p></article>
+    <article><div class="num">07 / GITHUB</div><h2>PR evidence</h2><p>Observe exact PR states and append direct many-to-many Session associations.</p></article>
+    <article><div class="num">08 / PLAN</div><h2>Verified bundles</h2><p>Coalesce pending Stops, advance watermarks, include readable partials, and freeze inputs.</p></article>
+    <article><div class="num">09 / REVIEW</div><h2>Isolated execution</h2><p>Run cross-harness review, validate citations, and append complete, partial, or failed results.</p></article>
+    <article><div class="num">10 / DECISIONS</div><h2>Canonical view</h2><p>Fold branch-scoped observations and append-only human actions without fuzzy grouping.</p></article>
+    <article class="human-card"><div class="num">11 / PLAYABLE</div><h2>Localhost UI</h2><p>Make provenance, strength, partiality, coverage, and confirmation inspectable and actionable.</p></article>
+    <article><div class="num">12 / RELEASE</div><h2>Install + certify</h2><p>Prove the packed artifact on macOS/Linux, including hook reconciliation and migration-free upgrade.</p></article>
+  </section>
+  <div class="gate"><strong>Standing gate.</strong> Every slice lands with its runnable artifact, narrow real-boundary tests, ownership cleanup, and updated Next Agent Prompt. Visual work ends with fresh screenshot critique; the repository-wide gate runs once at release closeout.</div>
+</main>
+</body>
+</html>
