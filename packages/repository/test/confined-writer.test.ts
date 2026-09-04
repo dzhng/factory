@@ -16,7 +16,7 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { ConfinedWriter, readConfinedFile } from '../src/confined-writer'
+import { ConfinedWriter, inventoryConfinedTree, readConfinedFile } from '../src/confined-writer'
 
 const roots: string[] = []
 
@@ -25,6 +25,64 @@ afterEach(async () => {
 })
 
 describe('ConfinedWriter', () => {
+  test('inventories an ordinary tree and enforces every bound', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'factory-confined-inventory-'))
+    roots.push(root)
+    await mkdir(join(root, 'nested'))
+    await writeFile(join(root, 'nested', 'file'), 'bytes')
+    const bounds = { maximumEntries: 2, maximumFileBytes: 5, maximumBytes: 5, maximumDepth: 2 }
+    expect(await inventoryConfinedTree(root, bounds)).toEqual([
+      { kind: 'directory', path: 'nested' },
+      { kind: 'file', path: 'nested/file' },
+    ])
+    await expect(inventoryConfinedTree(root, { ...bounds, maximumEntries: 1 })).rejects.toThrow(
+      'inventory',
+    )
+    await expect(inventoryConfinedTree(root, { ...bounds, maximumFileBytes: 4 })).rejects.toThrow(
+      'byte limits',
+    )
+    await expect(inventoryConfinedTree(root, { ...bounds, maximumBytes: 4 })).rejects.toThrow(
+      'byte limits',
+    )
+    await expect(inventoryConfinedTree(root, { ...bounds, maximumDepth: 1 })).rejects.toThrow(
+      'depth',
+    )
+  })
+
+  test('confined inventory rejects symlinks and directory swaps', async () => {
+    const base = await mkdtemp(join(tmpdir(), 'factory-confined-inventory-'))
+    roots.push(base)
+    const root = join(base, 'root')
+    const replacement = join(base, 'replacement')
+    await mkdir(root)
+    await mkdir(replacement)
+    await writeFile(join(replacement, 'secret'), 'outside')
+    await symlink(replacement, join(root, 'link'))
+    await expect(
+      inventoryConfinedTree(root, {
+        maximumEntries: 4,
+        maximumFileBytes: 1024,
+        maximumBytes: 1024,
+      }),
+    ).rejects.toThrow('symbolic links')
+    await unlink(join(root, 'link'))
+    await mkdir(join(root, 'nested'))
+    let swapped = false
+    await expect(
+      inventoryConfinedTree(root, {
+        maximumEntries: 4,
+        maximumFileBytes: 1024,
+        maximumBytes: 1024,
+        afterEntryOpen: async path => {
+          if (swapped || Buffer.from(path[0]!).toString() !== 'nested') return
+          swapped = true
+          await rename(join(root, 'nested'), join(root, 'old-nested'))
+          await symlink(replacement, join(root, 'nested'))
+        },
+      }),
+    ).rejects.toThrow('changed during inventory')
+  })
+
   test('confined reads cannot follow a swapped parent outside their root', async () => {
     const base = await mkdtemp(join(tmpdir(), 'factory-confined-reader-'))
     roots.push(base)

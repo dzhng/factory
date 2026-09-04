@@ -35,7 +35,12 @@ import {
 
 import { withAdvisoryFileLock } from './confined-writer'
 
-export { readConfinedFile, withAdvisoryFileLock, type ConfinedReadOptions } from './confined-writer'
+export {
+  inventoryConfinedTree,
+  readConfinedFile,
+  withAdvisoryFileLock,
+  type ConfinedReadOptions,
+} from './confined-writer'
 
 export * from './git-observer'
 export { ReconstructionUnavailableError } from './confined-writer'

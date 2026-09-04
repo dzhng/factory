@@ -375,6 +375,43 @@ export type ReviewTrigger = {
   limitations: readonly Limitation[]
 }
 
+/** Exact per-trigger attempt history; coverage folds never infer holes from a high watermark. */
+type ReviewEvidenceSelectionBase = {
+  triggerId: RecordId
+  /** Whether readable content from this selection is fed to the reviewer. */
+  selectedForReview: boolean
+  /** Coverage semantics are explicit and never inferred from reason strings. */
+  coverageEffect:
+    | 'eligible-included'
+    | 'eligible-gap'
+    | 'context-only'
+    | 'previously-analyzed'
+    | 'out-of-scope'
+    | 'deferred-by-limit'
+  classification:
+    | 'included'
+    | 'readable-partial'
+    | 'unavailable'
+    | 'corrupt'
+    | 'unsafe'
+    | 'excluded'
+    | 'weak-context'
+  reason: string
+  limitations: readonly Limitation[]
+}
+
+/** Exact per-trigger attempt history; coverage folds never infer holes from a high watermark. */
+export type ReviewEvidenceSelection = ReviewEvidenceSelectionBase &
+  (
+    | {
+        kind: 'range'
+        sessionKey: string
+        turnId: RecordId
+        evidenceWatermark: number
+      }
+    | { kind: 'opaque-problem' }
+  )
+
 export type ReviewManifest = {
   schemaVersion: 1
   reviewId: RecordId
@@ -391,7 +428,14 @@ export type ReviewManifest = {
   codeManifest?: ObjectRef
   patches: readonly ObjectRef[]
   sessionWatermarks: Readonly<Record<string, number>>
+  /** Highest exact prefix boundary this review can settle after prior-analysis closure. */
+  coverageTargetWatermarks: Readonly<Record<string, number>>
+  /** Semantic subject bytes/state, excluding observation IDs and timestamps. */
+  subjectFingerprint: Sha256
+  /** Durable exact attempt/classification history used after process restart. */
+  evidenceSelections: readonly ReviewEvidenceSelection[]
   triggerIds: readonly RecordId[]
+  associationBatchIds: readonly RecordId[]
   priorLedger?: ObjectRef
   limitations: readonly Limitation[]
   reviewer: ReviewerSettings
@@ -425,6 +469,8 @@ export type CoverageAction = {
   actionId: RecordId
   reviewId: RecordId
   acceptedLimitations: readonly LimitationCode[]
+  /** Opaque corrupt/unavailable triggers explicitly acknowledged without inventing a watermark. */
+  acceptedTriggerIds: readonly RecordId[]
   settledWatermarks: Readonly<Record<string, number>>
   createdAt: string
 }
@@ -832,7 +878,11 @@ const RECORD_KEYS = {
     'codeManifest',
     'patches',
     'sessionWatermarks',
+    'coverageTargetWatermarks',
+    'subjectFingerprint',
+    'evidenceSelections',
     'triggerIds',
+    'associationBatchIds',
     'priorLedger',
     'limitations',
     'reviewer',
@@ -855,6 +905,7 @@ const RECORD_KEYS = {
     'actionId',
     'reviewId',
     'acceptedLimitations',
+    'acceptedTriggerIds',
     'settledWatermarks',
     'createdAt',
   ],
@@ -2032,7 +2083,183 @@ function validateRecordShape(
       assertOptionalObjectRef(value, 'codeManifest', 'review')
       assertObjectRefs(value.patches, 'review.patches')
       assertWatermarks(value.sessionWatermarks, 'review.sessionWatermarks')
+      assertWatermarks(value.coverageTargetWatermarks, 'review.coverageTargetWatermarks')
+      assertSha256(value.subjectFingerprint, 'review.subjectFingerprint')
+      assertArray(value.evidenceSelections, 'review.evidenceSelections')
+      value.evidenceSelections.forEach((selection, index) => {
+        const label = `review.evidenceSelections[${index}]`
+        assertRecord(selection, label)
+        assertExactKeys(
+          selection,
+          [
+            'kind',
+            'sessionKey',
+            'triggerId',
+            'turnId',
+            'evidenceWatermark',
+            'selectedForReview',
+            'coverageEffect',
+            'classification',
+            'reason',
+            'limitations',
+          ],
+          label,
+        )
+        requireFields(
+          selection,
+          [
+            'kind',
+            'triggerId',
+            'selectedForReview',
+            'coverageEffect',
+            'classification',
+            'reason',
+            'limitations',
+          ],
+          label,
+        )
+        assertEnum(selection.kind, ['range', 'opaque-problem'], `${label}.kind`)
+        assertRecordId(selection.triggerId, `${label}.triggerId`)
+        assertBoolean(selection.selectedForReview, `${label}.selectedForReview`)
+        assertEnum(
+          selection.coverageEffect,
+          [
+            'eligible-included',
+            'eligible-gap',
+            'context-only',
+            'previously-analyzed',
+            'out-of-scope',
+            'deferred-by-limit',
+          ],
+          `${label}.coverageEffect`,
+        )
+        if (selection.kind === 'range') {
+          requireFields(selection, ['sessionKey', 'turnId', 'evidenceWatermark'], label)
+          assertString(selection.sessionKey, `${label}.sessionKey`)
+          assertRecordId(selection.turnId, `${label}.turnId`)
+          assertNonNegativeInteger(selection.evidenceWatermark, `${label}.evidenceWatermark`)
+        } else if (
+          'sessionKey' in selection ||
+          'turnId' in selection ||
+          'evidenceWatermark' in selection
+        ) {
+          throw new TypeError(`${label} opaque problems cannot claim a Session range`)
+        }
+        assertEnum(
+          selection.classification,
+          [
+            'included',
+            'readable-partial',
+            'unavailable',
+            'corrupt',
+            'unsafe',
+            'excluded',
+            'weak-context',
+          ],
+          `${label}.classification`,
+        )
+        assertString(selection.reason, `${label}.reason`)
+        assertLimitations(selection.limitations, `${label}.limitations`)
+        const legalState =
+          (selection.classification === 'included' &&
+            selection.selectedForReview === true &&
+            selection.coverageEffect === 'eligible-included') ||
+          (selection.classification === 'readable-partial' &&
+            selection.selectedForReview === true &&
+            selection.coverageEffect === 'eligible-gap') ||
+          (['unavailable', 'corrupt', 'unsafe'].includes(selection.classification as string) &&
+            selection.selectedForReview === false &&
+            selection.coverageEffect === 'eligible-gap') ||
+          (selection.classification === 'weak-context' &&
+            selection.selectedForReview === true &&
+            selection.coverageEffect === 'context-only') ||
+          (selection.classification === 'excluded' &&
+            selection.selectedForReview === false &&
+            ['previously-analyzed', 'out-of-scope', 'deferred-by-limit'].includes(
+              selection.coverageEffect as string,
+            ))
+        if (!legalState) throw new TypeError(`${label} has a contradictory selection state`)
+        if (
+          selection.kind === 'opaque-problem' &&
+          (selection.selectedForReview ||
+            ['eligible-included', 'context-only'].includes(selection.coverageEffect as string))
+        ) {
+          throw new TypeError(`${label} opaque problems cannot be reviewed as readable evidence`)
+        }
+      })
+      const evidenceSelections = value.evidenceSelections as unknown as ReviewEvidenceSelection[]
+      const orderedSelections = [...evidenceSelections].sort(
+        (left, right) =>
+          left.triggerId.localeCompare(right.triggerId) || left.kind.localeCompare(right.kind),
+      )
+      if (canonicalJson(orderedSelections) !== canonicalJson(evidenceSelections)) {
+        throw new TypeError('review.evidenceSelections must be canonical and duplicate-free')
+      }
+      if (
+        new Set(evidenceSelections.map(selection => selection.triggerId)).size !==
+        evidenceSelections.length
+      ) {
+        throw new TypeError('review.evidenceSelections contains a duplicate trigger')
+      }
+      const rangeAttempts = evidenceSelections.filter(
+        (
+          selection,
+        ): selection is ReviewEvidenceSelectionBase &
+          Extract<ReviewEvidenceSelection, { kind: 'range' }> =>
+          selection.kind === 'range' &&
+          ['eligible-included', 'eligible-gap'].includes(selection.coverageEffect),
+      )
+      const attemptedWatermarks = Object.fromEntries(
+        [...new Set(rangeAttempts.map(selection => selection.sessionKey))]
+          .sort()
+          .map(sessionKey => [
+            sessionKey,
+            Math.max(
+              ...rangeAttempts
+                .filter(selection => selection.sessionKey === sessionKey)
+                .map(selection => selection.evidenceWatermark),
+            ),
+          ]),
+      )
+      if (canonicalJson(attemptedWatermarks) !== canonicalJson(value.sessionWatermarks)) {
+        throw new TypeError('review.sessionWatermarks must equal exact attempted ranges')
+      }
+      const targetSelections = evidenceSelections.filter(
+        (
+          selection,
+        ): selection is ReviewEvidenceSelectionBase &
+          Extract<ReviewEvidenceSelection, { kind: 'range' }> =>
+          selection.kind === 'range' &&
+          ['eligible-included', 'eligible-gap', 'previously-analyzed'].includes(
+            selection.coverageEffect,
+          ),
+      )
+      const coverageTargets = Object.fromEntries(
+        [...new Set(targetSelections.map(selection => selection.sessionKey))]
+          .sort()
+          .map(sessionKey => [
+            sessionKey,
+            Math.max(
+              ...targetSelections
+                .filter(selection => selection.sessionKey === sessionKey)
+                .map(selection => selection.evidenceWatermark),
+            ),
+          ]),
+      )
+      if (canonicalJson(coverageTargets) !== canonicalJson(value.coverageTargetWatermarks)) {
+        throw new TypeError('review.coverageTargetWatermarks must equal exact prefix closure')
+      }
+      const attemptedTriggerIds = evidenceSelections
+        .filter(selection =>
+          ['eligible-included', 'eligible-gap'].includes(selection.coverageEffect),
+        )
+        .map(selection => selection.triggerId)
+        .sort()
+      if (canonicalJson(attemptedTriggerIds) !== canonicalJson(value.triggerIds)) {
+        throw new TypeError('review.triggerIds must equal exact attempted selections')
+      }
       assertRecordIdArray(value.triggerIds, 'review.triggerIds')
+      assertRecordIdArray(value.associationBatchIds, 'review.associationBatchIds')
       assertOptionalObjectRef(value, 'priorLedger', 'review')
       assertLimitations(value.limitations, 'review.limitations')
       assertReviewer(value.reviewer, 'review.reviewer')
@@ -2084,6 +2311,7 @@ function validateRecordShape(
       value.acceptedLimitations.forEach((code, index) =>
         assertEnum(code, [...LIMITATION_CODES], `coverage.acceptedLimitations[${index}]`),
       )
+      assertRecordIdArray(value.acceptedTriggerIds, 'coverage.acceptedTriggerIds')
       assertWatermarks(value.settledWatermarks, 'coverage.settledWatermarks')
       assertTimestamp(value.createdAt, 'coverage.createdAt')
       assertIdentity(value.actionId, path.actionId, 'coverage.actionId')

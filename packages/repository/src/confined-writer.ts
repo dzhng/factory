@@ -294,6 +294,43 @@ export class ConfinedWriter {
     }
   }
 
+  static async inspectTree(
+    path: string,
+    bounds: {
+      maximumEntries: number
+      maximumFileBytes: number
+      maximumBytes: number
+      maximumDepth?: number
+      afterEntryOpen?: (path: readonly Uint8Array[]) => Promise<void>
+    },
+  ): Promise<readonly { kind: 'directory' | 'file' | 'symlink'; path: string }[]> {
+    const backend = await loadBackend()
+    const root = await open(path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW)
+    const writer = new ConfinedWriter(root, backend, {
+      afterInventoryOpen: bounds.afterEntryOpen,
+    })
+    try {
+      const inventory = await writer.inventory(
+        bounds.maximumEntries,
+        bounds.maximumFileBytes,
+        bounds.maximumBytes,
+        bounds.maximumDepth,
+      )
+      return inventory.map(item => {
+        const [kind, encodedPath] = item.split(':', 2)
+        if (encodedPath === undefined) throw new Error('confined inventory entry is malformed')
+        return {
+          kind: kind === 'd' ? 'directory' : kind === 'f' ? 'file' : 'symlink',
+          path: new TextDecoder('utf-8', { fatal: true }).decode(
+            Buffer.from(encodedPath, 'base64'),
+          ),
+        }
+      })
+    } finally {
+      await root.close()
+    }
+  }
+
   private openExistingDirectory(parent: number, segment: Uint8Array): number {
     const name = confinedSegment(segment)
     const descriptor = this.backend.library.symbols.openat(
@@ -418,6 +455,7 @@ export class ConfinedWriter {
     maximumEntries: number,
     maximumFileBytes: number,
     maximumBytes: number,
+    maximumDepth = Number.MAX_SAFE_INTEGER,
     consumed = { bytes: 0 },
     descriptor = this.root.fd,
     prefix: Buffer[] = [],
@@ -429,6 +467,8 @@ export class ConfinedWriter {
     const entries = this.directoryEntries(descriptor, maximumEntries - inventory.length)
     for (const name of entries) {
       const path = [...prefix, name]
+      if (path.length > maximumDepth)
+        throw new Error('reconstruction inventory exceeds directory depth bound')
       const child = this.backend.library.symbols.openat(
         descriptor,
         this.backend.ptr(cString(name)),
@@ -587,6 +627,7 @@ export class ConfinedWriter {
           maximumEntries,
           maximumFileBytes,
           maximumBytes,
+          maximumDepth,
           consumed,
           child,
           path,
@@ -747,4 +788,21 @@ export class ConfinedWriter {
   async close(): Promise<void> {
     await this.root.close()
   }
+}
+
+/** Inventory a tree through directory descriptors; pathname swaps cannot hide or add entries. */
+export async function inventoryConfinedTree(
+  path: string,
+  bounds: {
+    maximumEntries: number
+    maximumFileBytes: number
+    maximumBytes: number
+    maximumDepth?: number
+    afterEntryOpen?: (path: readonly Uint8Array[]) => Promise<void>
+  },
+) {
+  const inventory = await ConfinedWriter.inspectTree(path, bounds)
+  if (inventory.some(entry => entry.kind === 'symlink'))
+    throw new Error('confined inventory refuses symbolic links')
+  return inventory
 }
