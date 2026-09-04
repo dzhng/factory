@@ -4,6 +4,11 @@ This document defines the portable, Git-visible format. Runtime SQLite, locks,
 caches, temporary directories, provider homes, and machine paths are not part
 of it.
 
+The exported TypeScript schemas and runtime validators in
+`packages/contract/src/index.ts` are the executable authority for exact field
+sets and enums. This document owns their durable meaning; adding a public field
+changes the format and must update both authorities together.
+
 ## Ownership
 
 Factory v1 owns only:
@@ -60,6 +65,11 @@ not infer or migrate repository lineage.
 schema-defined repository policy, including `canonicalBranch`, `reviewer`,
 automatic review, decision confirmation policy, and review limits. Unknown
 fields are preserved by read-modify-write operations.
+
+`reviewer` is either `"auto"`, which defers provider selection until a review
+is created, or an object selecting a provider and optional model and effort.
+Review manifests always record the resolved reviewer object; they never store
+`"auto"`.
 
 ## Sessions and Turns
 
@@ -200,3 +210,10 @@ operational state inside that runtime root while sharing repository identity.
 Runtime data may contain absolute paths needed to return to a worktree. It is
 non-portable and non-authoritative. Factory must remain able to rebuild every
 derived projection from `.factory` alone.
+
+V1 requires the Git common directory and worktree to reside on the same
+filesystem so create-only records can be staged outside `.factory` and
+published atomically. Factory performs a read-only filesystem preflight before
+`.factory` initialization or mutation, then treats `EXDEV` from the actual
+publication as the authoritative refusal for unusual mount layouts. It never
+falls back to a non-atomic write.

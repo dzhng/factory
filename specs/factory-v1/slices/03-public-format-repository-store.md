@@ -1,5 +1,8 @@
 # 03 — Public format and repository store
 
+Status: **implemented; the exact Bun 1.3.14 Docker image and browser screenshot
+critique are unavailable in the current environment**
+
 ## Contract
 
 Freeze the exact v1 schemas and implement the only writer allowed under
@@ -21,6 +24,9 @@ interface RepositoryStore {
   putObject(bytes: AsyncIterable<Uint8Array>): Promise<ObjectRef>;
   createImmutable(path: OwnedPath, bytes: Uint8Array): Promise<RecordRef>;
   updateConfig(change: ConfigChange): Promise<void>;
+  materializeObjectInventory(
+    refs: readonly ObjectRef[], destinationRoot: string
+  ): Promise<void>;
   verify(): Promise<RepositoryVerification>;
 }
 ```
@@ -63,3 +69,29 @@ objects are not silently pruned, and Factory never mutates Git state.
 Inspect the golden tree and independent verification report. If a field cannot
 be produced deterministically or verified without runtime state, change
 `format.md` now; do not hide that authority in a later package.
+
+## Implementation evidence
+
+`bun run lab:repository-store` runs the workbench in a network-disabled,
+read-only Docker container and writes deterministic JSON/HTML evidence under
+`specs/factory-v1/assets/repository-workbench`. It renders valid, partial,
+corrupt, too-new, and foreign-content trees, then reconstructs selected CAS
+objects into a fresh directory with no `.git` and verifies their exact hashes.
+
+The contract test suite exercises every v1 immutable record path, canonical
+JSON, lossless non-UTF-8 Git paths, time-sortable IDs, negative nested schema
+cases, path traversal refusal, path/payload identity, and the manifest
+compatibility stop. The Docker repository suite covers concurrent convergence
+and config updates, conflicting immutable creation, config unknown-field
+preservation, foreign and prefix-collision preservation, symlink refusal,
+object substitution and streamed size limits, missing references, truncated
+records, exact CAS path shape, cross-filesystem refusal, and compatibility
+rechecks before mutation.
+
+The HTML was generated and its data assertions passed. Docker ran the suite with
+the locally available Bun 1.3.11 image; repeated pulls of the pinned Bun 1.3.14
+image made no progress, while host-side formatting, types, lint, and builds use
+1.3.14. Exact-image Docker certification therefore remains unavailable rather
+than a pass. The required fresh-eyes PNG critique is also explicitly
+unavailable: the in-app browser security policy blocked navigation to the local
+report, and no alternate capture route was used.

@@ -284,3 +284,117 @@ second normative schema; the master specification and format own mechanics.
 - **Verdict:** Sound. The evidence remains useful without claiming more authority
   than it has.
 - **Confidence:** Medium.
+
+## Implementation choices — Slice 03 repository format
+
+### Keep executable schemas dependency-free and colocated with public types
+
+- **When:** Slice 03 public-format implementation.
+- **The choice:** `@factory/contract` owns TypeScript record types, exact
+  top-level runtime validators, enums, canonical encoding, ID/path helpers, and
+  owned-path construction in one module. The alternative was introducing a
+  schema library or generating a second schema representation before any
+  consumer exists, creating two authorities or a dependency-driven public
+  format.
+- **The gap:** The spec delegated the schema-validation library but required one
+  schema and owned-path authority.
+- **The reach:** Later slices import this package directly. Public field changes
+  must update the type and validator together, while configuration remains the
+  deliberate unknown-field-preserving exception.
+- **Verdict:** Sound for v1. The contract is small enough to review directly and
+  does not inherit third-party coercion or unknown-field defaults.
+- **Confidence:** Medium.
+
+### Use create-only hard links as the immutable publication point
+
+- **When:** Slice 03 repository writer implementation.
+- **The choice:** Immutable bytes are written to a unique temporary file in the
+  Git common directory's `factory-runtime` staging area and published with an
+  atomic hard link. A concurrent identical writer converges after byte
+  comparison; different bytes fail. Mutable config is staged there and uses an
+  atomic rename. The alternative was direct exclusive writes, which can expose
+  truncated records after interruption, or temporary files under `.factory`,
+  which can leak runtime debris into committed evidence after a crash.
+- **The gap:** The spec required atomic create-only behavior but delegated
+  temporary naming and publication mechanics.
+- **The reach:** Every future Session, observation, trigger, review, and decision
+  record gets the same no-overwrite boundary without file-type-specific writers.
+- **Verdict:** Sound on the supported local filesystems and directly exercised
+  under concurrent Docker workbench writes.
+- **Confidence:** High.
+
+### Bound individual CAS objects at 64 MiB by default
+
+- **When:** Slice 03 object-store implementation.
+- **The choice:** The store refuses an individual object above 64 MiB unless its
+  caller supplies a narrower or wider explicit repository-store limit. The
+  alternative was unbounded accumulation by a malformed provider input before
+  later review bundle limits could apply.
+- **The gap:** The spec required oversized-object refusal but did not supply the
+  initial object boundary.
+- **The reach:** Capture adapters must segment larger evidence or make a reviewed
+  limit decision. The value is an implementation safety default, not an excuse
+  to truncate canonical provider bytes silently.
+- **Verdict:** Sound but should be revisited with real large-transcript evidence
+  during Slice 06.
+- **Confidence:** Medium.
+
+### Refuse cross-filesystem Git metadata in v1
+
+- **When:** Slice 03 atomic-publication review.
+- **The choice:** V1 requires the worktree and Git common directory to share a
+  filesystem. Factory uses a read-only device preflight and converts `EXDEV`
+  from the actual hard-link or rename publication into a typed refusal. The
+  latter is authoritative where mount topology is stricter than device
+  identity. The alternative was to stage inside `.factory`, leaving crash
+  debris in committed data, or silently fall back from create-only atomic
+  publication.
+- **The gap:** The runtime companion was assigned to the Git common directory,
+  but the original format did not state the filesystem identity needed by its
+  publication primitive.
+- **The reach:** Ordinary repositories and same-filesystem worktrees work as
+  specified. Supporting split filesystems later requires a newly proven
+  publication mechanism and an explicit format/runtime contract change.
+- **Verdict:** Sound for an unlaunched v1: a typed limitation is safer than
+  weakening immutability or contaminating `.factory`.
+- **Confidence:** High.
+
+### Serialize repository mutations behind one runtime lock
+
+- **When:** Slice 03 concurrency and compatibility review.
+- **The choice:** Every object publication, immutable record creation, and
+  config update acquires one repository-runtime lock and rereads the current
+  root manifest before touching `.factory`. Config merging happens inside that
+  lock. The alternative was independent atomic file operations: individually
+  untorn, but able to lose concurrent config fields or write through a store
+  handle opened before Git moved to a newer format manifest.
+- **The gap:** The spec required concurrent immutable convergence and a
+  read-before-mutation compatibility stop, but did not define their shared
+  operation boundary.
+- **The reach:** All later writers inherit one correctness boundary. Slice 04
+  may replace the simple directory lock with its measured journal lock, but it
+  must preserve serialization and the in-lock manifest generation check. The
+  v1 lock is never automatically stolen based on PID, age, corrupt metadata, or
+  apparent process death; an unresolved stale lock fails closed and requires
+  diagnosis or manual cleanup.
+- **Verdict:** Sound. It prevents lost config updates and stale-reader writes
+  without making runtime lock state part of the portable format.
+- **Confidence:** High.
+
+### Key runtime state by the resolved Git worktree directory
+
+- **When:** Slice 03 linked-worktree review.
+- **The choice:** Runtime staging and mutation locks live below a deterministic
+  hash of the resolved worktree Git directory inside the Git common runtime
+  root. The portable repository identity remains shared, while operational
+  state is isolated per worktree. The alternative was one common lock and
+  staging directory for every linked worktree.
+- **The gap:** The format required separately keyed operational state but did
+  not choose the local key material.
+- **The reach:** A stale lock or active write in one worktree cannot block an
+  unrelated linked worktree. Moving or recreating a worktree may leave
+  disposable runtime state under its old key; no portable evidence depends on
+  that key.
+- **Verdict:** Sound. The resolved Git directory is local, stable for a
+  worktree's lifetime, and never enters committed evidence.
+- **Confidence:** High.

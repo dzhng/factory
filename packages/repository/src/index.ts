@@ -1,0 +1,696 @@
+import { createHash, randomUUID } from 'node:crypto'
+import { createReadStream, createWriteStream } from 'node:fs'
+import {
+  link,
+  lstat,
+  mkdir,
+  readFile,
+  readdir,
+  realpath,
+  rename,
+  rm,
+  stat,
+  unlink,
+  writeFile,
+} from 'node:fs/promises'
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
+import { pipeline } from 'node:stream/promises'
+import { setTimeout as delay } from 'node:timers/promises'
+
+import {
+  assertNoMachinePaths,
+  canonicalJson,
+  makeOwnedPath,
+  objectOwnedPath,
+  parseRepositoryConfig,
+  parseRepositoryManifest,
+  validateObjectRef,
+  validatePublicRecord,
+  type JsonValue,
+  type ObjectRef,
+  type OwnedPath,
+  type RepositoryConfig,
+  type RepositoryManifest,
+} from '@factory/contract'
+
+export type RecordRef = {
+  path: OwnedPath
+  sha256: string
+  bytes: number
+}
+
+export type ConfigChange = Partial<
+  Pick<
+    RepositoryConfig,
+    'canonicalBranch' | 'reviewer' | 'automaticReview' | 'decisionConfirmation' | 'reviewLimits'
+  >
+>
+
+export type VerificationIssue = {
+  code:
+    | 'unsafe-symbolic-link'
+    | 'invalid-structured-record'
+    | 'object-name-invalid'
+    | 'object-digest-mismatch'
+    | 'object-oversized'
+    | 'referenced-object-missing'
+    | 'referenced-object-size-mismatch'
+  path: string
+  detail: string
+}
+
+export type RepositoryVerification = {
+  repositoryId: string
+  recordsChecked: number
+  objectsChecked: number
+  issues: readonly VerificationIssue[]
+}
+
+export class ImmutableRecordConflictError extends Error {
+  constructor(readonly path: OwnedPath) {
+    super(`immutable Factory record already exists with different bytes: ${path}`)
+    this.name = 'ImmutableRecordConflictError'
+  }
+}
+
+export class UnsupportedRepositoryLayoutError extends Error {
+  constructor() {
+    super('Factory v1 requires the Git common directory and worktree to share one filesystem')
+    this.name = 'UnsupportedRepositoryLayoutError'
+  }
+}
+
+export type RepositoryStoreOptions = {
+  maxObjectBytes?: number
+  /** Override for tests; production stages under the Git common directory. */
+  runtimeRoot?: string
+  /** Shortens lock-contention tests without weakening the production default. */
+  mutationLockTimeoutMs?: number
+}
+
+const DEFAULT_MAX_OBJECT_BYTES = 64 * 1024 * 1024
+const OWNED_DIRECTORIES = [
+  'sessions',
+  'repository-observations',
+  'pull-requests',
+  'review-triggers',
+  'reviews',
+  'decisions',
+  'objects',
+] as const
+
+function sha256(bytes: Uint8Array): string {
+  return createHash('sha256').update(bytes).digest('hex')
+}
+
+function decodeUtf8(bytes: Uint8Array): string {
+  return new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+}
+
+async function pathKind(
+  path: string,
+): Promise<'missing' | 'file' | 'directory' | 'symlink' | 'other'> {
+  try {
+    const entry = await lstat(path)
+    if (entry.isSymbolicLink()) return 'symlink'
+    if (entry.isFile()) return 'file'
+    if (entry.isDirectory()) return 'directory'
+    return 'other'
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 'missing'
+    throw error
+  }
+}
+
+async function requireOrdinaryFile(path: string): Promise<void> {
+  const kind = await pathKind(path)
+  if (kind === 'symlink') throw new Error(`Factory refuses symbolic link: ${path}`)
+  if (kind !== 'file') throw new Error(`Factory requires an ordinary file: ${path}`)
+}
+
+async function readManifest(path: string): Promise<RepositoryManifest> {
+  await requireOrdinaryFile(path)
+  const text = decodeUtf8(await readFile(path))
+  const manifest = parseRepositoryManifest(JSON.parse(text))
+  if (canonicalJson(manifest) !== text) throw new TypeError('manifest is not canonical JSON')
+  return manifest
+}
+
+async function ensureDirectory(path: string): Promise<void> {
+  const kind = await pathKind(path)
+  if (kind === 'symlink') throw new Error(`Factory refuses symbolic link: ${path}`)
+  if (kind === 'missing') {
+    try {
+      await mkdir(path)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+      if ((await pathKind(path)) !== 'directory') {
+        throw new Error(`Factory requires a directory: ${path}`)
+      }
+    }
+    return
+  }
+  if (kind !== 'directory') throw new Error(`Factory requires a directory: ${path}`)
+}
+
+async function ensureStagingRoot(path: string): Promise<void> {
+  const missing: string[] = []
+  let current = path
+  while ((await pathKind(current)) === 'missing') {
+    missing.push(basename(current))
+    const parent = dirname(current)
+    if (parent === current) throw new Error(`Factory cannot resolve staging root: ${path}`)
+    current = parent
+  }
+  if ((await pathKind(current)) !== 'directory') {
+    throw new Error(`Factory requires a directory: ${current}`)
+  }
+  for (const segment of missing.reverse()) {
+    current = join(current, segment)
+    await ensureDirectory(current)
+  }
+}
+
+async function ensureOwnedParent(factoryRoot: string, path: OwnedPath): Promise<string> {
+  await ensureDirectory(factoryRoot)
+  const parts = path.split('/')
+  let current = factoryRoot
+  for (const part of parts.slice(0, -1)) {
+    current = join(current, part)
+    await ensureDirectory(current)
+  }
+  return join(factoryRoot, path)
+}
+
+function validateStructuredRecord(path: OwnedPath, bytes: Uint8Array): void {
+  const text = decodeUtf8(bytes)
+  if (path.endsWith('.json')) {
+    const value = JSON.parse(text) as JsonValue
+    if (canonicalJson(value) !== text) throw new TypeError(`${path} is not canonical JSON`)
+    validatePublicRecord(path, value)
+    return
+  }
+  if (path.endsWith('.jsonl')) {
+    if (!text.endsWith('\n')) throw new TypeError(`${path} must end with a newline`)
+    for (const line of text.slice(0, -1).split('\n')) {
+      if (line.length === 0) throw new TypeError(`${path} contains an empty JSONL record`)
+      const value = JSON.parse(line) as JsonValue
+      if (canonicalJson(value) !== `${line}\n`) {
+        throw new TypeError(`${path} contains a non-canonical JSONL record`)
+      }
+      validatePublicRecord(path, value)
+    }
+    return
+  }
+  validatePublicRecord(path, text)
+}
+
+async function atomicCreate(
+  path: string,
+  ownedPath: OwnedPath,
+  bytes: Uint8Array,
+  stagingRoot: string,
+): Promise<void> {
+  await ensureStagingRoot(stagingRoot)
+  const temporary = join(stagingRoot, `create-${randomUUID()}`)
+  await writeFile(temporary, bytes, { flag: 'wx' })
+  try {
+    try {
+      await link(temporary, path)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EXDEV') {
+        throw new UnsupportedRepositoryLayoutError()
+      }
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+      if ((await pathKind(path)) === 'symlink') {
+        throw new Error(`Factory refuses symbolic link: ${path}`)
+      }
+      const existing = await readFile(path)
+      if (!existing.equals(bytes)) throw new ImmutableRecordConflictError(ownedPath)
+    }
+  } finally {
+    await unlink(temporary).catch(() => undefined)
+  }
+}
+
+async function atomicReplace(path: string, bytes: Uint8Array, stagingRoot: string): Promise<void> {
+  if ((await pathKind(path)) === 'symlink')
+    throw new Error(`Factory refuses symbolic link: ${path}`)
+  await ensureStagingRoot(stagingRoot)
+  const temporary = join(stagingRoot, `replace-${randomUUID()}`)
+  await writeFile(temporary, bytes, { flag: 'wx' })
+  try {
+    try {
+      await rename(temporary, path)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EXDEV') {
+        throw new UnsupportedRepositoryLayoutError()
+      }
+      throw error
+    }
+  } finally {
+    await unlink(temporary).catch(() => undefined)
+  }
+}
+
+async function resolveRuntimeRoot(repositoryRoot: string, configured?: string): Promise<string> {
+  const resolvedRepositoryRoot = await realpath(repositoryRoot)
+  if (configured !== undefined) {
+    if (!isAbsolute(configured)) throw new TypeError('runtimeRoot must be absolute')
+    const runtimeRoot = await realpath(configured)
+    if ((await pathKind(runtimeRoot)) !== 'directory') {
+      throw new TypeError('runtimeRoot must name an existing directory')
+    }
+    if ((await stat(runtimeRoot)).dev !== (await stat(resolvedRepositoryRoot)).dev) {
+      throw new UnsupportedRepositoryLayoutError()
+    }
+    return runtimeRoot
+  }
+  const dotGit = join(repositoryRoot, '.git')
+  const gitKind = await pathKind(dotGit)
+  let gitDirectory: string
+  if (gitKind === 'directory') {
+    gitDirectory = await realpath(dotGit)
+  } else if (gitKind === 'file') {
+    const marker = decodeUtf8(await readFile(dotGit)).trim()
+    const match = /^gitdir: (.+)$/.exec(marker)
+    if (match?.[1] === undefined) throw new Error('invalid linked-worktree .git file')
+    gitDirectory = await realpath(resolve(repositoryRoot, match[1]))
+  } else {
+    throw new Error('Factory repository writer requires Git metadata or an explicit runtimeRoot')
+  }
+  const commonMarker = join(gitDirectory, 'commondir')
+  const commonDirectory =
+    (await pathKind(commonMarker)) === 'file'
+      ? await realpath(resolve(gitDirectory, decodeUtf8(await readFile(commonMarker)).trim()))
+      : gitDirectory
+  if ((await stat(commonDirectory)).dev !== (await stat(resolvedRepositoryRoot)).dev) {
+    throw new UnsupportedRepositoryLayoutError()
+  }
+  const worktreeKey = sha256(new TextEncoder().encode(gitDirectory)).slice(0, 24)
+  return join(commonDirectory, 'factory-runtime', 'worktrees', worktreeKey, 'repository-staging')
+}
+
+function collectObjectRefs(value: unknown, refs: ObjectRef[]): void {
+  if (Array.isArray(value)) {
+    value.forEach(entry => collectObjectRefs(entry, refs))
+    return
+  }
+  if (value === null || typeof value !== 'object') return
+  const record = value as Record<string, unknown>
+  if (
+    record.algorithm === 'sha256' &&
+    typeof record.sha256 === 'string' &&
+    typeof record.bytes === 'number' &&
+    typeof record.mediaType === 'string' &&
+    typeof record.role === 'string'
+  ) {
+    refs.push(record as ObjectRef)
+  }
+  Object.entries(record).forEach(([key, entry]) => {
+    if (key !== 'parsed' && key !== 'subject') collectObjectRefs(entry, refs)
+  })
+}
+
+async function inspectObject(
+  path: string,
+  maximumBytes: number,
+): Promise<{ bytes: number; digest?: string; oversized: boolean }> {
+  const hash = createHash('sha256')
+  let bytes = 0
+  for await (const chunk of createReadStream(path)) {
+    bytes += chunk.byteLength
+    if (bytes > maximumBytes) return { bytes, oversized: true }
+    hash.update(chunk)
+  }
+  return { bytes, digest: hash.digest('hex'), oversized: false }
+}
+
+export class RepositoryStore {
+  readonly factoryRoot: string
+  readonly maxObjectBytes: number
+  readonly stagingRoot: string
+  private readonly mutationLockTimeoutMs: number
+  private readonly configuredRuntimeRoot?: string
+
+  private constructor(
+    readonly repositoryRoot: string,
+    readonly manifest: RepositoryManifest,
+    stagingRoot: string,
+    options: RepositoryStoreOptions,
+  ) {
+    this.factoryRoot = join(repositoryRoot, '.factory')
+    this.maxObjectBytes = options.maxObjectBytes ?? DEFAULT_MAX_OBJECT_BYTES
+    this.stagingRoot = stagingRoot
+    this.mutationLockTimeoutMs = options.mutationLockTimeoutMs ?? 5_000
+    this.configuredRuntimeRoot = options.runtimeRoot
+  }
+
+  static async open(
+    repositoryRoot: string,
+    options: RepositoryStoreOptions = {},
+  ): Promise<RepositoryStore> {
+    const factoryRoot = join(repositoryRoot, '.factory')
+    if ((await pathKind(factoryRoot)) === 'symlink') {
+      throw new Error(`Factory refuses symbolic link: ${factoryRoot}`)
+    }
+    const manifestPath = join(factoryRoot, 'manifest.json')
+    const manifest = await readManifest(manifestPath)
+    const stagingRoot = await resolveRuntimeRoot(repositoryRoot, options.runtimeRoot)
+    return new RepositoryStore(repositoryRoot, manifest, stagingRoot, options)
+  }
+
+  private async assertCurrentManifest(): Promise<void> {
+    const current = await readManifest(join(this.factoryRoot, 'manifest.json'))
+    if (canonicalJson(current) !== canonicalJson(this.manifest)) {
+      throw new ImmutableRecordConflictError(makeOwnedPath('manifest'))
+    }
+  }
+
+  private async withMutationLock<T>(operation: () => Promise<T>): Promise<T> {
+    await ensureStagingRoot(this.stagingRoot)
+    const lockPath = join(this.stagingRoot, 'repository.lock')
+    const ownerPath = join(lockPath, 'owner.json')
+    const token = randomUUID()
+    const deadline = Date.now() + this.mutationLockTimeoutMs
+    for (;;) {
+      try {
+        await mkdir(lockPath)
+        try {
+          await writeFile(ownerPath, JSON.stringify({ pid: process.pid, token }))
+        } catch (error) {
+          await rm(lockPath, { recursive: true, force: true })
+          throw error
+        }
+        break
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST' || Date.now() >= deadline) {
+          throw new Error('Factory repository mutation lock is unavailable', { cause: error })
+        }
+        await delay(10)
+      }
+    }
+    try {
+      await this.assertCurrentManifest()
+      return await operation()
+    } finally {
+      const owner = await readFile(ownerPath, 'utf8').catch(() => '')
+      if (owner.includes(token)) await rm(lockPath, { recursive: true, force: true })
+    }
+  }
+
+  async putObject(
+    source: AsyncIterable<Uint8Array>,
+    metadata: { mediaType?: string; role?: string } = {},
+  ): Promise<ObjectRef> {
+    const chunks: Uint8Array[] = []
+    let bytes = 0
+    for await (const chunk of source) {
+      bytes += chunk.byteLength
+      if (bytes > this.maxObjectBytes) {
+        throw new Error(`Factory object exceeds maximum of ${this.maxObjectBytes} bytes`)
+      }
+      chunks.push(chunk.slice())
+    }
+    const content = Buffer.concat(chunks)
+    const hash = sha256(content)
+    const path = objectOwnedPath(hash)
+    await this.withMutationLock(async () => {
+      const destination = await ensureOwnedParent(this.factoryRoot, path)
+      await atomicCreate(destination, path, content, this.stagingRoot)
+    })
+    return {
+      algorithm: 'sha256',
+      sha256: hash,
+      bytes,
+      mediaType: metadata.mediaType ?? 'application/octet-stream',
+      role: metadata.role ?? 'raw',
+    }
+  }
+
+  async createImmutable(path: OwnedPath, bytes: Uint8Array): Promise<RecordRef> {
+    if (path === makeOwnedPath('manifest') || path === makeOwnedPath('config')) {
+      throw new TypeError('manifest and config use their dedicated repository operations')
+    }
+    if (path.startsWith('objects/')) {
+      throw new TypeError('objects use putObject so their identity is derived from exact bytes')
+    }
+    validateStructuredRecord(path, bytes)
+    await this.withMutationLock(async () => {
+      const destination = await ensureOwnedParent(this.factoryRoot, path)
+      await atomicCreate(destination, path, bytes, this.stagingRoot)
+    })
+    return { path, sha256: sha256(bytes), bytes: bytes.byteLength }
+  }
+
+  async updateConfig(change: ConfigChange): Promise<void> {
+    await this.withMutationLock(async () => {
+      const configPath = join(this.factoryRoot, 'config.json')
+      await requireOrdinaryFile(configPath)
+      const existing = parseRepositoryConfig(JSON.parse(decodeUtf8(await readFile(configPath))))
+      const updated = parseRepositoryConfig({ ...existing, ...change })
+      await atomicReplace(
+        configPath,
+        new TextEncoder().encode(canonicalJson(updated)),
+        this.stagingRoot,
+      )
+    })
+  }
+
+  /** Copy a selected, verified CAS inventory into a disposable bundle tree. */
+  async materializeObjectInventory(
+    refs: readonly ObjectRef[],
+    destinationRoot: string,
+  ): Promise<void> {
+    await this.assertCurrentManifest()
+    for (const ref of refs) {
+      validateObjectRef(ref)
+      const relativePath = objectOwnedPath(ref.sha256)
+      const source = join(this.factoryRoot, relativePath)
+      await requireOrdinaryFile(source)
+      const sourceInspection = await inspectObject(source, this.maxObjectBytes)
+      if (
+        sourceInspection.oversized ||
+        sourceInspection.bytes !== ref.bytes ||
+        sourceInspection.digest !== ref.sha256
+      ) {
+        throw new Error(`Factory object failed verification: ${ref.sha256}`)
+      }
+      const destination = await ensureOwnedParent(destinationRoot, relativePath)
+      const temporary = join(dirname(destination), `.factory-materialize-${randomUUID()}`)
+      try {
+        await pipeline(createReadStream(source), createWriteStream(temporary, { flags: 'wx' }))
+        const temporaryInspection = await inspectObject(temporary, this.maxObjectBytes)
+        if (
+          temporaryInspection.oversized ||
+          temporaryInspection.bytes !== ref.bytes ||
+          temporaryInspection.digest !== ref.sha256
+        ) {
+          throw new Error(`Materialized Factory object failed verification: ${ref.sha256}`)
+        }
+        try {
+          await link(temporary, destination)
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+          await requireOrdinaryFile(destination)
+        }
+      } finally {
+        await unlink(temporary).catch(() => undefined)
+      }
+      const destinationInspection = await inspectObject(destination, this.maxObjectBytes)
+      if (
+        destinationInspection.oversized ||
+        destinationInspection.bytes !== ref.bytes ||
+        destinationInspection.digest !== ref.sha256
+      ) {
+        throw new Error(`Materialized Factory object failed verification: ${ref.sha256}`)
+      }
+    }
+  }
+
+  async verify(): Promise<RepositoryVerification> {
+    const reopened = await RepositoryStore.open(this.repositoryRoot, {
+      maxObjectBytes: this.maxObjectBytes,
+      runtimeRoot: this.configuredRuntimeRoot,
+    })
+    const issues: VerificationIssue[] = []
+    const refs: ObjectRef[] = []
+    let recordsChecked = 1
+    let objectsChecked = 0
+
+    const inspectTree = async (root: string, relativeRoot: string): Promise<void> => {
+      for (const entry of await readdir(root, { withFileTypes: true })) {
+        const relativePath =
+          relativeRoot.length === 0 ? entry.name : `${relativeRoot}/${entry.name}`
+        const fullPath = join(root, entry.name)
+        if (entry.isSymbolicLink()) {
+          issues.push({
+            code: 'unsafe-symbolic-link',
+            path: relativePath,
+            detail: 'owned Factory trees may not contain symbolic links',
+          })
+          continue
+        }
+        if (entry.isDirectory()) {
+          await inspectTree(fullPath, relativePath)
+          continue
+        }
+        if (!entry.isFile()) continue
+        if (relativePath.startsWith('objects/')) {
+          objectsChecked += 1
+          const match = /^objects\/sha256\/([0-9a-f]{2})\/([0-9a-f]{62})$/.exec(relativePath)
+          if (match === null) {
+            issues.push({
+              code: 'object-name-invalid',
+              path: relativePath,
+              detail: 'object path does not encode lowercase SHA-256',
+            })
+            continue
+          }
+          const expectedHash = `${match[1]}${match[2]}`
+          const inspected = await inspectObject(fullPath, reopened.maxObjectBytes)
+          if (inspected.oversized) {
+            issues.push({
+              code: 'object-oversized',
+              path: relativePath,
+              detail: `object exceeds ${reopened.maxObjectBytes} bytes`,
+            })
+          } else if (inspected.digest !== expectedHash) {
+            issues.push({
+              code: 'object-digest-mismatch',
+              path: relativePath,
+              detail: 'object bytes do not match path digest',
+            })
+          }
+          continue
+        }
+        recordsChecked += 1
+        try {
+          const content = await readFile(fullPath)
+          validateStructuredRecord(relativePath as OwnedPath, content)
+          if (relativePath.endsWith('.json')) {
+            collectObjectRefs(JSON.parse(decodeUtf8(content)), refs)
+          } else if (relativePath.endsWith('.jsonl')) {
+            for (const line of decodeUtf8(content).trimEnd().split('\n')) {
+              collectObjectRefs(JSON.parse(line), refs)
+            }
+          }
+        } catch (error) {
+          issues.push({
+            code: 'invalid-structured-record',
+            path: relativePath,
+            detail: error instanceof Error ? error.message : String(error),
+          })
+        }
+      }
+    }
+
+    const configPath = join(this.factoryRoot, 'config.json')
+    if ((await pathKind(configPath)) === 'file') {
+      recordsChecked += 1
+      try {
+        const bytes = await readFile(configPath)
+        const config = parseRepositoryConfig(JSON.parse(decodeUtf8(bytes)))
+        if (canonicalJson(config) !== decodeUtf8(bytes))
+          throw new Error('config is not canonical JSON')
+        assertNoMachinePaths(config)
+      } catch (error) {
+        issues.push({
+          code: 'invalid-structured-record',
+          path: 'config.json',
+          detail: error instanceof Error ? error.message : String(error),
+        })
+      }
+    }
+
+    for (const area of OWNED_DIRECTORIES) {
+      const root = join(this.factoryRoot, area)
+      const kind = await pathKind(root)
+      if (kind === 'symlink') {
+        issues.push({
+          code: 'unsafe-symbolic-link',
+          path: area,
+          detail: 'owned Factory trees may not be symbolic links',
+        })
+      } else if (kind === 'directory') {
+        await inspectTree(root, area)
+      }
+    }
+
+    for (const ref of refs) {
+      const relativePath = objectOwnedPath(ref.sha256)
+      const fullPath = join(this.factoryRoot, relativePath)
+      if ((await pathKind(fullPath)) !== 'file') {
+        issues.push({
+          code: 'referenced-object-missing',
+          path: relativePath,
+          detail: `referenced ${ref.role} object is missing`,
+        })
+      } else if ((await lstat(fullPath)).size !== ref.bytes) {
+        issues.push({
+          code: 'referenced-object-size-mismatch',
+          path: relativePath,
+          detail: `referenced ${ref.role} object length differs from manifest`,
+        })
+      }
+    }
+
+    return {
+      repositoryId: reopened.manifest.repositoryId,
+      recordsChecked,
+      objectsChecked,
+      issues,
+    }
+  }
+}
+
+export async function openRepositoryStore(
+  repositoryRoot: string,
+  options: RepositoryStoreOptions = {},
+): Promise<RepositoryStore> {
+  return await RepositoryStore.open(repositoryRoot, options)
+}
+
+export async function initializeRepositoryStore(
+  repositoryRoot: string,
+  manifest: RepositoryManifest,
+  config: RepositoryConfig,
+  options: RepositoryStoreOptions = {},
+): Promise<RepositoryStore> {
+  parseRepositoryManifest(manifest)
+  parseRepositoryConfig(config)
+  assertNoMachinePaths(config)
+  const manifestBytes = new TextEncoder().encode(canonicalJson(manifest))
+  const configBytes = new TextEncoder().encode(canonicalJson(config))
+  const factoryRoot = join(repositoryRoot, '.factory')
+  if ((await pathKind(factoryRoot)) === 'missing') {
+    await resolveRuntimeRoot(repositoryRoot, options.runtimeRoot)
+  }
+  await ensureDirectory(factoryRoot)
+  const manifestPath = makeOwnedPath('manifest')
+  const manifestDestination = join(factoryRoot, manifestPath)
+  let store: RepositoryStore
+  if ((await pathKind(manifestDestination)) === 'missing') {
+    const stagingRoot = await resolveRuntimeRoot(repositoryRoot, options.runtimeRoot)
+    await atomicCreate(manifestDestination, manifestPath, manifestBytes, stagingRoot)
+    store = await RepositoryStore.open(repositoryRoot, options)
+  } else {
+    store = await RepositoryStore.open(repositoryRoot, options)
+    if (canonicalJson(store.manifest) !== canonicalJson(manifest)) {
+      throw new ImmutableRecordConflictError(manifestPath)
+    }
+  }
+  const configPath = makeOwnedPath('config')
+  const configDestination = join(factoryRoot, configPath)
+  if ((await pathKind(configDestination)) === 'missing') {
+    await atomicCreate(configDestination, configPath, configBytes, store.stagingRoot)
+  } else {
+    await requireOrdinaryFile(configDestination)
+    const existingConfig = decodeUtf8(await readFile(configDestination))
+    const parsedConfig = parseRepositoryConfig(JSON.parse(existingConfig))
+    if (canonicalJson(parsedConfig) !== existingConfig) {
+      throw new TypeError('config is not canonical JSON')
+    }
+  }
+  return store
+}

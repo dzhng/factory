@@ -13,6 +13,17 @@
         "typescript": "5.9.2",
       },
     },
+    "packages/contract": {
+      "name": "@factory/contract",
+      "version": "0.0.0",
+    },
+    "packages/repository": {
+      "name": "@factory/repository",
+      "version": "0.0.0",
+      "dependencies": {
+        "@factory/contract": "workspace:*",
+      },
+    },
     "packages/reviewer": {
       "name": "@factory/reviewer",
       "version": "0.0.0",
@@ -26,6 +37,10 @@
     },
   },
   "packages": {
+    "@factory/contract": ["@factory/contract@workspace:packages/contract"],
+
+    "@factory/repository": ["@factory/repository@workspace:packages/repository"],
+
     "@factory/reviewer": ["@factory/reviewer@workspace:packages/reviewer"],
 
     "@factory/test-harness": ["@factory/test-harness@workspace:packages/test-harness"],
