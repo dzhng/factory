@@ -398,3 +398,268 @@ second normative schema; the master specification and format own mechanics.
 - **Verdict:** Sound. The resolved Git directory is local, stable for a
   worktree's lifetime, and never enters committed evidence.
 - **Confidence:** High.
+
+## Implementation choices — Slice 04 runtime journal
+
+### Use SQLite transactions beside a synced raw-byte CAS
+
+- **When:** Slice 04 engine-selection checkpoint.
+- **The choice:** A hook first writes its exact provider bytes to a temporary
+  file, syncs them, atomically publishes them by hash, and syncs their directory.
+  Only then may a SQLite transaction publish the event row and acknowledge the
+  hook. SQLite owns the shared sequence counter, idempotency identities, Stop
+  claims, and completions; the raw bytes remain ordinary inspectable files. The
+  tested mkdir-lock segmented candidate could also number 200 concurrent
+  events, but killing its lock owner left a stale lock. Stealing that lock by
+  process ID or age can race a new living owner, while refusing to steal it
+  prevents recovery forever. This measurement does not rule out a future
+  segmented design with an operating-system-released fence such as `fcntl`.
+- **The gap:** The spec explicitly delegated SQLite versus a segmented append
+  log until the crash and latency lab measured both concrete candidates.
+- **The reach:** All linked worktrees share one Git-common journal and its
+  sequence. Bun uses its built-in SQLite binding and Node uses `node:sqlite`, so
+  no native addon becomes a release dependency. Runtime SQLite files remain
+  disposable and never become portable evidence.
+- **Verdict:** Sound, provisionally resolving the human checkpoint. The Docker
+  lab passed every SQLite crash boundary and the 8-by-25 contention oracle,
+  while producing a concrete stale-lock failure for the segmented alternative.
+- **Confidence:** High.
+
+### Advance an explicit counter only for a new idempotency identity
+
+- **When:** Slice 04 journal schema design.
+- **The choice:** Suppose a provider retries one event after losing Factory's
+  response. Factory hashes the journal's local runtime scope, provider, native
+  Session ID, capture generation, and provider event ID into one identity. The
+  transaction returns the existing row when every byte and fact agrees, rejects
+  conflicting reuse as corruption, and advances `next_sequence` only when it
+  inserts a genuinely new identity. A database-generated auto-increment value
+  could be consumed by an ignored insert or rolled-back attempt and leave a gap.
+- **The gap:** The spec required idempotency and unbroken logical order but did
+  not choose the sequence-allocation mechanism or the complete identity tuple.
+- **The reach:** Retries, simultaneous hook processes, and linked worktrees all
+  preserve an exact zero-based order. Recreating the Git-common runtime starts a
+  new local scope rather than confusing unrelated journal lifetimes.
+- **Verdict:** Sound. The counter update and event insert share one committed
+  transaction, which is the property that rules out phantom sequence numbers.
+- **Confidence:** High.
+
+### Bound one capture record and require a SQLite-capable Node 22
+
+- **When:** Slice 04 input and packaging review.
+- **The choice:** One raw hook record is limited to 64 MiB, provider/session/
+  event identifiers to 4 KiB each, and an operational path to 32 KiB. Inputs
+  outside those limits fail through the provider-valid nonblocking hook path
+  before sequence allocation. The runtime-journal package requires Node 22.13
+  or newer because earlier Node 22 releases do not consistently expose
+  `node:sqlite`; Bun uses its built-in binding. One journal lifetime is bounded
+  at 100,000 rows, one Turn at 10,000 events, and one claim read at 64 MiB of
+  exact raw bytes; reads are sequential and enforce file size before allocation.
+  Event metadata and each claim/completion table are limited to 64 MiB in total
+  and read in bounded pages; individual claim and completion JSON are limited to
+  1 MiB and 128 KiB respectively. A Turn that exceeds its event or raw-byte
+  recovery bound is returned as typed unavailable work, so it cannot starve
+  ready Stops in other Sessions.
+- **The gap:** Unbounded metadata or payloads could exhaust a hook process, and
+  the workspace-wide `node >=22` declaration includes releases without the
+  selected storage engine.
+- **The reach:** A provider event larger than the bound remains a visible
+  capture failure rather than partially durable evidence. Release verification
+  must exercise exact Node 22.13+ authority; the current host evidence is Node
+  24 only.
+- **Verdict:** Sound for v1 and aligned with the repository CAS's 64 MiB object
+  bound, but the raw limit should move only with measured provider evidence.
+- **Confidence:** Medium.
+
+### Make a Stop claim a permanent frozen fence
+
+- **When:** Slice 04 claim/recovery state-machine design.
+- **The choice:** Claiming a Stop stores one immutable claim containing the Stop
+  identity, its sequence cutoff, and every included event identity. Retrying or
+  reopening returns that same claim; completing it records the exact verified
+  Turn reference. Factory never expires, steals, or silently replaces a claim
+  based on time, process ID, or apparent owner death. Only the transaction that
+  creates the claim receives execution authority; concurrent callers receive an
+  `already-claimed` observation. A later process resumes the durable claim
+  through explicit recovery instead of guessing whether the earlier process was
+  still live.
+- **The gap:** The API named claims and recovery but did not define lease,
+  fencing, or cutoff semantics.
+- **The reach:** Slice 06 materialization receives a stable input set across
+  crashes and may publish idempotently before completing the claim. New Session
+  events after the cutoff belong to a later Turn rather than changing work
+  already in progress.
+- **Verdict:** Sound. Permanent state plus immutable repository publication
+  removes the unsafe ownership inference that a renewable lease would require.
+- **Confidence:** High.
+
+### Require repository proof before completing a claim
+
+- **When:** Slice 04 adversarial state-machine review.
+- **The choice:** Completion accepts an owned Turn manifest path and hash only
+  after a repository-provided capability returns the exact verified immutable
+  bytes for that claim. The journal checks those bytes again before committing.
+  A path-shaped string and plausible hash are not proof that a Turn exists.
+- **The gap:** The original seam accepted a syntactically valid reference, which
+  could permanently hide pending recovery work without any committed Turn.
+- **The reach:** Slice 06 must connect materialization through the repository
+  store's verification boundary. Tests and crash labs create real immutable
+  files behind an injected capability rather than inventing Turn references.
+- **Verdict:** Sound. Only portable repository truth can retire runtime work.
+- **Confidence:** High.
+
+### Resolve one private journal from Git common metadata
+
+- **When:** Slice 04 runtime-path security review.
+- **The choice:** Production opening starts from a repository worktree and
+  resolves its Git common directory; an arbitrary runtime root is available
+  only through an explicitly named test seam. Journal directories are `0700`,
+  files are `0600`, owned entries reject symbolic links, and created directory
+  entries are synced through the pre-existing Git common parent.
+- **The gap:** Accepting an arbitrary production root could silently split
+  linked worktrees into multiple authorities, while default filesystem modes
+  and path-following could expose provider payloads or redirect writes.
+- **The reach:** Repository identity never chooses runtime identity. All linked
+  worktrees converge on one local sequence and raw store, while operational
+  worktree paths remain routing metadata only.
+- **Verdict:** Sound. The API makes the one-journal invariant difficult to
+  violate accidentally and keeps sensitive raw capture private.
+- **Confidence:** High.
+
+### Keep hook diagnostics private and best-effort
+
+- **When:** Slice 04 nonblocking hook error path.
+- **The choice:** The strict append method still throws so callers can diagnose
+  a failed durability promise. The hook-facing wrapper catches that error,
+  attempts to sync a text diagnostic under Git-common runtime state, and returns
+  without throwing even if the diagnostic disk is also unavailable. Provider
+  adapters remain responsible for their provider-valid response bytes; the
+  journal does not invent a shared Codex/Claude response protocol.
+- **The gap:** The spec required a visible but nonblocking hook failure without
+  assigning the boundary between storage errors and provider responses.
+- **The reach:** Slice 06 can always let the provider Session continue while
+  `doctor` gains a private diagnostic to report when storage permitted it. No
+  transient failure detail enters committed `.factory` evidence.
+- **Verdict:** Sound. It separates the strict durability API from fail-open hook
+  control flow and leaves provider vocabulary with its adapter.
+- **Confidence:** Medium.
+
+## Implementation choices — Slice 05 Git observation
+
+### Finish observation before publishing repository evidence
+
+- **When:** Slice 05 safe Git observation.
+- **The choice:** The observer holds each size-bounded captured file until it
+  finishes its ending race check, then writes captured files and the manifest
+  through a supplied object store. For example, Slice 06 can observe a source
+  tree, learn that a file changed halfway through, and only then publish the
+  explicitly partial evidence into `.factory`. The
+  alternative was to write CAS objects during the observation window, which
+  would make Factory's own new files appear in Git status and blur whether the
+  developer's checkout changed.
+- **The gap:** The slice fixed a read-only observer API and the repository
+  package as the eventual writer, but did not place the publication boundary
+  relative to the ending sentinel.
+- **The reach:** Capture must connect the object-store seam to the sole
+  repository writer and persist the returned observation; it must not move
+  `.factory` writes back inside the Git read window. Slice 06 must retain the
+  same per-file and aggregate-memory bounds when it connects this observer.
+- **Verdict:** Sound. The race result describes only the subject checkout, not
+  side effects caused by recording the result.
+- **Confidence:** High.
+
+### Do not ask Git to inspect live worktree content
+
+- **When:** Slice 05 hostile-filter verification.
+- **The choice:** Factory captures exact worktree files and compares their blob
+  identities and modes with the parsed index and HEAD tree. It never asks Git
+  to compare live worktree content. A repository can attach a `clean` filter to
+  a file; Git runs that program from status and diff-shaped inspections even
+  when text conversion and external diff drivers are disabled. The alternative
+  would execute repository-configured code during what Factory promises is an
+  observation-only operation.
+- **The gap:** The format allows optional patch references while the
+  security contract forbids executing filters; the plan did not resolve Git's
+  behavior when those requirements conflict.
+- **The reach:** Review planning derives changes from the exact HEAD tree,
+  index, and worktree manifests rather than asking Git to inspect live files.
+  A future Git implementation may add a patch only if it proves the same
+  no-filter boundary.
+- **Verdict:** Sound. Exact bytes remain available and security wins over a
+  redundant convenience representation.
+- **Confidence:** High.
+
+### Include non-ignored untracked code and label ignored paths as excluded
+
+- **When:** Slice 05 inclusion semantics.
+- **The choice:** A workspace snapshot includes every tracked path present in
+  the worktree and every untracked path Git does not ignore. An ignored build
+  output or secret-shaped local file is not copied, but the manifest says how
+  many ignored paths were excluded. The alternative was either to omit all
+  untracked work, missing newly authored code, or capture ignored trees that
+  Git explicitly treats as outside the source view.
+- **The gap:** The slice required tests for both ignored and untracked files but
+  did not state their final inclusion rule.
+- **The reach:** Workspace reviews see new source before `git add`; ignored
+  files are never silently presented as reviewed code. Later configuration can
+  widen policy only through an explicit format change.
+- **Verdict:** Sound. It matches the workspace users recognize from ordinary
+  Git status while keeping exclusions visible.
+- **Confidence:** Medium.
+
+### Keep `.factory` evidence outside the code snapshot
+
+- **When:** Slice 05 workspace inclusion review.
+- **The choice:** The code manifest excludes the complete `.factory` namespace,
+  including `.factory/skills`. Review bundles inventory Factory evidence and
+  selected skills through their own explicit inputs; they do not recursively
+  capture that evidence as if it were application source. The alternative made
+  each observation include prior observations and reviews, so snapshots would
+  grow through self-reference and a newly recorded object could create a false
+  repository race.
+- **The gap:** The plan protected unknown `.factory` content but did not state
+  whether foreign content below that namespace also belonged in a workspace
+  code snapshot.
+- **The reach:** Slice 08 must select `.factory/skills` deliberately when skills
+  are review inputs. It cannot rely on the code manifest to smuggle them into a
+  bundle.
+- **Verdict:** Sound. One namespace has one role, and review inputs remain
+  inspectable instead of recursive.
+- **Confidence:** High.
+
+### Refuse unsafe or cyclic links before reconstructing any entry
+
+- **When:** Slice 05 reconstruction policy.
+- **The choice:** Factory preserves every symbolic-link target as raw bytes in
+  the manifest, then preflights the complete link graph before writing a fresh
+  reconstruction. A link that escapes the destination or a pair of links that
+  point in a cycle makes reconstruction fail before ordinary files are written.
+  The alternative was a half-built directory or a reconstruction containing a
+  link that could make a later reviewer read outside its bundle.
+- **The gap:** The slice required safe, unsafe, and cyclic link coverage but did
+  not define whether unsupported links should be materialized, skipped, or
+  reject the reconstruction.
+- **The reach:** Bundle creation must treat these manifests as typed partial
+  evidence and may still review their readable objects, but it cannot expose an
+  unsafe filesystem tree to the reviewer.
+- **Verdict:** Sound. Raw evidence stays lossless while reconstructed authority
+  stays confined.
+- **Confidence:** High.
+
+### Treat a failed reconstruction destination as disposable
+
+- **When:** Slice 05 concurrent reconstruction hardening.
+- **The choice:** Factory closes its bound descriptors but does not unlink any
+  pathname after reconstruction fails. The caller must discard the whole
+  destination and never consume it as a snapshot. The alternative was
+  best-effort cleanup after comparing an entry's inode and type.
+- **The gap:** POSIX unlink is pathname-based, so another process can replace an
+  entry after its identity check and before deletion. There is no portable
+  identity-conditional unlink that makes that cleanup safe.
+- **The reach:** Failed destinations may retain partial manifest entries or
+  concurrent foreign entries. Callers must allocate disposable destinations;
+  successful reconstruction still requires a bounded, exact post-write
+  inventory before any consumer receives the tree.
+- **Verdict:** Sound. Never deleting potentially foreign data is more important
+  than tidying a destination that cannot be trusted after failure.
+- **Confidence:** High.
