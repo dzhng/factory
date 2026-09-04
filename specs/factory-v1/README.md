@@ -1,6 +1,6 @@
 # Factory v1 specification
 
-Status: **in implementation; Slices 01–06 are complete**
+Status: **in implementation; Slices 01–07 are complete**
 
 ## Next Agent Prompt
 
@@ -13,13 +13,21 @@ Status: **in implementation; Slices 01–06 are complete**
 > are implemented through milestone `e4a92a5`. Slice 06 connects provider hooks
 > through the journal, Git observer, and sole repository writer into immutable
 > per-Stop Turns through milestones `0cfee90`, `52d488d`, `52731b9`, and
-> `f7d5299`, with cross-worktree recovery hardened at `618fa5a`. Begin Slice 07:
-> observe pull requests and associate Sessions only
-> when exact code-state continuity proves the relationship. Read `AGENTS.md`,
-> `SECURITY.md`, this README, `choices.md`, `format.md`, and Slice 07 in full.
+> `f7d5299`, with cross-worktree recovery hardened at `618fa5a`. Slice 07 adds
+> the public PR/association contract at `f46b679`, the optional bounded GitHub
+> observation and exact association vertical at `00425da`, and independently
+> audited code-capture deadline hardening at `396dd97`. Begin Slice 08:
+> deterministically plan incremental complete or partial review bundles from
+> immutable workspace and PR evidence without re-reviewing covered Sessions.
+> Read `AGENTS.md`, `SECURITY.md`, this README, `choices.md`, `format.md`, and
+> Slices 07 and 08 in full.
 > Slice 06's packaged networkless Docker vertical passes both provider fixtures,
 > continuing/cross-repository Sessions, hook recovery, automatic initialization,
 > partial transcripts, Git sentinels, and rebuild after derived-index deletion.
+> Slice 07's deterministic Docker workbench proves coherent complete and partial
+> PR snapshots, typed optional-`gh` failures, rename/fork/GHES identity, exact
+> many-to-many Session associations, force-push invalidation, lifecycle history,
+> bounded provider/CAS/capture work, and crash-safe association batches.
 > Current evidence gaps: Docker registry DNS prevented the pinned current-client
 > refresh; no dedicated provider test credentials exist; native `linux/amd64`
 > isolation was not run; Docker repository/journal/Git evidence used locally
@@ -30,11 +38,13 @@ Status: **in implementation; Slices 01–06 are complete**
 > authority. These are explicit unavailable authorities, not passes. Real Codex
 > and Claude execution is a Slice 09 release gate through the packaged
 > production path; never borrow a developer login. Changed gates: all six
-> runnable labs pass; SQLite was selected from the measured crash candidates;
+> prior runnable labs plus the PR workbench pass; SQLite was selected from the
+> measured crash candidates;
 > runtime record validation covers every public v1 family plus the public code
 > manifest; the journal passes 32 Docker tests, repository storage 14, and Git
-> observation/reconstruction 36; the combined workspace passes build,
-> formatting, lint, types, and 132 tests. Global TODOs: rerun current-client
+> observation/reconstruction 36; the GitHub workspace passes 19 Docker tests
+> with 147 assertions; the combined workspace passes build, formatting, lint,
+> types, and 167 tests. Global TODOs: rerun current-client
 > authority when the registry is reachable; define verified code-state
 > continuity before enabling it; choose the release channel before Slice 12.
 > After every pass, update this prompt with the completed commit, exact next
