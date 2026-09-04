@@ -46,3 +46,7 @@ exceeds its recovery bound, `recover` returns a typed `unavailable` item for tha
 Stop and continues yielding other ready Stops. These bounds make corruption or
 runaway provider input visible without letting one bad range starve unrelated
 materialization.
+
+Post-Stop SessionEnd events have their own completion record so a crash cannot
+strand lifecycle evidence after a Turn is already complete. SessionStart remains
+inside the first Stop claim and never creates a portable Session on its own.

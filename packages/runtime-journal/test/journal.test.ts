@@ -1023,6 +1023,41 @@ describe('runtime journal', () => {
     expect(receipt.sequence).toBe(0)
   })
 
+  test('recovers SessionEnd independently after the last completed Stop', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'factory-lifecycle-'))
+    const journal = await openRuntimeJournal({
+      testRuntimeRoot: root,
+      verifyLifecycle: async (_event, reference) =>
+        new Uint8Array(await readFile(join(root, '.factory', reference.path))),
+    })
+    await journal.append({
+      provider: 'claude',
+      sessionId: 'ended-session',
+      generation: 0,
+      eventId: 'session-end',
+      eventKind: 'session-end',
+      occurredAt: '2026-09-04T00:00:03Z',
+      raw: new TextEncoder().encode('{"hook_event_name":"SessionEnd"}'),
+    })
+    const event = (await Array.fromAsync(journal.recoverLifecycle()))[0]!
+    expect(event.eventKind).toBe('session-end')
+    const path = makeOwnedPath('sessions', [
+      'claude',
+      'claude-session',
+      'lifecycle',
+      `event_${'0'.repeat(26)}.json`,
+    ])
+    const bytes = new TextEncoder().encode('lifecycle')
+    await mkdir(join(root, '.factory', 'sessions', 'claude', 'claude-session', 'lifecycle'), {
+      recursive: true,
+    })
+    await writeFile(join(root, '.factory', path), bytes)
+    const reference = { path, sha256: createHash('sha256').update(bytes).digest('hex') }
+    await journal.completeLifecycle(event, reference)
+    await journal.completeLifecycle(event, reference)
+    expect(await Array.fromAsync(journal.recoverLifecycle())).toEqual([])
+  })
+
   test('rebuilds recovery solely from authoritative rows after derived indexes are deleted', async () => {
     const root = await preparedStopRoot()
     const { Database } = await import('bun:sqlite')

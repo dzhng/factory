@@ -25,3 +25,9 @@ disposable: Factory does not remove any pathname because POSIX cannot make an
 identity check and unlink atomic against a concurrent replacement. Observation
 remains importable without Bun FFI. Reconstruction reports an explicit
 capability error unless it can load the supported native descriptor backend.
+
+Capture publishes immutable record graphs through one repository-owned grouped
+operation. The trigger is the logical commit point: interrupted create-only
+prefixes are ignored by projections and converge byte-for-byte during recovery.
+Verified object and record reads are capabilities used by the runtime journal;
+paths alone never prove that committed evidence exists.

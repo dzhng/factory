@@ -16,6 +16,7 @@ import {
   type ObjectRef,
   type RepositoryId,
   type RepositoryObservation,
+  type RecordId,
 } from '@factory/contract'
 
 import { ConfinedWriter } from './confined-writer'
@@ -62,6 +63,8 @@ export type GitObserverOptions = {
   /** Test seam used to swap a destination after its directory descriptor is bound. */
   beforeReconstructionWrite?: () => Promise<void>
   now?: () => Date
+  /** Recovery supplies one claim-derived identity so retries converge. */
+  observationId?: RecordId
 }
 
 type GitCommand = 'for-each-ref' | 'config' | 'ls-files' | 'rev-parse' | 'symbolic-ref' | 'ls-tree'
@@ -971,7 +974,7 @@ export class GitObserver {
       const branch = decodeUtf8(branchBytes, 'Git branch').trim() || undefined
       const observation: RepositoryObservation = {
         schemaVersion: 1,
-        observationId: newRecordId('observation'),
+        observationId: this.options.observationId ?? newRecordId('observation'),
         repositoryId: this.options.repositoryId,
         observedAt,
         completedAt: this.now().toISOString(),

@@ -42,6 +42,12 @@ export type RecordRef = {
   bytes: number
 }
 
+export type ImmutableGroupRecord = { path: OwnedPath; bytes: Uint8Array }
+
+export type RepositoryRecords = {
+  records: readonly { path: OwnedPath; value: JsonValue | string }[]
+}
+
 export type ConfigChange = Partial<
   Pick<
     RepositoryConfig,
@@ -429,6 +435,115 @@ export class RepositoryStore {
       mediaType: metadata.mediaType ?? 'application/octet-stream',
       role: metadata.role ?? 'raw',
     }
+  }
+
+  /** Read exact CAS bytes only after verifying their public reference. */
+  async getObject(ref: ObjectRef): Promise<Uint8Array> {
+    validateObjectRef(ref)
+    if (ref.bytes > this.maxObjectBytes) throw new Error('Factory object exceeds configured limit')
+    const path = join(this.factoryRoot, objectOwnedPath(ref.sha256))
+    await requireOrdinaryFile(path)
+    const bytes = await readFile(path)
+    if (bytes.byteLength !== ref.bytes || sha256(bytes) !== ref.sha256) {
+      throw new Error(`Factory object failed verification: ${ref.sha256}`)
+    }
+    return bytes
+  }
+
+  /** Verify and return one immutable record; used as journal completion proof. */
+  async readImmutable(path: OwnedPath, expectedSha256?: string): Promise<Uint8Array> {
+    if (path === makeOwnedPath('config')) throw new TypeError('config is mutable')
+    const absolute = join(this.factoryRoot, path)
+    await requireOrdinaryFile(absolute)
+    const bytes = await readFile(absolute)
+    validateStructuredRecord(path, bytes)
+    if (expectedSha256 !== undefined && sha256(bytes) !== expectedSha256) {
+      throw new Error(`Factory immutable record failed verification: ${path}`)
+    }
+    return bytes
+  }
+
+  /**
+   * Publish a deterministic immutable graph with its logical commit record last.
+   * Interrupted prefixes remain invisible to repository projections and converge
+   * on recovery because every path is create-only with exact-byte comparison.
+   */
+  async publishImmutableGroup(
+    records: readonly ImmutableGroupRecord[],
+    commitPath: OwnedPath,
+  ): Promise<RecordRef> {
+    if (records.length === 0) throw new TypeError('immutable group must not be empty')
+    const paths = new Set<string>()
+    for (const record of records) {
+      if (record.path === makeOwnedPath('manifest') || record.path === makeOwnedPath('config')) {
+        throw new TypeError('manifest and config cannot belong to an immutable group')
+      }
+      if (record.path.startsWith('objects/')) throw new TypeError('objects use putObject')
+      if (paths.has(record.path))
+        throw new TypeError(`duplicate immutable group path: ${record.path}`)
+      paths.add(record.path)
+      validateStructuredRecord(record.path, record.bytes)
+    }
+    if (!paths.has(commitPath)) throw new TypeError('immutable group commit path is absent')
+    const ordered = [
+      ...records.filter(record => record.path !== commitPath),
+      records.find(record => record.path === commitPath)!,
+    ]
+    await this.withMutationLock(async () => {
+      for (const record of ordered) {
+        const destination = await ensureOwnedParent(this.factoryRoot, record.path)
+        await atomicCreate(destination, record.path, record.bytes, this.stagingRoot)
+      }
+    })
+    const commit = ordered.at(-1)!
+    return { path: commit.path, sha256: sha256(commit.bytes), bytes: commit.bytes.byteLength }
+  }
+
+  /** Rebuild input: validated owned records, with CAS bytes intentionally excluded. */
+  async readRecords(): Promise<RepositoryRecords> {
+    await this.assertCurrentManifest()
+    const records: Array<{ path: OwnedPath; value: JsonValue | string }> = []
+    let aggregateBytes = 0
+    let recordCount = 0
+    const visit = async (root: string, relativeRoot: string, depth: number): Promise<void> => {
+      if (depth > 12) throw new Error('Factory record tree exceeds maximum depth')
+      const entries = await readdir(root, { withFileTypes: true })
+      entries.sort((left, right) => Buffer.from(left.name).compare(Buffer.from(right.name)))
+      for (const entry of entries) {
+        const relative = relativeRoot.length === 0 ? entry.name : `${relativeRoot}/${entry.name}`
+        const absolute = join(root, entry.name)
+        if (entry.isSymbolicLink()) throw new Error(`Factory refuses symbolic link: ${absolute}`)
+        if (entry.isDirectory()) {
+          if (!relative.startsWith('objects')) await visit(absolute, relative, depth + 1)
+          continue
+        }
+        if (!entry.isFile() || relative === 'config.json' || relative === 'manifest.json') continue
+        await requireOrdinaryFile(absolute)
+        recordCount += 1
+        if (recordCount > 100_000) throw new Error('Factory record tree exceeds record bound')
+        const path = relative as OwnedPath
+        const file = await stat(absolute)
+        if (file.size > 4 * 1024 * 1024)
+          throw new Error(`Factory record exceeds read bound: ${path}`)
+        aggregateBytes += file.size
+        if (aggregateBytes > 64 * 1024 * 1024)
+          throw new Error('Factory record tree exceeds aggregate read bound')
+        const bytes = await readFile(absolute)
+        validateStructuredRecord(path, bytes)
+        const text = decodeUtf8(bytes)
+        if (path.endsWith('.json')) records.push({ path, value: JSON.parse(text) as JsonValue })
+        else if (path.endsWith('.jsonl')) {
+          for (const line of text.trimEnd().split('\n')) {
+            records.push({ path, value: JSON.parse(line) as JsonValue })
+          }
+        } else records.push({ path, value: text })
+      }
+    }
+    for (const area of OWNED_DIRECTORIES.filter(area => area !== 'objects')) {
+      const root = join(this.factoryRoot, area)
+      if ((await pathKind(root)) === 'directory') await visit(root, area, 0)
+    }
+    return { records }
   }
 
   async createImmutable(path: OwnedPath, bytes: Uint8Array): Promise<RecordRef> {

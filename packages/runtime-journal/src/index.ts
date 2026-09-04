@@ -97,6 +97,8 @@ export interface RuntimeJournalOptions {
   lockTimeoutMs?: number
   /** Repository-owned capability returning exact bytes for a verified immutable Turn. */
   verifyTurn?: (claim: MaterializationClaim, turn: TurnRef) => Promise<Uint8Array>
+  /** Repository capability proving one immutable lifecycle record before retirement. */
+  verifyLifecycle?: (event: DurableCaptureEvent, record: TurnRef) => Promise<Uint8Array>
   /** Crash-lab observation seam. It must not perform journal writes. */
   onDurabilityBoundary?: (boundary: DurabilityBoundary) => void | Promise<void>
 }
@@ -110,6 +112,8 @@ export interface RuntimeJournal {
   claimStop(stop: StopIdentity): Promise<ClaimStopResult>
   complete(claim: MaterializationClaim, turn: TurnRef): Promise<void>
   recover(): AsyncIterable<RecoveryWork>
+  recoverLifecycle(): AsyncIterable<DurableCaptureEvent>
+  completeLifecycle(event: DurableCaptureEvent, record: TurnRef): Promise<void>
   readRaw(receipt: DurableCaptureReceipt): Promise<Uint8Array>
   readClaimEvents(
     claim: MaterializationClaim,
@@ -252,6 +256,7 @@ export async function openRuntimeJournal(options: RuntimeJournalOptions): Promis
     CREATE INDEX IF NOT EXISTS events_by_session_sequence ON events(provider, session_id, generation, sequence);
     CREATE TABLE IF NOT EXISTS claims(stop_key TEXT PRIMARY KEY, claim_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS completions(stop_key TEXT PRIMARY KEY, completion_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS lifecycle_completions(event_key TEXT PRIMARY KEY, record_json TEXT NOT NULL);
     `)
     await requirePrivateFile(databasePath)
     await requireMissingOrPrivateFile(`${databasePath}-wal`)
@@ -563,6 +568,58 @@ class SqliteJournal implements RuntimeJournal {
       this.leaveOperation()
     }
     for (const work of recovered) yield work
+  }
+
+  async *recoverLifecycle(): AsyncIterable<DurableCaptureEvent> {
+    const recovered = await this.withOperation(() =>
+      this.transaction(undefined, () => {
+        this.assertLogicalIntegrity()
+        return this.readRows()
+          .filter(row => row.eventKind === 'session-end')
+          .filter(
+            row =>
+              stmt(this.db, 'SELECT 1 FROM lifecycle_completions WHERE event_key=?').get(
+                row.eventKey,
+              ) == null,
+          )
+          .map(durableEvent)
+      }),
+    )
+    for (const event of recovered) yield event
+  }
+
+  async completeLifecycle(event: DurableCaptureEvent, reference: TurnRef): Promise<void> {
+    await this.withOperation(async () => {
+      if (
+        event.eventKind !== 'session-end' ||
+        !/^sessions\/(codex|claude)\/[^/]+\/lifecycle\/[a-z][a-z0-9-]*_[0-7][0-9A-HJKMNP-TV-Z]{25}\.json$/.test(
+          reference.path,
+        ) ||
+        !SHA256.test(reference.sha256)
+      )
+        throw new TypeError('Lifecycle completion requires a SessionEnd lifecycle reference')
+      const durableRow = stmt(this.db, 'SELECT * FROM events WHERE event_key=?').get(event.eventKey)
+      if (durableRow == null || !sameJson(durableEvent(parseRow(durableRow)), event))
+        throw new Error('Lifecycle event does not match a durable journal event')
+      if (!this.options.verifyLifecycle)
+        throw new Error('Lifecycle completion requires repository verification')
+      const bytes = await this.options.verifyLifecycle(event, reference)
+      if (digest(bytes) !== reference.sha256)
+        throw new JournalCorruptionError('Verified lifecycle bytes do not match the reference')
+      await this.transaction(undefined, () => {
+        const existing = stmt(
+          this.db,
+          'SELECT record_json FROM lifecycle_completions WHERE event_key=?',
+        ).get(event.eventKey)
+        const encoded = encodeBoundedJson(reference, MAX_COMPLETION_JSON_BYTES, 'Completion')
+        if (existing != null) {
+          if (stringField(record(existing, 'lifecycle completion'), 'record_json') !== encoded)
+            throw new ConflictingCompletionError(event.eventKey)
+          return
+        }
+        stmt(this.db, 'INSERT INTO lifecycle_completions VALUES(?,?)').run(event.eventKey, encoded)
+      })
+    })
   }
 
   private collectRecovery(): RecoverySnapshot[] {

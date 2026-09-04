@@ -387,4 +387,28 @@ describe('sole repository writer', () => {
       JSON.parse(await readFile(join(root, '.factory', 'config.json'), 'utf8')),
     ).not.toHaveProperty('automaticReview')
   })
+
+  test('publishes a deterministic immutable group with its commit record last', async () => {
+    const root = await fixtureRoot()
+    const store = await initializeRepositoryStore(root, manifest, {})
+    const firstPath = makeOwnedPath('review-triggers', [`${recordId('trigger')}.json`])
+    const secondId = `trigger_${'0'.repeat(25)}1`
+    const commitPath = makeOwnedPath('review-triggers', [`${secondId}.json`])
+    const records = [
+      { path: firstPath, bytes: new TextEncoder().encode(canonicalJson(trigger)) },
+      {
+        path: commitPath,
+        bytes: new TextEncoder().encode(
+          canonicalJson({ ...trigger, triggerId: secondId, evidenceWatermark: 2 }),
+        ),
+      },
+    ]
+
+    await store.publishImmutableGroup(records, commitPath)
+    await store.publishImmutableGroup(records, commitPath)
+    expect((await store.readRecords()).records.map(record => record.path)).toEqual([
+      firstPath,
+      commitPath,
+    ])
+  })
 })
