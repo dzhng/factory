@@ -4,10 +4,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "bun build src/reviewer-isolation.ts --target=bun --outdir=dist",
+    "build": "bun build src/provider-oracle.ts src/reviewer-isolation.ts --target=bun --outdir=dist",
     "check-types": "tsc --noEmit",
+    "lab:provider-capture": "bun run src/run-provider-oracle.ts",
+    "lab:provider-clients": "bun run src/refresh-provider-client-inventory.ts",
+    "lab:provider-processes": "bun run src/refresh-provider-process-probe.ts",
     "lab:reviewer-isolation": "bun run src/reviewer-isolation.ts",
-    "lint": "oxlint src docker"
+    "lint": "oxlint src test docker",
+    "test": "bun test"
   },
   "dependencies": {
     "@factory/reviewer": "workspace:*"

@@ -1,0 +1,31 @@
+{
+  "environment": "host-authority-audit",
+  "dockerCertification": {
+    "status": "unavailable",
+    "reason": "Docker was reachable, but its daemon could not resolve registry-1.docker.io to build the credential-free pinned-client image."
+  },
+  "clients": [
+    {
+      "provider": "codex",
+      "versionStatus": "observed",
+      "version": "codex-cli 0.144.4",
+      "capabilities": {
+        "ephemeral": true,
+        "ignoreUserConfig": true,
+        "jsonEvents": true,
+        "outputSchema": true
+      }
+    },
+    {
+      "provider": "claude",
+      "versionStatus": "observed",
+      "version": "2.1.260 (Claude Code)",
+      "capabilities": {
+        "bare": true,
+        "includeHookEvents": true,
+        "noSessionPersistence": true,
+        "jsonSchema": true
+      }
+    }
+  ]
+}

@@ -5,14 +5,17 @@ Status: **planned; implementation has not started**
 ## Next Agent Prompt
 
 > Continue Factory v1 from this spec. Current status (2026-09-04): the shared
-> Node 22/Bun/Turborepo workspace and quality gates are bootstrapped. Run Slices
-> 01 and 02 in parallel in separate worktrees, then integrate their evidence
+> workspace is bootstrapped and Slice 01's provider/reference oracle is
+> implemented. Integrate Slice 02, then reconcile both feasibility reports
 > before Slice 03 freezes the public format. Read `AGENTS.md`, `SECURITY.md`,
 > this README, `choices.md`, `format.md`, and each selected slice in full.
-> Current blockers: none. Global TODOs: choose the journal engine from measured
-> crash/latency results; certify current Codex/Claude hooks and read-only Docker
-> auth; define verified code-state continuity before enabling it; choose the
-> release channel before Slice 12. After every pass, update this prompt with the
+> Current evidence gap: Docker registry DNS prevented the pinned current-client
+> refresh, and no dedicated provider test credentials exist, so current live
+> hook inventories are explicitly unavailable. Do not reuse a developer login
+> or treat this as a pass. Global TODOs: rerun that refresh when the registry is
+> reachable; choose the journal engine from measured crash/latency results;
+> define verified code-state continuity before enabling it; choose the release
+> channel before Slice 12. After every pass, update this prompt with the
 > completed commit, exact next pickup, blockers, and changed gates.
 
 This specification defines Factory's first release: a local CLI that captures

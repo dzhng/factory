@@ -1,0 +1,309 @@
+{
+  "generatedBy": {
+    "bun": "1.3.14",
+    "node": "24.3.0"
+  },
+  "clientInventory": {
+    "environment": "host-authority-audit",
+    "dockerCertification": {
+      "status": "unavailable",
+      "reason": "Docker was reachable, but its daemon could not resolve registry-1.docker.io to build the credential-free pinned-client image."
+    },
+    "clients": [
+      {
+        "provider": "codex",
+        "versionStatus": "observed",
+        "version": "codex-cli 0.144.4",
+        "capabilities": {
+          "ephemeral": true,
+          "ignoreUserConfig": true,
+          "jsonEvents": true,
+          "outputSchema": true
+        }
+      },
+      {
+        "provider": "claude",
+        "versionStatus": "observed",
+        "version": "2.1.260 (Claude Code)",
+        "capabilities": {
+          "bare": true,
+          "includeHookEvents": true,
+          "noSessionPersistence": true,
+          "jsonSchema": true
+        }
+      }
+    ]
+  },
+  "processProbe": {
+    "environment": "credential-free-docker",
+    "sequencing": {
+      "workers": 8,
+      "recordsPerWorker": 25,
+      "observed": 200,
+      "contiguous": true,
+      "unique": true
+    },
+    "responseProvenance": "donor-wrapper-fixture",
+    "hookResponses": [
+      {
+        "provider": "codex",
+        "outcome": "captured",
+        "exitCode": 0,
+        "stdout": "{}\n"
+      },
+      {
+        "provider": "codex",
+        "outcome": "capture-failed",
+        "exitCode": 0,
+        "stdout": "{}\n"
+      },
+      {
+        "provider": "claude",
+        "outcome": "captured",
+        "exitCode": 0,
+        "stdout": "{}\n"
+      },
+      {
+        "provider": "claude",
+        "outcome": "capture-failed",
+        "exitCode": 0,
+        "stdout": "{}\n"
+      }
+    ]
+  },
+  "donorReferences": [
+    {
+      "source": "packages/capture/test/provider-capture.test.ts",
+      "behavior": "lossless raw hook and unknown-field preservation",
+      "disposition": "port-candidate",
+      "reason": "The byte-preservation invariant survives the local-only architecture unchanged."
+    },
+    {
+      "source": "packages/capture/test/provider-capture.test.ts",
+      "behavior": "transcript evolution and Stop-lag observations",
+      "disposition": "rewrite",
+      "reason": "The cases remain required, but the donor assertions are coupled to its outbox records."
+    },
+    {
+      "source": "packages/capture/test/concurrency.test.ts",
+      "behavior": "cross-process contiguous sequence allocation",
+      "disposition": "rewrite",
+      "reason": "The property is required; the eventual runtime journal engine must earn it through its own public seam."
+    },
+    {
+      "source": "packages/capture/test/repository.test.ts",
+      "behavior": "hostile Git filters, paths, worktrees, and races",
+      "disposition": "port-candidate",
+      "reason": "These observable Git safety cases belong to the later repository boundary."
+    },
+    {
+      "source": "packages/backend/src/projection/reducer.ts",
+      "behavior": "time, branch, and worktree Epic inference",
+      "disposition": "negative-reference",
+      "reason": "Factory explicitly forbids automatic Epic or workstream inference."
+    },
+    {
+      "source": "packages/test-harness/src/provider-plugin-lifecycle.ts",
+      "behavior": "provider plugin discovery and lifecycle",
+      "disposition": "negative-reference",
+      "reason": "Factory v1 integrates through direct CLI hooks, not provider plugins."
+    },
+    {
+      "source": "packages/capture/test/uploader.test.ts",
+      "behavior": "remote upload, leases, and commit acknowledgements",
+      "disposition": "hosted-only-delete",
+      "reason": "Factory v1 has no hosted transport or remote evidence store."
+    }
+  ],
+  "probes": [
+    {
+      "provider": "codex",
+      "clientVersion": "0.144.4",
+      "fixtureProvenance": "Sanitized subset derived from the donor fixture corpus; synthetic rows use only its installed hook contract.",
+      "rawEvents": [
+        {
+          "fixture": "providers/codex/hooks.jsonl",
+          "sha256": "baec608a5ab171f8c2c2471ddc5445d3ec3c0f6e3186f85bd07e8529129e6d9b",
+          "bytes": 988,
+          "roundTripsExactly": true
+        },
+        {
+          "fixture": "providers/codex/transcript.jsonl",
+          "sha256": "558a5d9bc20d78c54d7cdf6183e1beee30b5e567b1733f01be80e42e33688ccc",
+          "bytes": 653,
+          "roundTripsExactly": true
+        }
+      ],
+      "transcriptObservations": [
+        {
+          "event": "SessionStart",
+          "status": "observed",
+          "relation": "initial",
+          "sha256": "9160d4be34c8695bd172a76c7c7966587ea5a4d991ad22c87b2b91af54aa9ebb"
+        },
+        {
+          "event": "UserPromptSubmit",
+          "status": "observed",
+          "relation": "append",
+          "sha256": "b936b3381e2fe1cc910e130efbd44b0fa1596ddda2851af678ccb375d6d155c7"
+        },
+        {
+          "event": "PreToolUse",
+          "status": "observed",
+          "relation": "replacement",
+          "sha256": "1d054714357ce5ee01723ed91fcaa69206e221faaf9c1fad64f73be2e5d051da"
+        },
+        {
+          "event": "PostToolUse",
+          "status": "observed",
+          "relation": "truncation",
+          "sha256": "a219c919a4262673d436a5fb15f700fe1c53468dc4efc122af0118370716c76f"
+        },
+        {
+          "event": "PreCompact",
+          "status": "observed",
+          "relation": "replacement",
+          "sha256": "55962fa5d47c6ded9ff75f497d43cd76abd8a25ac1e69e1831eddba534bcc272"
+        },
+        {
+          "event": "PostCompact",
+          "status": "observed",
+          "relation": "compaction",
+          "sha256": "31655f177f832aab25322c8ba62edf1b21ebfecc95a247749d4acc7c5b20aad6"
+        },
+        {
+          "event": "SessionEnd",
+          "status": "unavailable",
+          "reason": "deleted"
+        }
+      ],
+      "sessionIdentity": {
+        "status": "supported",
+        "evidence": "all hook rows carry codex-fixture-session"
+      },
+      "stopIdentity": {
+        "status": "supported",
+        "evidence": "Stop carries turn_id"
+      },
+      "fixtureEventOrder": [
+        "SessionStart",
+        "UserPromptSubmit",
+        "PreToolUse",
+        "PostToolUse",
+        "Stop",
+        "SessionEnd"
+      ],
+      "currentEventInventory": {
+        "status": "unavailable",
+        "reason": "Current authenticated hook callbacks were not run because no dedicated test credential was available."
+      },
+      "unknownBytesPreserved": true,
+      "limitations": [
+        {
+          "code": "stop-transcript-may-lag",
+          "detail": "The Stop fixture exposes a last assistant message newer than the transcript's final assistant row."
+        },
+        {
+          "code": "authenticated-live-capture-unavailable",
+          "detail": "No dedicated test credential was available; no host login was read or reused."
+        }
+      ]
+    },
+    {
+      "provider": "claude",
+      "clientVersion": "2.1.237",
+      "fixtureProvenance": "Sanitized subset derived from the donor fixture corpus; synthetic rows use only its installed hook contract.",
+      "rawEvents": [
+        {
+          "fixture": "providers/claude/hooks.jsonl",
+          "sha256": "6d04fe3aeae95f57d6e1226a51ce5a7d14595a192e8e10b42473af9e2af2bdc4",
+          "bytes": 1369,
+          "roundTripsExactly": true
+        },
+        {
+          "fixture": "providers/claude/transcript.jsonl",
+          "sha256": "2692d5ca46ced959f2574eb64e52c08f1f055148051c79e798860353accfcc8d",
+          "bytes": 1016,
+          "roundTripsExactly": true
+        }
+      ],
+      "transcriptObservations": [
+        {
+          "event": "SessionStart",
+          "status": "observed",
+          "relation": "initial",
+          "sha256": "9160d4be34c8695bd172a76c7c7966587ea5a4d991ad22c87b2b91af54aa9ebb"
+        },
+        {
+          "event": "UserPromptSubmit",
+          "status": "observed",
+          "relation": "append",
+          "sha256": "b936b3381e2fe1cc910e130efbd44b0fa1596ddda2851af678ccb375d6d155c7"
+        },
+        {
+          "event": "PreToolUse",
+          "status": "observed",
+          "relation": "replacement",
+          "sha256": "1d054714357ce5ee01723ed91fcaa69206e221faaf9c1fad64f73be2e5d051da"
+        },
+        {
+          "event": "PostToolUse",
+          "status": "observed",
+          "relation": "truncation",
+          "sha256": "a219c919a4262673d436a5fb15f700fe1c53468dc4efc122af0118370716c76f"
+        },
+        {
+          "event": "PreCompact",
+          "status": "observed",
+          "relation": "replacement",
+          "sha256": "55962fa5d47c6ded9ff75f497d43cd76abd8a25ac1e69e1831eddba534bcc272"
+        },
+        {
+          "event": "PostCompact",
+          "status": "observed",
+          "relation": "compaction",
+          "sha256": "31655f177f832aab25322c8ba62edf1b21ebfecc95a247749d4acc7c5b20aad6"
+        },
+        {
+          "event": "SessionEnd",
+          "status": "unavailable",
+          "reason": "deleted"
+        }
+      ],
+      "sessionIdentity": {
+        "status": "supported",
+        "evidence": "all hook rows carry claude-fixture-session"
+      },
+      "stopIdentity": {
+        "status": "supported",
+        "evidence": "Stop carries prompt_id"
+      },
+      "fixtureEventOrder": [
+        "SessionStart",
+        "UserPromptSubmit",
+        "PreToolUse",
+        "PostToolUse",
+        "PreCompact",
+        "PostCompact",
+        "Stop",
+        "StopFailure",
+        "SessionEnd"
+      ],
+      "currentEventInventory": {
+        "status": "unavailable",
+        "reason": "Current authenticated hook callbacks were not run because no dedicated test credential was available."
+      },
+      "unknownBytesPreserved": true,
+      "limitations": [
+        {
+          "code": "stop-transcript-may-lag",
+          "detail": "The Stop fixture exposes a last assistant message newer than the transcript's final assistant row."
+        },
+        {
+          "code": "authenticated-live-capture-unavailable",
+          "detail": "No dedicated test credential was available; no host login was read or reused."
+        }
+      ]
+    }
+  ]
+}

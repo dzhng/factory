@@ -1,0 +1,6 @@
+{"type":"session_meta","payload":{"id":"codex-fixture-session","cli_version":"fixture-codex-1"}}
+{"type":"turn_context","payload":{"turn_id":"turn-1","model":"gpt-fixture"}}
+{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Exercise capture."}]}}
+{"type":"response_item","payload":{"type":"function_call_output","call_id":"tool-1","output":"fidelity"}}
+{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Stale transcript answer."}]}}
+{"type":"future_codex_record","payload":{"opaque":{"nested":[1,2,3]},"must_survive":"byte-for-byte"}}

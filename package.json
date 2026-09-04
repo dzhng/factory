@@ -11,6 +11,7 @@
     "check-types": "turbo check-types",
     "format": "oxfmt --write --no-error-on-unmatched-pattern .oxfmtrc.json .oxlintrc.json package.json turbo.json tsconfig.json 'apps/**/*.{ts,tsx,js,mjs,cjs,json}' 'packages/**/*.{ts,tsx,js,mjs,cjs,json}' 'scripts/**/*.{ts,tsx,js,mjs,cjs,json}'",
     "format:check": "oxfmt --check --no-error-on-unmatched-pattern .oxfmtrc.json .oxlintrc.json package.json turbo.json tsconfig.json 'apps/**/*.{ts,tsx,js,mjs,cjs,json}' 'packages/**/*.{ts,tsx,js,mjs,cjs,json}' 'scripts/**/*.{ts,tsx,js,mjs,cjs,json}'",
+    "lab:provider-capture": "bun run --cwd packages/test-harness lab:provider-capture",
     "lint": "turbo lint",
     "lab:reviewer-isolation": "bun run --cwd packages/test-harness lab:reviewer-isolation",
     "test": "turbo test --continue"

@@ -210,3 +210,77 @@ second normative schema; the master specification and format own mechanics.
 - **Verdict:** Sound. It retains the acceptance authority while ensuring the
   certified path is the one Factory actually ships.
 - **Confidence:** High.
+
+## Implementation choices — Slice 01 provider oracle
+
+### Keep generated oracle evidence with the specification
+
+- **When:** Slice 01, provider/reference oracle.
+- **The choice:** Running the provider lab writes a human-readable HTML report
+  and matching JSON under the Factory v1 spec's assets. For example, a reviewer
+  can open the report, follow a fixture link, and compare the claim with the
+  exact bytes. The alternative was a generic root output directory whose files
+  would have no durable owner and could be mistaken for disposable build output.
+- **The gap:** The slice required a browser-playable HTML/JSON artifact but did
+  not choose its repository home.
+- **The reach:** Future feasibility evidence belongs to the spec it justifies;
+  production runtime output must not copy this convention into `.factory`.
+- **Verdict:** Sound. The artifact is deliberate review evidence and the spec is
+  its natural owner.
+- **Confidence:** High.
+
+### Use SQLite only as the concurrency experiment's measuring instrument
+
+- **When:** Slice 01, provider/reference oracle.
+- **The choice:** Eight disposable container processes each allocate twenty-five
+  rows in one lab-only SQLite table, then the lab verifies the resulting sequence
+  is exactly 0 through 199 with no duplicates. This proves that the donor's
+  cross-process sequencing test has been reproduced. It does not select SQLite
+  for Factory's runtime journal; the alternative was silently allowing the
+  feasibility lab to become the production storage decision before the journal
+  crash tests exist.
+- **The gap:** The slice required concurrent sequencing evidence but deliberately
+  left the production journal engine to a later measured decision.
+- **The reach:** Slice 04 must rerun the same observable property against its real
+  journal seam. No production package imports this lab implementation.
+- **Verdict:** Sound. The experiment measures the invariant without pre-deciding
+  the production owner.
+- **Confidence:** High.
+
+### Treat missing certification as data instead of borrowing a login
+
+- **When:** Slice 01, provider/reference oracle.
+- **The choice:** The report distinguishes installed-client versions observed by
+  the authority audit from a credential-free Docker certification and from an
+  authenticated hook run. Docker could not resolve its image registry, and no
+  dedicated test credential was present, so the latter two facts are recorded as
+  unavailable. The alternative was to read the developer's working provider
+  login or label a host observation as a container pass.
+- **The gap:** The plan defined the security boundary and unavailable evidence,
+  but the executing environment supplied neither registry access nor test auth.
+- **The reach:** Later slices may rely on donor-derived raw-byte behavior, but
+  they cannot claim a current live event inventory until the guarded refresh
+  succeeds. Reversal is simply rerunning the checked-in probes in a suitable
+  environment; successful evidence replaces the unavailable observation in a
+  new commit.
+- **Verdict:** Sound. It preserves the credential boundary and prevents an
+  unavailable check from becoming false confidence.
+- **Confidence:** High.
+
+### Keep callback output a donor fixture claim, not a production protocol
+
+- **When:** Slice 01, provider/reference oracle.
+- **The choice:** The process lab reproduces the donor's fail-open callback shape:
+  both a stored event and an internal capture failure exit zero and emit an empty
+  JSON object. Because current authenticated hooks were not run, the report calls
+  this fixture behavior rather than asserting that every current provider event
+  requires this output. The alternative was to promote one donor wrapper's bytes
+  into Factory's hook protocol without current-client evidence.
+- **The gap:** The slice asks for provider-valid success and failure output, while
+  this environment cannot execute authenticated current hooks.
+- **The reach:** The capture vertical must certify its final provider-specific
+  output through guarded live tests; until then, only the non-blocking and valid
+  JSON properties are inherited.
+- **Verdict:** Sound. The evidence remains useful without claiming more authority
+  than it has.
+- **Confidence:** Medium.

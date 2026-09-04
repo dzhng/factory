@@ -5,8 +5,18 @@ Docker environments, crash labs, provider fixtures, release-shaped journeys,
 and sanitized evidence reports. Production packages expose the narrow seams;
 the harness proves those seams against real boundary behavior.
 
+Provider fixtures preserve raw bytes and provider-native vocabulary. They are
+observations, not a shared provider schema. Empirical oracle evidence informs
+Factory without becoming production behavior.
+
 Provider credentials are never implicit. Authenticated journeys require
 dedicated test inputs and must report unavailable authority rather than reuse a
 developer's live provider home. Generated scratch reports stay outside the
 repository unless a spec deliberately promotes them into its `assets/`; the
 default lab output is written under the operating system's temporary directory.
+The provider oracle is deliberately promoted into the Factory v1 spec because
+it records the evidence used to shape the capture contract.
+
+The governing capture contract and reslicing triggers live in the
+[Factory v1 specification](../../specs/factory-v1/README.md). Credential and
+container boundaries are owned by [`SECURITY.md`](../../SECURITY.md).

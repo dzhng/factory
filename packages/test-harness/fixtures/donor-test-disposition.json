@@ -1,0 +1,44 @@
+[
+  {
+    "source": "packages/capture/test/provider-capture.test.ts",
+    "behavior": "lossless raw hook and unknown-field preservation",
+    "disposition": "port-candidate",
+    "reason": "The byte-preservation invariant survives the local-only architecture unchanged."
+  },
+  {
+    "source": "packages/capture/test/provider-capture.test.ts",
+    "behavior": "transcript evolution and Stop-lag observations",
+    "disposition": "rewrite",
+    "reason": "The cases remain required, but the donor assertions are coupled to its outbox records."
+  },
+  {
+    "source": "packages/capture/test/concurrency.test.ts",
+    "behavior": "cross-process contiguous sequence allocation",
+    "disposition": "rewrite",
+    "reason": "The property is required; the eventual runtime journal engine must earn it through its own public seam."
+  },
+  {
+    "source": "packages/capture/test/repository.test.ts",
+    "behavior": "hostile Git filters, paths, worktrees, and races",
+    "disposition": "port-candidate",
+    "reason": "These observable Git safety cases belong to the later repository boundary."
+  },
+  {
+    "source": "packages/backend/src/projection/reducer.ts",
+    "behavior": "time, branch, and worktree Epic inference",
+    "disposition": "negative-reference",
+    "reason": "Factory explicitly forbids automatic Epic or workstream inference."
+  },
+  {
+    "source": "packages/test-harness/src/provider-plugin-lifecycle.ts",
+    "behavior": "provider plugin discovery and lifecycle",
+    "disposition": "negative-reference",
+    "reason": "Factory v1 integrates through direct CLI hooks, not provider plugins."
+  },
+  {
+    "source": "packages/capture/test/uploader.test.ts",
+    "behavior": "remote upload, leases, and commit acknowledgements",
+    "disposition": "hosted-only-delete",
+    "reason": "Factory v1 has no hosted transport or remote evidence store."
+  }
+]

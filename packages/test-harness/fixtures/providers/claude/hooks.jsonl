@@ -1,0 +1,9 @@
+{"session_id":"claude-fixture-session","transcript_path":"/fixtures/claude/transcript.jsonl","cwd":"/fixtures/repository","hook_event_name":"SessionStart","model":"claude-fixture","future_hook_field":{"kept":true}}
+{"session_id":"claude-fixture-session","prompt_id":"prompt-1","hook_event_name":"UserPromptSubmit","prompt":"Exercise capture."}
+{"session_id":"claude-fixture-session","prompt_id":"prompt-1","hook_event_name":"PreToolUse","tool_name":"Bash","tool_use_id":"tool-1","tool_input":{"command":"printf fidelity"}}
+{"session_id":"claude-fixture-session","prompt_id":"prompt-1","hook_event_name":"PostToolUse","tool_name":"Bash","tool_use_id":"tool-1","tool_response":{"stdout":"fidelity","stderr":""}}
+{"session_id":"claude-fixture-session","prompt_id":"prompt-1","hook_event_name":"PreCompact","trigger":"manual"}
+{"session_id":"claude-fixture-session","prompt_id":"prompt-1","hook_event_name":"PostCompact","compact_summary":"Fixture compacted."}
+{"session_id":"claude-fixture-session","prompt_id":"prompt-1","transcript_path":"/fixtures/claude/transcript.jsonl","hook_event_name":"Stop","last_assistant_message":"Answer newer than the transcript."}
+{"session_id":"claude-fixture-session","prompt_id":"prompt-2","hook_event_name":"StopFailure","error":"Fixture failure"}
+{"session_id":"claude-fixture-session","hook_event_name":"SessionEnd","reason":"other"}

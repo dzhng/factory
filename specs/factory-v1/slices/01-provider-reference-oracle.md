@@ -1,5 +1,16 @@
 # 01 — Provider and reference oracle
 
+Status: **implemented with explicit unavailable evidence**
+
+The durable browser checkpoint is
+[`assets/provider-capture-oracle/index.html`](../assets/provider-capture-oracle/index.html),
+with its machine-readable evidence beside it. Donor-derived fixtures certify
+the raw-byte and transcript-transition claims. A credential-free Docker process
+probe certifies cross-process sequencing. Current client versions and help were
+observed, but the pinned-client Docker refresh could not reach its image registry;
+authenticated live hooks remain unavailable because no dedicated test credential
+exists. These are recorded as unavailable, never as passes.
+
 ## Contract
 
 Create the Node 22/Bun/Turborepo workspace and a Docker-only replication lab
@@ -61,3 +72,12 @@ Review the oracle report and one readable raw fixture per provider. Missing
 optional events may narrow parsed convenience fields. Missing stable Session or
 Stop identity, incompatible callback latency, or irreconcilable provider
 semantics triggers provider-specific reslicing before Slice 03.
+
+## Implementation handoff
+
+The oracle code lives in `packages/test-harness`; it is deliberately excluded
+from production packages. Before Slice 03 freezes provider-derived convenience
+fields, rerun the credential-free pinned-client refresh when Docker registry
+resolution is available. Run authenticated probes only with explicitly supplied
+test credentials. Until then, raw provider bytes are the only certified common
+envelope and current live event inventories remain unknown.

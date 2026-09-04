@@ -1,0 +1,37 @@
+{
+  "environment": "credential-free-docker",
+  "sequencing": {
+    "workers": 8,
+    "recordsPerWorker": 25,
+    "observed": 200,
+    "contiguous": true,
+    "unique": true
+  },
+  "responseProvenance": "donor-wrapper-fixture",
+  "hookResponses": [
+    {
+      "provider": "codex",
+      "outcome": "captured",
+      "exitCode": 0,
+      "stdout": "{}\n"
+    },
+    {
+      "provider": "codex",
+      "outcome": "capture-failed",
+      "exitCode": 0,
+      "stdout": "{}\n"
+    },
+    {
+      "provider": "claude",
+      "outcome": "captured",
+      "exitCode": 0,
+      "stdout": "{}\n"
+    },
+    {
+      "provider": "claude",
+      "outcome": "capture-failed",
+      "exitCode": 0,
+      "stdout": "{}\n"
+    }
+  ]
+}

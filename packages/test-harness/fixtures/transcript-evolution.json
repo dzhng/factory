@@ -1,0 +1,11 @@
+{
+  "versions": [
+    { "event": "SessionStart", "status": "observed", "bytes": "before\n" },
+    { "event": "UserPromptSubmit", "status": "observed", "bytes": "before\nappended\n" },
+    { "event": "PreToolUse", "status": "observed", "bytes": "replacement\n" },
+    { "event": "PostToolUse", "status": "observed", "bytes": "repl" },
+    { "event": "PreCompact", "status": "observed", "bytes": "before compaction\n" },
+    { "event": "PostCompact", "status": "observed", "bytes": "after compaction\n" },
+    { "event": "SessionEnd", "status": "unavailable", "reason": "deleted" }
+  ]
+}

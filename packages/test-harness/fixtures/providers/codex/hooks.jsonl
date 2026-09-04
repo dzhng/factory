@@ -1,0 +1,6 @@
+{"session_id":"codex-fixture-session","transcript_path":"/fixtures/codex/transcript.jsonl","cwd":"/fixtures/repository","hook_event_name":"SessionStart","model":"gpt-fixture","future_hook_field":{"kept":true}}
+{"session_id":"codex-fixture-session","turn_id":"turn-1","hook_event_name":"UserPromptSubmit","prompt":"Exercise capture."}
+{"session_id":"codex-fixture-session","turn_id":"turn-1","hook_event_name":"PreToolUse","tool_name":"exec_command","tool_use_id":"tool-1","tool_input":{"cmd":"printf fidelity"}}
+{"session_id":"codex-fixture-session","turn_id":"turn-1","hook_event_name":"PostToolUse","tool_name":"exec_command","tool_use_id":"tool-1","tool_response":{"output":"fidelity","exit_code":0}}
+{"session_id":"codex-fixture-session","turn_id":"turn-1","transcript_path":"/fixtures/codex/transcript.jsonl","hook_event_name":"Stop","last_assistant_message":"Answer newer than the transcript."}
+{"session_id":"codex-fixture-session","hook_event_name":"SessionEnd","reason":"other"}
