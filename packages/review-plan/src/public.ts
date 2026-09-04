@@ -3,6 +3,7 @@ export {
   loadCandidateEvidence,
   loadReviewInputs,
   loadReviewHistory,
+  openReviewRepositoryReader,
   planReview,
   validateReviewPlanRecord,
   verifyBundle,

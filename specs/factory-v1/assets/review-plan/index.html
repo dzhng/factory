@@ -1,1 +1,67 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Factory review planning</title><style>body{font:15px/1.5 system-ui;max-width:1200px;margin:2rem auto;padding:0 1rem;background:#101416;color:#e7efed}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:1rem}article{background:#182023;border:1px solid #344348;border-radius:10px;padding:1rem}h1,h2{color:#9ee7d7}h2{font-size:1.05rem}code,pre{background:#0d1113;padding:.15rem .3rem}pre{white-space:pre-wrap}.ok{color:#83e377}</style></head><body><h1>Deterministic review planning</h1><p class="ok">Production loading, incremental coverage, readable partials, exact/manual PR association, no-op gating, portable verification, and no-Git reconstruction passed.</p><p>Permutation equality: <strong>true</strong>. Reviewer starts for no-op: <strong>0</strong>. Git discovery: <strong>failed as required</strong>.</p><div class="grid"><article><h2>complete</h2><p><code>ready</code> · full-current-code</p><ul><li><strong>included</strong> / eligible-included: included</li></ul></article><article><h2>readable-partial</h2><p><code>ready</code> · full-current-code</p><ul><li><strong>readable-partial</strong> / eligible-gap: readable-partial</li></ul></article><article><h2>corrupt-sibling-best-effort</h2><p><code>ready</code> · full-current-code</p><ul><li><strong>included</strong> / eligible-included: included</li><li><strong>corrupt</strong> / eligible-gap: corrupt</li><li><strong>unavailable</strong> / eligible-gap: unavailable</li></ul></article><article><h2>unchanged-no-op</h2><p><code>already-reviewed</code> · none</p><ul><li><strong>excluded</strong> / settled: settled-trigger</li></ul></article><article><h2>continuing-session</h2><p><code>ready</code> · none</p><ul><li><strong>excluded</strong> / settled: settled-trigger</li><li><strong>included</strong> / eligible-included: included</li></ul></article><article><h2>policy-change</h2><p><code>ready</code> · full-current-code</p><ul><li><strong>excluded</strong> / settled: settled-trigger</li><li><strong>included</strong> / eligible-included: included</li></ul></article><article><h2>weak-and-orphan</h2><p><code>ready</code> · full-current-code</p><ul><li><strong>weak-context</strong> / context-only: same-non-detached-branch-without-exact-anchor</li><li><strong>excluded</strong> / out-of-scope: unproven-subject-scope</li></ul></article><article><h2>accepted-gap-recovered-default</h2><p><code>already-reviewed</code> · none</p><ul><li><strong>excluded</strong> / settled: settled-trigger</li><li><strong>excluded</strong> / settled: settled-trigger</li><li><strong>excluded</strong> / settled: settled-trigger</li></ul></article><article><h2>accepted-gap-recovered-force</h2><p><code>ready</code> · full-current-code</p><ul><li><strong>included</strong> / eligible-included: included</li><li><strong>included</strong> / eligible-included: included</li><li><strong>included</strong> / eligible-included: included</li></ul></article><article><h2>pr-exact-and-manual</h2><p><code>ready</code> · full-current-pr-diff</p><ul><li><strong>included</strong> / eligible-included: included</li></ul></article><article><h2>pr-force-push-base-change</h2><p><code>ready</code> · full-current-pr-diff</p><ul><li><strong>excluded</strong> / out-of-scope: unproven-subject-scope</li></ul></article></div></body></html>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Factory review planning</title><style>body{font:15px/1.5 system-ui;max-width:1200px;margin:2rem auto;padding:0 1rem;background:#101416;color:#e7efed}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:1rem}article{background:#182023;border:1px solid #344348;border-radius:10px;padding:1rem}h1,h2{color:#9ee7d7}h2{font-size:1.05rem}code,pre{background:#0d1113;padding:.15rem .3rem}pre{white-space:pre-wrap}.ok{color:#83e377}</style></head><body><h1>Deterministic review planning</h1><p class="ok">Production loading, incremental coverage, readable partials, exact/manual PR association, no-op gating, portable verification, and no-Git reconstruction passed.</p><p>Permutation equality: <strong>true</strong>. Reviewer starts for no-op: <strong>0</strong>. Git discovery: <strong>failed as required</strong>.</p><div class="grid"><article><h2>complete</h2><p><code>ready</code> · full-current-code</p><ul><li><strong>included</strong> / eligible-included: included</li></ul></article><article><h2>readable-partial</h2><p><code>ready</code> · full-current-code</p><ul><li><strong>readable-partial</strong> / eligible-gap: readable-partial</li></ul></article><article><h2>corrupt-sibling-best-effort</h2><p><code>ready</code> · full-current-code</p><ul><li><strong>included</strong> / eligible-included: included</li><li><strong>corrupt</strong> / eligible-gap: corrupt</li><li><strong>unsafe</strong> / eligible-gap: unsafe</li></ul></article><article><h2>unchanged-no-op</h2><p><code>already-reviewed</code> · none</p><ul><li><strong>excluded</strong> / settled: settled-trigger</li></ul></article><article><h2>continuing-session</h2><p><code>ready</code> · none</p><ul><li><strong>excluded</strong> / settled: settled-trigger</li><li><strong>included</strong> / eligible-included: included</li></ul></article><article><h2>policy-change</h2><p><code>ready</code> · full-current-code</p><ul><li><strong>excluded</strong> / settled: settled-trigger</li><li><strong>included</strong> / eligible-included: included</li></ul></article><article><h2>weak-and-orphan</h2><p><code>ready</code> · full-current-code</p><ul><li><strong>weak-context</strong> / context-only: same-non-detached-branch-without-exact-anchor</li><li><strong>excluded</strong> / out-of-scope: unproven-subject-scope</li></ul></article><article><h2>accepted-gap-recovered-default</h2><p><code>already-reviewed</code> · none</p><ul><li><strong>excluded</strong> / settled: settled-trigger</li><li><strong>excluded</strong> / settled: settled-trigger</li><li><strong>excluded</strong> / settled: settled-trigger</li></ul></article><article><h2>accepted-gap-recovered-force</h2><p><code>ready</code> · full-current-code</p><ul><li><strong>included</strong> / eligible-included: included</li><li><strong>included</strong> / eligible-included: included</li><li><strong>included</strong> / eligible-included: included</li></ul></article><article><h2>pr-exact-and-manual</h2><p><code>ready</code> · full-current-pr-diff</p><ul><li><strong>included</strong> / eligible-included: included</li></ul></article><article><h2>pr-force-push-base-change</h2><p><code>ready</code> · full-current-pr-diff</p><ul><li><strong>excluded</strong> / out-of-scope: unproven-subject-scope</li></ul></article><article><h2>pr-valid-association-with-corrupt-and-unsafe-batches</h2><p><code>ready</code> · full-current-pr-diff</p><ul><li><strong>included</strong> / eligible-included: included</li></ul><details><summary>Input problems</summary><pre>[
+  {
+    "kind": "association-batch",
+    "path": "pull-requests/github/ghr_6da0ba26776a57381caa89915c2bbbbdd95cd61ec31474aafd73ca4479e9e5d8/42/associations/pr-observation_00000000010000000000000001/batches/association-batch_000000002T000000000000002T.json",
+    "classification": "corrupt",
+    "limitation": {
+      "code": "corrupt-input",
+      "detail": "association batch unavailable or invalid: associationBatch schemaVersion must be 1"
+    },
+    "problemId": "f11296284d5c7ee0a1ac34ddaac1c1a7e4bcbf7e63d7af29279a251d5c7972be"
+  },
+  {
+    "kind": "association-batch",
+    "path": "pull-requests/github/ghr_6da0ba26776a57381caa89915c2bbbbdd95cd61ec31474aafd73ca4479e9e5d8/42/associations/pr-observation_00000000010000000000000001/batches/association-batch_000000002V000000000000002V.json",
+    "classification": "unsafe",
+    "limitation": {
+      "code": "unverified-object",
+      "detail": "association batch unavailable or invalid: history unsafe: pull-requests/github/ghr_6da0ba26776a57381caa89915c2bbbbdd95cd61ec31474aafd73ca4479e9e5d8/42/associations/pr-observation_00000000010000000000000001/batches/association-batch_000000002V000000000000002V.json: cannot open confined read file"
+    },
+    "problemId": "6e92ce69903fe5cf9689236f8b40f5940f3316a0863da1183fb38c4cbeb7d98a"
+  }
+]</pre></details></article><article><h2>pr-missing-raw-subject-provenance</h2><p><code>ready</code> · full-current-pr-diff</p><ul><li><strong>included</strong> / eligible-included: included</li></ul><details><summary>Input problems</summary><pre>[
+  {
+    "kind": "association-batch",
+    "path": "pull-requests/github/ghr_6da0ba26776a57381caa89915c2bbbbdd95cd61ec31474aafd73ca4479e9e5d8/42/associations/pr-observation_00000000010000000000000001/batches/association-batch_000000002T000000000000002T.json",
+    "classification": "corrupt",
+    "limitation": {
+      "code": "corrupt-input",
+      "detail": "association batch unavailable or invalid: associationBatch schemaVersion must be 1"
+    },
+    "problemId": "f11296284d5c7ee0a1ac34ddaac1c1a7e4bcbf7e63d7af29279a251d5c7972be"
+  },
+  {
+    "kind": "subject-object",
+    "field": "raw",
+    "object": {
+      "algorithm": "sha256",
+      "bytes": 14,
+      "mediaType": "application/json",
+      "role": "github-pr-metadata",
+      "sha256": "59fe6e3737c2f03ac84248ba52fc52db70f7c0078c7d2442ab63e97350db81cd"
+    },
+    "classification": "unavailable",
+    "limitation": {
+      "code": "unverified-object",
+      "detail": "optional subject raw unavailable: foundational subject object is missing: missing objects/sha256/59/fe6e3737c2f03ac84248ba52fc52db70f7c0078c7d2442ab63e97350db81cd",
+      "object": {
+        "algorithm": "sha256",
+        "bytes": 14,
+        "mediaType": "application/json",
+        "role": "github-pr-metadata",
+        "sha256": "59fe6e3737c2f03ac84248ba52fc52db70f7c0078c7d2442ab63e97350db81cd"
+      }
+    },
+    "problemId": "9594c57b8bd1a2ac1c029839144e0c7ce4d00b0a368e8ba986a4fce34bfc37f5"
+  },
+  {
+    "kind": "association-batch",
+    "path": "pull-requests/github/ghr_6da0ba26776a57381caa89915c2bbbbdd95cd61ec31474aafd73ca4479e9e5d8/42/associations/pr-observation_00000000010000000000000001/batches/association-batch_000000002V000000000000002V.json",
+    "classification": "unsafe",
+    "limitation": {
+      "code": "unverified-object",
+      "detail": "association batch unavailable or invalid: history unsafe: pull-requests/github/ghr_6da0ba26776a57381caa89915c2bbbbdd95cd61ec31474aafd73ca4479e9e5d8/42/associations/pr-observation_00000000010000000000000001/batches/association-batch_000000002V000000000000002V.json: cannot open confined read file"
+    },
+    "problemId": "6e92ce69903fe5cf9689236f8b40f5940f3316a0863da1183fb38c4cbeb7d98a"
+  }
+]</pre></details></article></div></body></html>

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 
 import {
   canonicalJson,
@@ -27,6 +27,7 @@ import {
   buildBundle,
   loadReviewHistory,
   loadReviewInputs,
+  openReviewRepositoryReader,
   planReview,
   verifyBundle,
   type LoadedReviewHistory,
@@ -58,6 +59,7 @@ class FixtureStore implements ReviewRepositoryReader {
   objects = new Map<string, Uint8Array>()
   paths = new Set<OwnedPath>()
   failures = new Map<OwnedPath, { kind: 'missing' | 'unsafe'; detail: string }>()
+  private root?: string
   put(path: OwnedPath, value: unknown) {
     this.records.set(path, bytes(value))
     this.paths.add(path)
@@ -85,6 +87,31 @@ class FixtureStore implements ReviewRepositoryReader {
     return value === undefined
       ? ({ kind: 'missing', detail: object.sha256 } as const)
       : ({ kind: 'readable', bytes: new Uint8Array(value) } as const)
+  }
+  async snapshot() {
+    this.root ??= await mkdtemp('/tmp/factory-review-input-')
+    await rm(this.root, { recursive: true, force: true })
+    await mkdir(this.root, { recursive: true })
+    for (const path of this.paths) {
+      const destination = join(this.root, path)
+      await mkdir(dirname(destination), { recursive: true })
+      const failure = this.failures.get(path)
+      const value = this.records.get(path)
+      if (value !== undefined) await writeFile(destination, value)
+      else if (failure !== undefined) await writeFile(destination, bytes({}))
+    }
+    for (const [digest, value] of this.objects) {
+      const destination = join(this.root, objectOwnedPath(digest))
+      await mkdir(dirname(destination), { recursive: true })
+      await writeFile(destination, value)
+    }
+    const reader = await openReviewRepositoryReader(this.root)
+    for (const [path, failure] of this.failures) {
+      const destination = join(this.root, path)
+      await rm(destination, { force: true })
+      if (failure.kind === 'unsafe') await symlink('/etc/passwd', destination)
+    }
+    return reader
   }
 }
 
@@ -238,7 +265,7 @@ async function loadPlan(
   policyVersion = 'policy-v1',
 ) {
   return planReview(
-    await loadReviewInputs(store, {
+    await loadReviewInputs(await store.snapshot(), {
       mode,
       subjectPath,
       history: loadedHistory,
@@ -539,6 +566,17 @@ const forcePushPath = makeOwnedPath('pull-requests', [
 prStore.put(forcePushPath, forcePushPr)
 const forcePush = await loadPlan(prStore, forcePushPath, priorPrHistory)
 
+const corruptBatchPath =
+  `pull-requests/github/${repositoryKey}/42/associations/${pr.observationId}/batches/${id('association-batch', 90)}.json` as OwnedPath
+prStore.put(corruptBatchPath, {})
+const unsafeBatchPath =
+  `pull-requests/github/${repositoryKey}/42/associations/${pr.observationId}/batches/${id('association-batch', 91)}.json` as OwnedPath
+prStore.paths.add(unsafeBatchPath)
+prStore.failures.set(unsafeBatchPath, { kind: 'unsafe', detail: 'symlinked association batch' })
+const prBadBatches = await loadPlan(prStore, prPath, await history(prStore))
+prStore.objects.delete(raw.sha256)
+const prMissingRaw = await loadPlan(prStore, prPath, await history(prStore))
+
 // Canonical permutation: insertion order cannot affect the production projection or plan.
 const permutedStore = new FixtureStore()
 ;[...store.records].reverse().forEach(([path, value]) => permutedStore.records.set(path, value))
@@ -614,6 +652,8 @@ const plans = [
   recoveredForce,
   prPlan,
   forcePush,
+  prBadBatches,
+  prMissingRaw,
 ]
 const names = [
   'complete',
@@ -627,6 +667,8 @@ const names = [
   'accepted-gap-recovered-force',
   'pr-exact-and-manual',
   'pr-force-push-base-change',
+  'pr-valid-association-with-corrupt-and-unsafe-batches',
+  'pr-missing-raw-subject-provenance',
 ]
 let reviewerDockerStarts = 0
 let noOpBundleBuilds = 0

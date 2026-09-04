@@ -104,6 +104,93 @@ export interface ReviewRepositoryReader extends PortableRecordReader {
   inventory(): Promise<readonly OwnedPath[]>
 }
 
+const trustedRepositoryReaders = new WeakSet<ReviewRepositoryReader>()
+
+function confinedSegments(path: string): Uint8Array[] {
+  return path.split('/').map(segment => new TextEncoder().encode(segment))
+}
+
+/** Bind review discovery to one complete descriptor-confined `.factory` tree snapshot. */
+export async function openReviewRepositoryReader(
+  factoryRoot: string,
+): Promise<ReviewRepositoryReader> {
+  const tree = await inventoryConfinedTree(factoryRoot, {
+    maximumEntries: 200_000,
+    maximumFileBytes: 64 * 1024 * 1024,
+    maximumBytes: 512 * 1024 * 1024,
+    maximumDepth: 16,
+  })
+  const paths = tree
+    .filter(
+      (entry): entry is typeof entry & { kind: 'file' } =>
+        entry.kind === 'file' &&
+        entry.path !== 'manifest.json' &&
+        entry.path !== 'config.json' &&
+        !entry.path.startsWith('objects/'),
+    )
+    .map(entry => {
+      assertOwnedRecordPath(entry.path)
+      return entry.path as OwnedPath
+    })
+    .sort()
+  const objectPaths = new Set(
+    tree
+      .filter(entry => entry.kind === 'file' && entry.path.startsWith('objects/sha256/'))
+      .map(entry => entry.path),
+  )
+  const classifyReadFailure = (error: unknown) => {
+    const detail = error instanceof Error ? error.message : String(error)
+    return /symbolic|not an ordinary|confin|directory/.test(detail)
+      ? ({ kind: 'unsafe', detail } as const)
+      : ({ kind: 'missing', detail } as const)
+  }
+  const reader: ReviewRepositoryReader = Object.freeze({
+    inventory: async () => [...paths],
+    read: async (path: string) => {
+      try {
+        assertOwnedRecordPath(path)
+        if (!paths.includes(path as OwnedPath)) return { kind: 'missing' as const, detail: path }
+        return {
+          kind: 'readable' as const,
+          bytes: await readConfinedFile(factoryRoot, confinedSegments(path), {
+            maximumBytes: 4 * 1024 * 1024,
+          }),
+        }
+      } catch (error) {
+        return classifyReadFailure(error)
+      }
+    },
+    getObject: async (reference: ObjectRef) => {
+      try {
+        validateObjectRef(reference)
+        if (reference.bytes > 64 * 1024 * 1024)
+          return { kind: 'excluded-by-limit' as const, detail: 'object exceeds read limit' }
+        const objectPath = objectOwnedPath(reference.sha256)
+        if (!objectPaths.has(objectPath))
+          return { kind: 'missing' as const, detail: `missing ${objectPath}` }
+        const value = await readConfinedFile(factoryRoot, confinedSegments(objectPath), {
+          maximumBytes: reference.bytes,
+        })
+        if (value.byteLength !== reference.bytes || sha256(value) !== reference.sha256)
+          throw new Error('object digest or byte length differs from its reference')
+        return { kind: 'readable' as const, bytes: value }
+      } catch (error) {
+        return classifyReadFailure(error)
+      }
+    },
+  })
+  trustedRepositoryReaders.add(reader)
+  return reader
+}
+
+/** Test-only adapter; production callers must use openReviewRepositoryReader. */
+export function trustReviewRepositoryReaderForTesting(
+  reader: ReviewRepositoryReader,
+): ReviewRepositoryReader {
+  trustedRepositoryReaders.add(reader)
+  return reader
+}
+
 export type CandidateRecordDescriptor = {
   triggerId: RecordId
   scopeProof: CandidateScopeProof
@@ -714,7 +801,14 @@ export async function loadReviewHistory(
       })()
       if (
         directReference === undefined &&
-        !(problem.field === 'limitation' && manifest.codeManifest !== undefined)
+        !(
+          problem.field === 'limitation' &&
+          manifest.codeManifest !== undefined &&
+          subject.observation.codeManifest !== undefined &&
+          canonicalJson(manifest.codeManifest) ===
+            canonicalJson(subject.observation.codeManifest) &&
+          canonicalJson(problem.limitation.object) === canonicalJson(problem.object)
+        )
       ) {
         throw new TypeError('history subject object problem is detached from its subject')
       }
@@ -821,6 +915,8 @@ export async function loadReviewInputs(
   reader: ReviewRepositoryReader,
   request: ReviewInputLoadRequest,
 ): Promise<LoadedReviewInputs> {
+  if (!trustedRepositoryReaders.has(reader))
+    throw new TypeError('review repository reader was not opened from a confined tree snapshot')
   const history = loadedHistories.get(request.history)
   if (history === undefined)
     throw new TypeError('review history was not produced by loadReviewHistory')
@@ -868,6 +964,7 @@ export async function loadReviewInputs(
     const limitation: Limitation = {
       code: classification === 'corrupt' ? 'corrupt-input' : 'unverified-object',
       detail: `optional subject ${field} unavailable: ${detail}`,
+      object,
     }
     const problem = {
       kind: 'subject-object',
@@ -2355,7 +2452,13 @@ export function validateReviewPlanRecord(plan: ReviewPlanRecord): void {
       throw new TypeError('review plan input problem has unknown or missing fields')
     if (problem.kind === 'association-batch') {
       assertOwnedRecordPath(problem.path)
-      if (!['unavailable', 'unsafe', 'corrupt'].includes(problem.classification))
+      if (
+        !['unavailable', 'unsafe', 'corrupt'].includes(problem.classification) ||
+        plan.subject.kind !== 'pull-request' ||
+        !problem.path.startsWith(
+          `pull-requests/github/${plan.subject.repositoryKey}/${plan.subject.number}/associations/${plan.subject.observationId}/batches/`,
+        )
+      )
         throw new TypeError('association problem classification is invalid')
     } else {
       validateObjectRef(problem.object)
@@ -2363,7 +2466,8 @@ export function validateReviewPlanRecord(plan: ReviewPlanRecord): void {
         !['codeManifest', 'stagedPatch', 'unstagedPatch', 'raw', 'limitation'].includes(
           problem.field,
         ) ||
-        !['unavailable', 'unsafe', 'corrupt', 'excluded'].includes(problem.classification)
+        !['unavailable', 'unsafe', 'corrupt', 'excluded'].includes(problem.classification) ||
+        canonicalJson(problem.limitation.object) !== canonicalJson(problem.object)
       )
         throw new TypeError('subject object problem is invalid')
     }
