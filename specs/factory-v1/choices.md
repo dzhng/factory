@@ -838,3 +838,69 @@ second normative schema; the master specification and format own mechanics.
 - **Verdict:** Sound. It uses the same explicit commit-point principle as Turn
   capture while preserving immutable history.
 - **Confidence:** High.
+
+### Snapshot review records, but fetch content-addressed objects only when named
+
+- **When:** Slice 08 repository input loading.
+- **The choice:** When review planning starts, Factory opens the repository's
+  `.factory` directory through confined filesystem descriptors and freezes the
+  review-owned record bytes it discovers. It does not scan the accumulated
+  content-addressed object store. Instead, a record must name an object by its
+  hash and byte length before Factory opens that exact object. For example, a
+  repository may contain years of unrelated captured blobs; planning one
+  Session freezes the relevant trigger and Turn records, then reads only the
+  blobs those records reference. A second inventory comparison rejects a
+  record tree that changed while the snapshot was being frozen.
+- **The gap:** The plan required bounded, immutable inputs but did not decide
+  whether that meant snapshotting every stored object, holding filesystem
+  descriptors open through the whole review, or copying only named evidence.
+- **The reach:** Large repositories do not make every review proportional to
+  all historical CAS data. The tradeoff is a bounded in-memory copy of record
+  metadata during planning; future streaming work must preserve the same
+  immutable-snapshot guarantee rather than reopening mutable paths.
+- **Verdict:** Sound. Discovery stays complete for review-owned records while
+  expensive object work remains driven by validated references.
+- **Confidence:** High.
+
+### Apply the Session cap after complete trigger discovery but before graph loading
+
+- **When:** Slice 08 bounded candidate acquisition.
+- **The choice:** Factory first inventories every trigger record, so a caller
+  cannot hide a pending Stop by passing a shorter list. It then admits only the
+  configured number of Session identities for full Turn, transcript, and object
+  verification; remaining valid triggers are reported as deferred-by-limit and
+  drain in later runs. With `--session`, valid triggers for other Sessions are
+  excluded only after this complete discovery. A corrupt trigger that cannot
+  safely reveal its Session stays visible as a diagnostic, but it does not make
+  the named Session's review partial because Factory cannot prove the link.
+- **The gap:** The plan fixed both complete discovery and a `maxSessions` work
+  bound, but did not specify where the bound falls or how an unreadable trigger
+  behaves under an exact Session filter.
+- **The reach:** Review work remains bounded without turning the limit into an
+  omission attack. Future scheduling may improve admission priority, but it
+  cannot treat deferred evidence as reviewed or let an unassignable corrupt
+  record block an unrelated named Session.
+- **Verdict:** Sound. The status preserves the difference between discovered,
+  admitted, reviewed, and merely diagnostic evidence.
+- **Confidence:** Medium.
+
+### Validate historical limitation ownership without importing old code into the review
+
+- **When:** Slice 08 portable history and bundle verification.
+- **The choice:** A prior review may say an optional object was missing from a
+  code manifest. Factory loads the exact historical code-manifest bytes to
+  prove that the manifest really named that limitation object. It bundles that
+  validation root so the proof works offline, but it does not recursively add
+  the historical source tree to the current reviewer's inputs. For example, a
+  current PR review can prove why an old workspace review was partial without
+  silently exposing all files from that old workspace snapshot.
+- **The gap:** The plan required both restart-safe history validation and a
+  minimal reviewer bundle, but did not say whether historical provenance roots
+  recursively become current reviewer dependencies.
+- **The reach:** History cannot forge ownership of a missing object, and current
+  review visibility does not expand merely because coverage consulted an old
+  manifest. Any future historical evidence shown to the model must be selected
+  explicitly rather than arriving through generic object traversal.
+- **Verdict:** Sound. Validation authority and reviewer visibility remain
+  separate, explicit concerns.
+- **Confidence:** High.

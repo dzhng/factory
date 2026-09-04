@@ -10,3 +10,13 @@ referenced content object. Its manifest and object paths are canonical and
 content-addressed, so verification in a fresh directory needs neither the live
 checkout nor Git metadata. `@factory/reviewer` may execute only after this
 package returns a verified bundle.
+
+Repository discovery, candidate graph loading, history folding, coverage, and
+portable bundle verification have separate owners under `src/`. That split is
+a trust boundary: planning consumes only immutable projections produced from a
+descriptor-confined repository snapshot, while bundle verification rebuilds
+the same joins without consulting the live repository.
+
+This package decides whether execution is necessary; it does not start Docker.
+The Slice 09 execution owner must stop on every status except `ready`, then
+accept only a bundle that independently verifies.

@@ -4,7 +4,9 @@
 
 Bare `factory review` selects the exact current workspace plus verified pending
 Stops and clearly labeled weak same-branch candidates; `--session` narrows it.
-`factory review --pr N` selects only exact/verified PR associations. Pending
+`factory review --pr N` selects verified exact associations and explicit manual
+assertions from completed batches, preserving which proof was machine-verified
+and which was human-asserted. Pending
 Stops coalesce through a frozen watermark. Fully covered unchanged subjects are
 no-ops. The planner includes readable partial evidence, excludes corrupt or
 unsafe bytes, and freezes every input into a self-contained verified bundle.
@@ -39,7 +41,7 @@ and bundle digests.
 - Incremental PR review contains new evidence, the full current PR diff, and the
   prior canonical ledger without re-reviewing covered Session ranges.
 - `--full`/`--force` reanalyzes; unchanged full coverage returns `already
-  reviewed` without Docker.
+  reviewed` before Slice 09's Docker execution boundary is reached.
 - Partial plans enumerate attempted, unavailable, corrupt, unsafe, weak, and
   deliberately excluded inputs separately. Readable partial is eligible;
   corrupt foundational bytes are not verified.

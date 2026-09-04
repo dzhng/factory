@@ -27,6 +27,7 @@ import {
   type PortableRecordReader,
   type ReviewRepositoryReader,
 } from './repository-reader'
+import { subjectFingerprint } from './semantics'
 
 export type LoadedReviewHistoryState = {
   reviews: readonly PriorReview[]
@@ -47,38 +48,6 @@ function decodeCanonicalRecord(path: string, bytes: Uint8Array): unknown {
   assertOwnedRecordPath(path)
   validatePublicRecord(path, value)
   return value
-}
-function subjectFingerprint(subject: ReviewSubject): string {
-  if (subject.kind === 'workspace') {
-    const observation = subject.observation
-    return sha256(
-      canonicalJson({
-        kind: subject.kind,
-        ...(observation.git.head === undefined ? {} : { head: observation.git.head }),
-        startState: observation.startState,
-        endState: observation.endState,
-        ...(observation.codeManifest === undefined
-          ? {}
-          : { codeManifest: observation.codeManifest }),
-        ...(observation.stagedPatch === undefined ? {} : { stagedPatch: observation.stagedPatch }),
-        ...(observation.unstagedPatch === undefined
-          ? {}
-          : { unstagedPatch: observation.unstagedPatch }),
-      }),
-    )
-  }
-  const observation = subject.observation
-  return sha256(
-    canonicalJson({
-      kind: subject.kind,
-      repositoryKey: observation.repositoryKey,
-      number: observation.number,
-      base: observation.base,
-      head: observation.head,
-      diff: observation.diff,
-      ...(observation.codeManifest === undefined ? {} : { codeManifest: observation.codeManifest }),
-    }),
-  )
 }
 async function readRequiredRecord(
   reader: PortableRecordReader,

@@ -34,12 +34,12 @@ import {
 import { loadCandidateEvidence } from './candidate-loader'
 import { getLoadedReviewHistoryState, loadReviewHistoryFromRequest } from './history-loader'
 import type {
-  EffectiveReviewLimits,
   LoadedHistorySource,
   ReviewEvidenceSelection,
   ReviewPlan,
   ReviewSubject,
 } from './index'
+import { effectiveLimits, subjectFingerprint } from './semantics'
 
 function historySourceKind(path: OwnedPath): LoadedHistorySource['kind'] | undefined {
   if (/^reviews\/coverage-actions\/[^/]+\.json$/.test(path)) return 'coverage-action'
@@ -56,22 +56,6 @@ function historySourceKind(path: OwnedPath): LoadedHistorySource['kind'] | undef
 const sha256 = (bytes: Uint8Array | string) => createHash('sha256').update(bytes).digest('hex')
 const compareCanonical = (left: unknown, right: unknown) =>
   canonicalJson(left).localeCompare(canonicalJson(right))
-function effectiveLimits(
-  configured: { maxBundleBytes?: number; maxSessions?: number } | undefined,
-): EffectiveReviewLimits {
-  const clamp = (value: number | undefined, fallback: number, ceiling: number) =>
-    value === undefined || !Number.isSafeInteger(value) || value <= 0
-      ? fallback
-      : Math.min(value, ceiling)
-  return {
-    maxBundleBytes: clamp(configured?.maxBundleBytes, 256 * 1024 * 1024, 512 * 1024 * 1024),
-    maxSessions: clamp(configured?.maxSessions, 100, 1_000),
-    maxTreeEntries: 200_000,
-    maxObjects: 100_000,
-    maxDepth: 16,
-    maxStructuredRecordBytes: 4 * 1024 * 1024,
-  }
-}
 function decodeCanonicalRecord(path: string, bytes: Uint8Array): unknown {
   const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
   const value = JSON.parse(text) as unknown
@@ -116,38 +100,6 @@ function collectObjectRefs(value: unknown, refs: Map<string, ObjectRef>): void {
     return
   }
   Object.values(record).forEach(item => collectObjectRefs(item, refs))
-}
-function subjectFingerprint(subject: ReviewSubject): string {
-  if (subject.kind === 'workspace') {
-    const observation = subject.observation
-    return sha256(
-      canonicalJson({
-        kind: subject.kind,
-        ...(observation.git.head === undefined ? {} : { head: observation.git.head }),
-        startState: observation.startState,
-        endState: observation.endState,
-        ...(observation.codeManifest === undefined
-          ? {}
-          : { codeManifest: observation.codeManifest }),
-        ...(observation.stagedPatch === undefined ? {} : { stagedPatch: observation.stagedPatch }),
-        ...(observation.unstagedPatch === undefined
-          ? {}
-          : { unstagedPatch: observation.unstagedPatch }),
-      }),
-    )
-  }
-  const observation = subject.observation
-  return sha256(
-    canonicalJson({
-      kind: subject.kind,
-      repositoryKey: observation.repositoryKey,
-      number: observation.number,
-      base: observation.base,
-      head: observation.head,
-      diff: observation.diff,
-      ...(observation.codeManifest === undefined ? {} : { codeManifest: observation.codeManifest }),
-    }),
-  )
 }
 async function verifyCodeManifestClosure(
   reference: ObjectRef,

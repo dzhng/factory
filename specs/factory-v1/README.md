@@ -1,6 +1,6 @@
 # Factory v1 specification
 
-Status: **in implementation; Slices 01–07 are complete**
+Status: **in implementation; Slices 01–08 are complete**
 
 ## Next Agent Prompt
 
@@ -16,11 +16,13 @@ Status: **in implementation; Slices 01–07 are complete**
 > `f7d5299`, with cross-worktree recovery hardened at `618fa5a`. Slice 07 adds
 > the public PR/association contract at `f46b679`, the optional bounded GitHub
 > observation and exact association vertical at `00425da`, and independently
-> audited code-capture deadline hardening at `396dd97`. Begin Slice 08:
-> deterministically plan incremental complete or partial review bundles from
-> immutable workspace and PR evidence without re-reviewing covered Sessions.
+> audited code-capture deadline hardening at `396dd97`. Slice 08 adds
+> deterministic incremental coverage and independently verified portable
+> workspace/PR bundles through `c934ba8`. Begin Slice 09: execute only `ready`
+> verified bundles in the isolated reviewer boundary, persist immutable results,
+> and stop before Docker for every no-op or pending status.
 > Read `AGENTS.md`, `SECURITY.md`, this README, `choices.md`, `format.md`, and
-> Slices 07 and 08 in full.
+> Slices 08 and 09 in full.
 > Slice 06's packaged networkless Docker vertical passes both provider fixtures,
 > continuing/cross-repository Sessions, hook recovery, automatic initialization,
 > partial transcripts, Git sentinels, and rebuild after derived-index deletion.

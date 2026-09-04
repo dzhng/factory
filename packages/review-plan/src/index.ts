@@ -41,6 +41,7 @@ import {
   type PortableRecordReader,
   type ReviewRepositoryReader,
 } from './repository-reader'
+import { effectiveLimits, subjectFingerprint } from './semantics'
 
 export {
   openReviewRepositoryReader,
@@ -240,21 +241,6 @@ export type ReviewPlan = {
   inputProblems: readonly ReviewInputProblem[]
 }
 
-function effectiveLimits(configured: ReviewInputs['reviewLimits']): EffectiveReviewLimits {
-  const clamp = (value: number | undefined, fallback: number, ceiling: number): number =>
-    value === undefined || !Number.isSafeInteger(value) || value <= 0
-      ? fallback
-      : Math.min(value, ceiling)
-  return {
-    maxBundleBytes: clamp(configured?.maxBundleBytes, 256 * 1024 * 1024, 512 * 1024 * 1024),
-    maxSessions: clamp(configured?.maxSessions, 100, 1_000),
-    maxTreeEntries: 200_000,
-    maxObjects: 100_000,
-    maxDepth: 16,
-    maxStructuredRecordBytes: 4 * 1024 * 1024,
-  }
-}
-
 function sha256(bytes: Uint8Array | string): string {
   return createHash('sha256').update(bytes).digest('hex')
 }
@@ -276,39 +262,6 @@ function compareSelection(left: ReviewEvidenceSelection, right: ReviewEvidenceSe
 
 function compareCanonical(left: unknown, right: unknown): number {
   return canonicalJson(left).localeCompare(canonicalJson(right))
-}
-
-function subjectFingerprint(subject: ReviewSubject): string {
-  if (subject.kind === 'workspace') {
-    const observation = subject.observation
-    return sha256(
-      canonicalJson({
-        kind: subject.kind,
-        ...(observation.git.head === undefined ? {} : { head: observation.git.head }),
-        startState: observation.startState,
-        endState: observation.endState,
-        ...(observation.codeManifest === undefined
-          ? {}
-          : { codeManifest: observation.codeManifest }),
-        ...(observation.stagedPatch === undefined ? {} : { stagedPatch: observation.stagedPatch }),
-        ...(observation.unstagedPatch === undefined
-          ? {}
-          : { unstagedPatch: observation.unstagedPatch }),
-      }),
-    )
-  }
-  const observation = subject.observation
-  return sha256(
-    canonicalJson({
-      kind: subject.kind,
-      repositoryKey: observation.repositoryKey,
-      number: observation.number,
-      base: observation.base,
-      head: observation.head,
-      diff: observation.diff,
-      ...(observation.codeManifest === undefined ? {} : { codeManifest: observation.codeManifest }),
-    }),
-  )
 }
 
 function sameSubject(review: PriorReview, subject: ReviewSubject): boolean {
@@ -556,9 +509,54 @@ async function loadReviewInputsFromReader(
       item.trigger.sessionKey === request.sessionKey,
   )
   const sessionLimit = effectiveLimits(request.reviewLimits).maxSessions
+  const acquisitionRanks = new Map<string, number>()
+  if (subject.kind === 'workspace') {
+    await Promise.all(
+      requestedTriggers.map(async item => {
+        if (item.trigger === undefined) return
+        let rank = 1
+        try {
+          const turnPath = makeOwnedPath('sessions', [
+            item.trigger.provider,
+            item.trigger.sessionKey,
+            'turns',
+            item.trigger.turnId,
+            'manifest.json',
+          ])
+          const turn = (await readRequiredRecord(reader, turnPath)).value as {
+            repositoryObservationId?: RecordId
+          }
+          if (turn.repositoryObservationId !== undefined) {
+            const observation = (
+              await readRequiredRecord(
+                reader,
+                makeOwnedPath('repository-observations', [`${turn.repositoryObservationId}.json`]),
+              )
+            ).value as RepositoryObservation
+            if (
+              observation.startState === observation.endState &&
+              !observation.limitations.some(item => item.code === 'repository-race') &&
+              subjectFingerprint({ kind: 'workspace', observation }) === subjectFingerprint(subject)
+            )
+              rank = 0
+          }
+        } catch {
+          rank = 0 // Acquisition gaps are in-scope attempts and outrank optional weak context.
+        }
+        acquisitionRanks.set(
+          item.trigger.sessionKey,
+          Math.min(acquisitionRanks.get(item.trigger.sessionKey) ?? rank, rank),
+        )
+      }),
+    )
+  }
   const admittedSessionKeys = new Set(
     [...new Set(requestedTriggers.flatMap(item => item.trigger?.sessionKey ?? []))]
-      .sort()
+      .sort(
+        (left, right) =>
+          (acquisitionRanks.get(left) ?? 0) - (acquisitionRanks.get(right) ?? 0) ||
+          left.localeCompare(right),
+      )
       .slice(0, sessionLimit),
   )
   const candidateScope = (triggerId: RecordId): CandidateScopeProof =>
