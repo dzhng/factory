@@ -5,7 +5,7 @@ import {
   openRuntimeJournal,
   type DurabilityBoundary,
   type MaterializationClaim,
-  type TurnRef,
+  type RuntimeRecordRef,
 } from '../src/index.js'
 
 const [root, operation, crashAt] = process.argv.slice(2)
@@ -16,8 +16,8 @@ const journal = await openRuntimeJournal({
   testRuntimeRoot: root,
   ...(operation === 'complete'
     ? {
-        verifyTurn: async (_claim: MaterializationClaim, turn: TurnRef) =>
-          new Uint8Array(await readFile(join(root, '.factory', turn.path))),
+        verifyTurn: async (_claim: MaterializationClaim, turn: RuntimeRecordRef) =>
+          new Uint8Array(await readFile(join(turn.repositoryRoot, '.factory', turn.path))),
       }
     : {}),
   onDurabilityBoundary: async boundary => {
@@ -54,7 +54,7 @@ if (operation === 'append' || operation === 'append-stop') {
   await journal.claimStop(stop)
 } else if (operation === 'complete') {
   const claim = JSON.parse(process.env.FACTORY_TEST_CLAIM ?? '') as MaterializationClaim
-  const turn = JSON.parse(process.env.FACTORY_TEST_TURN ?? '') as TurnRef
+  const turn = JSON.parse(process.env.FACTORY_TEST_TURN ?? '') as RuntimeRecordRef
   await journal.complete(claim, turn)
 } else {
   throw new Error(`Unknown operation: ${operation}`)

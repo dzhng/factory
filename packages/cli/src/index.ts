@@ -204,6 +204,44 @@ async function gitRoot(cwd: string, environment: NodeJS.ProcessEnv): Promise<str
   return await realpath(result.stdout.trim())
 }
 
+async function gitCommonRoot(
+  repositoryRoot: string,
+  environment: NodeJS.ProcessEnv,
+): Promise<string | undefined> {
+  const result = await run(
+    'git',
+    ['rev-parse', '--path-format=absolute', '--git-common-dir'],
+    repositoryRoot,
+    environment,
+  )
+  return result.code === 0 ? await realpath(result.stdout.trim()) : undefined
+}
+
+async function readRoutedProof(
+  reference: {
+    path: Parameters<RepositoryStore['readImmutable']>[0]
+    sha256: string
+    repositoryRoot: string
+    repositoryId: string
+  },
+  anchorRoot: string,
+  anchorRepositoryId: string,
+  environment: NodeJS.ProcessEnv,
+): Promise<Uint8Array> {
+  if (
+    reference.repositoryId !== anchorRepositoryId ||
+    (await gitCommonRoot(reference.repositoryRoot, environment)) !==
+      (await gitCommonRoot(anchorRoot, environment))
+  ) {
+    throw new Error('runtime completion proof is outside its repository authority')
+  }
+  const routed = await openRepositoryStore(reference.repositoryRoot)
+  if (routed.manifest.repositoryId !== anchorRepositoryId) {
+    throw new Error('runtime completion proof repository identity is inconsistent')
+  }
+  return await routed.readImmutable(reference.path, reference.sha256)
+}
+
 function readOption(args: readonly string[], name: string): string | undefined {
   const index = args.indexOf(name)
   return index < 0 ? undefined : args[index + 1]
@@ -224,6 +262,25 @@ async function globalConfig(environment: NodeJS.ProcessEnv): Promise<GlobalFacto
     value.repositoryInitialization !== 'automatic'
   ) {
     throw new TypeError('repositoryInitialization is unsupported')
+  }
+  if (value.automaticReview !== undefined && typeof value.automaticReview !== 'boolean') {
+    throw new TypeError('automaticReview must be boolean')
+  }
+  if (
+    value.canonicalBranch !== undefined &&
+    (typeof value.canonicalBranch !== 'string' || value.canonicalBranch.trim() === '')
+  ) {
+    throw new TypeError('canonicalBranch must be a nonblank string')
+  }
+  if (
+    value.reviewer !== undefined &&
+    value.reviewer !== 'auto' &&
+    (value.reviewer === null ||
+      Array.isArray(value.reviewer) ||
+      typeof value.reviewer !== 'object' ||
+      (value.reviewer.provider !== 'codex' && value.reviewer.provider !== 'claude'))
+  ) {
+    throw new TypeError('reviewer is unsupported')
   }
   return value as GlobalFactoryConfig
 }
@@ -346,6 +403,7 @@ async function readHookState(environment: NodeJS.ProcessEnv): Promise<HookState 
 async function applyHookPatch(
   provider: CaptureProvider,
   path: string,
+  expected: Uint8Array | undefined,
   bytes: Uint8Array,
   nextState: HookState,
   environment: NodeJS.ProcessEnv,
@@ -354,6 +412,10 @@ async function applyHookPatch(
   const journalPath = join(root, 'hook-transaction.json')
   const before =
     (await pathKind(path)) === 'file' ? await readFile(path) : textEncoder.encode('{}\n')
+  const expectedBefore = expected ?? textEncoder.encode('{}\n')
+  if (!Buffer.from(before).equals(expectedBefore)) {
+    throw new Error('provider hooks changed while Factory prepared its patch')
+  }
   const journal = {
     schemaVersion: 1,
     provider,
@@ -365,6 +427,13 @@ async function applyHookPatch(
   }
   await atomicPrivateWrite(journalPath, textEncoder.encode(canonicalJson(journal)))
   if (process.env.FACTORY_TEST_HOOK_CRASH === 'after-journal') throw new Error('injected crash')
+  const prewrite =
+    (await pathKind(path)) === 'file' ? await readFile(path) : textEncoder.encode('{}\n')
+  if (!Buffer.from(prewrite).equals(expectedBefore)) {
+    await unlink(journalPath)
+    await syncDirectory(root)
+    throw new Error('provider hooks changed while Factory prepared its patch')
+  }
   await atomicPrivateWrite(path, bytes)
   if (process.env.FACTORY_TEST_HOOK_CRASH === 'after-config') throw new Error('injected crash')
   await atomicPrivateWrite(
@@ -447,7 +516,7 @@ async function installHooks(
         [provider]: { path, fingerprints: patch.ownedFingerprints },
       },
     }
-    await applyHookPatch(provider, path, patch.bytes, state, environment)
+    await applyHookPatch(provider, path, existing, patch.bytes, state, environment)
   }
   return state
 }
@@ -475,7 +544,7 @@ async function uninstallHooks(environment: NodeJS.ProcessEnv): Promise<void> {
       continue
     }
     const patch = removeOwnedHooks(provider, existing, owned.fingerprints)
-    await applyHookPatch(provider, owned.path, patch.bytes, state, environment)
+    await applyHookPatch(provider, owned.path, existing, patch.bytes, state, environment)
   }
 }
 
@@ -542,6 +611,7 @@ async function claimOwner(
 async function recoverRepository(
   repositoryRoot: string,
   store: RepositoryStore,
+  repositoryStores: Map<string, RepositoryStore>,
   journal: RuntimeJournal,
   environment: NodeJS.ProcessEnv,
 ) {
@@ -556,27 +626,102 @@ async function recoverRepository(
   await withAdvisoryFileLock(fencePath, 50, async () => {
     for await (const work of journal.recover()) {
       if (work.availability !== 'ready') continue
-      const owner = await readOwner(
-        environment,
-        ownerKey(work.stop.provider, work.stop.sessionId, work.stop.generation),
-      )
-      if (owner === undefined || owner.repositoryRoot !== repositoryRoot) continue
-      const claim = work.claim ?? (await journal.claimStop(work.stop)).claim
-      const providerHome =
-        owner.provider === 'codex'
-          ? (environment.CODEX_HOME ?? join(environment.HOME ?? homedir(), '.codex'))
-          : (environment.CLAUDE_CONFIG_DIR ?? join(environment.HOME ?? homedir(), '.claude'))
-      await materializeStop({
-        repositoryRoot: owner.repositoryRoot,
-        store,
-        journal,
-        claim,
-        sessionFirstObservedAt: owner.firstObservedAt,
-        providerHome,
-      })
+      try {
+        const owner = await readOwner(
+          environment,
+          ownerKey(work.stop.provider, work.stop.sessionId, work.stop.generation),
+        )
+        if (
+          owner === undefined ||
+          owner.repositoryId !== store.manifest.repositoryId ||
+          (await gitCommonRoot(owner.repositoryRoot, environment)) !==
+            (await gitCommonRoot(repositoryRoot, environment))
+        )
+          continue
+        const claim = work.claim ?? (await journal.claimStop(work.stop)).claim
+        const providerHome =
+          owner.provider === 'codex'
+            ? (environment.CODEX_HOME ?? join(environment.HOME ?? homedir(), '.codex'))
+            : (environment.CLAUDE_CONFIG_DIR ?? join(environment.HOME ?? homedir(), '.claude'))
+        const ownerCommon = await gitCommonRoot(owner.repositoryRoot, environment)
+        const sameRepositoryWorktrees: string[] = []
+        for (const path of new Set(work.events.flatMap(event => event.worktreePath ?? []))) {
+          if (
+            ownerCommon !== undefined &&
+            (await gitCommonRoot(path, environment)) === ownerCommon
+          ) {
+            try {
+              const candidateStore = await openRepositoryStore(path)
+              if (candidateStore.manifest.repositoryId === owner.repositoryId) {
+                sameRepositoryWorktrees.push(path)
+                repositoryStores.set(path, candidateStore)
+              }
+            } catch {
+              // A linked checkout without the portable Factory repository stays pending.
+            }
+          }
+        }
+        const stopWorktree = work.events.at(-1)?.worktreePath
+        if (
+          stopWorktree !== undefined &&
+          (await gitCommonRoot(stopWorktree, environment)) === ownerCommon &&
+          !sameRepositoryWorktrees.includes(stopWorktree)
+        ) {
+          throw new Error('linked worktree does not expose the owning Factory repository')
+        }
+        const targetRoot =
+          stopWorktree !== undefined && sameRepositoryWorktrees.includes(stopWorktree)
+            ? stopWorktree
+            : owner.repositoryRoot
+        const targetStore = repositoryStores.get(targetRoot) ?? store
+        await materializeStop({
+          repositoryRoot: targetRoot,
+          sameRepositoryWorktrees,
+          store: targetStore,
+          journal,
+          claim,
+          sessionFirstObservedAt: owner.firstObservedAt,
+          providerHome,
+        })
+      } catch (error) {
+        await journal.recordDiagnostic(error)
+      }
     }
     for await (const lifecycle of journal.recoverLifecycle()) {
-      await materializeLifecycle(lifecycle, journal, store)
+      try {
+        const owner = await readOwner(
+          environment,
+          ownerKey(lifecycle.provider, lifecycle.sessionId, lifecycle.generation),
+        )
+        if (
+          owner === undefined ||
+          owner.repositoryId !== store.manifest.repositoryId ||
+          (await gitCommonRoot(owner.repositoryRoot, environment)) !==
+            (await gitCommonRoot(repositoryRoot, environment))
+        )
+          continue
+        let candidates = [...repositoryStores.values()]
+        if (lifecycle.worktreePath !== undefined) {
+          const ownerCommon = await gitCommonRoot(owner.repositoryRoot, environment)
+          const lifecycleCommon = await gitCommonRoot(lifecycle.worktreePath, environment)
+          if (ownerCommon !== undefined && lifecycleCommon === ownerCommon) {
+            let lifecycleStore = repositoryStores.get(lifecycle.worktreePath)
+            if (lifecycleStore === undefined) {
+              lifecycleStore = await openRepositoryStore(lifecycle.worktreePath)
+              if (lifecycleStore.manifest.repositoryId !== owner.repositoryId) {
+                throw new Error('linked worktree does not expose the owning Factory repository')
+              }
+              repositoryStores.set(lifecycle.worktreePath, lifecycleStore)
+            }
+            candidates = [lifecycleStore]
+          }
+        }
+        for (const candidate of candidates) {
+          if ((await materializeLifecycle(lifecycle, journal, candidate)) === 'materialized') break
+        }
+      } catch (error) {
+        await journal.recordDiagnostic(error)
+      }
     }
   })
 }
@@ -627,15 +772,41 @@ async function capture(
   ) {
     throw new Error('Session owner state does not match the capture or repository')
   }
+  const repositoryStores = new Map([[owner.repositoryRoot, store]])
+  if (
+    currentRoot !== undefined &&
+    currentRoot !== owner.repositoryRoot &&
+    (await gitCommonRoot(currentRoot, environment)) ===
+      (await gitCommonRoot(owner.repositoryRoot, environment))
+  ) {
+    try {
+      const currentStore = await openRepositoryStore(currentRoot)
+      if (currentStore.manifest.repositoryId === owner.repositoryId) {
+        repositoryStores.set(currentRoot, currentStore)
+      }
+    } catch {
+      // Recovery will preserve the claim and diagnose a linked checkout without Factory data.
+    }
+  }
   const journal = await openRuntimeJournal({
     repositoryRoot: owner.repositoryRoot,
     verifyTurn: async (claim, turn) => {
-      const bytes = await store.readImmutable(turn.path, turn.sha256)
+      const bytes = await readRoutedProof(
+        turn,
+        owner.repositoryRoot,
+        owner.repositoryId,
+        environment,
+      )
       verifyTurnCompletion(claim, turn, bytes)
       return bytes
     },
     verifyLifecycle: async (event, record) => {
-      const bytes = await store.readImmutable(record.path, record.sha256)
+      const bytes = await readRoutedProof(
+        record,
+        owner.repositoryRoot,
+        owner.repositoryId,
+        environment,
+      )
       verifyLifecycleCompletion(event, record, bytes)
       return bytes
     },
@@ -653,7 +824,7 @@ async function capture(
       ...(currentRoot === undefined ? {} : { worktreePath: currentRoot }),
     })
     if (appended.receipt === undefined) return 'failed'
-    await recoverRepository(owner.repositoryRoot, store, journal, environment)
+    await recoverRepository(owner.repositoryRoot, store, repositoryStores, journal, environment)
     return 'stored'
   } finally {
     await journal.close()
@@ -665,6 +836,7 @@ async function doctor(
   repair: boolean,
   environment: NodeJS.ProcessEnv,
 ): Promise<Record<string, JsonValue>> {
+  if (repair) await recoverHookTransaction(environment)
   const store = await openRepositoryStore(repositoryRoot)
   const verification = await store.verify()
   const config = await repositoryConfig(repositoryRoot)
@@ -707,23 +879,34 @@ async function doctor(
     }
   }
   if (repair) {
+    const repositoryStores = new Map([[repositoryRoot, store]])
     const journal = await openRuntimeJournal({
       repositoryRoot,
       verifyTurn: async (claim, turn) => {
-        const bytes = await store.readImmutable(turn.path, turn.sha256)
+        const bytes = await readRoutedProof(
+          turn,
+          repositoryRoot,
+          store.manifest.repositoryId,
+          environment,
+        )
         verifyTurnCompletion(claim, turn, bytes)
         return bytes
       },
       verifyLifecycle: async (event, record) => {
-        const bytes = await store.readImmutable(record.path, record.sha256)
+        const bytes = await readRoutedProof(
+          record,
+          repositoryRoot,
+          store.manifest.repositoryId,
+          environment,
+        )
         verifyLifecycleCompletion(event, record, bytes)
         return bytes
       },
     })
     try {
+      await recoverRepository(repositoryRoot, store, repositoryStores, journal, environment)
       pendingStops = (await Array.fromAsync(journal.recover())).length
       pendingLifecycle = (await Array.fromAsync(journal.recoverLifecycle())).length
-      await recoverRepository(repositoryRoot, store, journal, environment)
     } finally {
       await journal.close()
     }
@@ -738,10 +921,15 @@ async function doctor(
     gitCommon.code === 0
       ? join(gitCommon.stdout.trim(), 'factory-runtime', 'journal-v1', 'diagnostics')
       : undefined
-  const captureDiagnostics =
+  const diagnosticNames =
     diagnosticsRoot !== undefined && (await pathKind(diagnosticsRoot)) === 'directory'
-      ? (await readdir(diagnosticsRoot)).filter(name => /^[0-9a-f-]+\.txt$/.test(name)).sort()
+      ? await readdir(diagnosticsRoot)
       : []
+  const captureDiagnostics = diagnosticNames
+    .filter(name => /^[0-9a-f-]+\.txt$/.test(name))
+    .sort()
+    .slice(0, 10_000)
+  if (diagnosticNames.length > 10_000) captureDiagnostics.push('inventory-exceeds-bound')
   const projection = reduceRepository(records)
   const issues = [
     ...verification.issues,

@@ -777,6 +777,8 @@ async function safeTranscript(
 
 export type MaterializeStopOptions = {
   repositoryRoot: string
+  /** Claimed worktree paths proven to share the owner's Git-common repository. */
+  sameRepositoryWorktrees?: readonly string[]
   store: RepositoryStore
   journal: RuntimeJournal
   claim: MaterializationClaim
@@ -815,7 +817,11 @@ export async function materializeStop(
     }
     const bytes = await options.store.readImmutable(turnPath)
     const turn = { path: turnPath, sha256: sha256(bytes) }
-    await options.journal.complete(options.claim, turn)
+    await options.journal.complete(options.claim, {
+      ...turn,
+      repositoryRoot: options.store.repositoryRoot,
+      repositoryId: options.store.manifest.repositoryId,
+    })
     return { status: 'materialized', turn }
   }
   if (await hasFactoryConflict(options.repositoryRoot)) {
@@ -914,7 +920,11 @@ export async function materializeStop(
       triggerPath,
     )
     const turn = { path: turnPath, sha256: sha256(existingTurn) }
-    await options.journal.complete(options.claim, turn)
+    await options.journal.complete(options.claim, {
+      ...turn,
+      repositoryRoot: options.store.repositoryRoot,
+      repositoryId: options.store.manifest.repositoryId,
+    })
     return { status: 'materialized', turn }
   }
   const events: StopMaterializationEvent[] = []
@@ -937,7 +947,9 @@ export async function materializeStop(
   if (
     claimed.some(
       item =>
-        item.event.worktreePath !== undefined && item.event.worktreePath !== options.repositoryRoot,
+        item.event.worktreePath !== undefined &&
+        item.event.worktreePath !== options.repositoryRoot &&
+        !options.sameRepositoryWorktrees?.includes(item.event.worktreePath),
     )
   ) {
     limitations.push({
@@ -1049,7 +1061,11 @@ export async function materializeStop(
   })
   if ('reason' in plan) return { status: 'deferred', reason: plan.reason, detail: plan.detail }
   const turn = await executeTurn(plan, options.store)
-  await options.journal.complete(options.claim, turn)
+  await options.journal.complete(options.claim, {
+    ...turn,
+    repositoryRoot: options.store.repositoryRoot,
+    repositoryId: options.store.manifest.repositoryId,
+  })
   return { status: 'materialized', turn }
 }
 
@@ -1103,7 +1119,12 @@ export async function materializeLifecycle(
     throw new Error('SessionEnd repository object differs from journal bytes')
   }
   const record = await store.createImmutable(planned.path, planned.bytes)
-  await journal.completeLifecycle(event, { path: record.path, sha256: record.sha256 })
+  await journal.completeLifecycle(event, {
+    path: record.path,
+    sha256: record.sha256,
+    repositoryRoot: store.repositoryRoot,
+    repositoryId: store.manifest.repositoryId,
+  })
   return 'materialized'
 }
 

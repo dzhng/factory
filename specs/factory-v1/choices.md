@@ -724,3 +724,23 @@ second normative schema; the master specification and format own mechanics.
 - **Verdict:** Sound. It removes duplication and guarantees the public graph can
   be rebuilt within its declared record limits.
 - **Confidence:** High.
+
+### Route linked-worktree evidence to the worktree that produced it
+
+- **When:** Slice 06 linked-worktree recovery review.
+- **The choice:** A Session keeps the first repository identity as its owner,
+  while each Stop and SessionEnd is observed and published in the exact linked
+  worktree recorded by the provider event. Factory accepts that route only when
+  Git-common identity and the portable repository ID both match. Private
+  completion state freezes the destination worktree and repository ID so later
+  recovery verifies the same immutable record.
+- **The gap:** Git-common identity proves linked checkout membership, but an
+  older branch can predate `.factory`; publishing its code evidence into the
+  owner's different branch would misrepresent the observed state.
+- **The reach:** A linked checkout without the matching portable manifest stays
+  pending and is diagnosed. Repair from any matching linked checkout can resume
+  the shared journal without searching arbitrary repositories or publishing on
+  the wrong branch.
+- **Verdict:** Sound. Repository ownership stays singular while portable
+  evidence remains beside the exact code state it describes.
+- **Confidence:** High.

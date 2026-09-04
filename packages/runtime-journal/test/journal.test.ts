@@ -12,7 +12,7 @@ import {
   type DurabilityBoundary,
   type RuntimeJournal,
   type RuntimeJournalOptions,
-  type TurnRef,
+  type RuntimeRecordRef,
 } from '../src/index.js'
 
 const openedJournals: RuntimeJournal[] = []
@@ -897,6 +897,8 @@ describe('runtime journal', () => {
           'manifest.json',
         ]),
         sha256: 'a'.repeat(64),
+        repositoryRoot: root,
+        repositoryId: 'repo_fixture',
       }),
     ).rejects.toThrow('Turn-verification capability')
     const withCapability = await openRuntimeJournal({
@@ -919,6 +921,8 @@ describe('runtime journal', () => {
           'manifest.json',
         ]),
         sha256: 'a'.repeat(64),
+        repositoryRoot: root,
+        repositoryId: 'repo_fixture',
       }),
     ).rejects.toThrow('bytes do not match')
     expect(await Array.fromAsync(withCapability.recover())).toHaveLength(1)
@@ -1052,7 +1056,12 @@ describe('runtime journal', () => {
       recursive: true,
     })
     await writeFile(join(root, '.factory', path), bytes)
-    const reference = { path, sha256: createHash('sha256').update(bytes).digest('hex') }
+    const reference = {
+      path,
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+      repositoryRoot: root,
+      repositoryId: 'repo_fixture',
+    }
     await journal.completeLifecycle(event, reference)
     await journal.completeLifecycle(event, reference)
     expect(await Array.fromAsync(journal.recoverLifecycle())).toEqual([])
@@ -1138,12 +1147,17 @@ async function writeTurn(
   session: string,
   stop: string,
   content: string,
-): Promise<TurnRef> {
+): Promise<RuntimeRecordRef> {
   const path = makeOwnedPath('sessions', [provider, session, 'turns', stop, 'manifest.json'])
   const bytes = new TextEncoder().encode(content)
   await mkdir(join(root, '.factory', 'sessions', provider, session, 'turns', stop), {
     recursive: true,
   })
   await writeFile(join(root, '.factory', path), bytes, { flag: 'wx' })
-  return { path, sha256: createHash('sha256').update(bytes).digest('hex') }
+  return {
+    path,
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+    repositoryRoot: root,
+    repositoryId: 'repo_fixture',
+  }
 }

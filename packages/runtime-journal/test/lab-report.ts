@@ -129,6 +129,8 @@ await writeFile(join(stateRoot, '.factory', turnPath), turnBytes, { flag: 'wx' }
 await stateJournal.complete(firstClaim, {
   path: turnPath,
   sha256: createHash('sha256').update(turnBytes).digest('hex'),
+  repositoryRoot: stateRoot,
+  repositoryId: 'repo_fixture',
 })
 const recoveryAfterCompletion = await Array.fromAsync(stateJournal.recover())
 
@@ -243,6 +245,8 @@ await writeFile(join(databaseStateRoot, '.factory', databaseTurnPath), databaseT
 const databaseTurn = {
   path: databaseTurnPath,
   sha256: createHash('sha256').update(databaseTurnBytes).digest('hex'),
+  repositoryRoot: databaseStateRoot,
+  repositoryId: 'repo_fixture',
 }
 let databaseCompletionRejected = false
 try {

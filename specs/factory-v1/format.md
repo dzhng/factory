@@ -251,11 +251,14 @@ journal, write locks, derived indexes, materialization staging directories,
 Docker state, and update cache. Linked worktrees receive separately keyed
 operational state inside that runtime root while sharing repository identity.
 
-Capture ordering is common to all linked worktrees. The runtime journal may
-retain per-worktree routing paths, but it does not split authority into separate
-worktree journals. A durable Stop claim freezes its exact Session generation,
-event identities, and sequence cutoff until a verified immutable Turn completes
-it; claims are fences, not expiring leases.
+Capture ordering is common to all linked worktrees. The runtime journal retains
+the exact destination worktree and repository identity with each completion,
+but it does not split authority into separate worktree journals. A Stop is
+observed and published in its own worktree only after that checkout exposes the
+same portable repository identity; an older linked branch without `.factory`
+stays pending. A durable Stop claim freezes its exact Session generation, event
+identities, and sequence cutoff until a verified immutable Turn completes it;
+claims are fences, not expiring leases.
 
 Creating a claim grants one materializer execution authority. Concurrent
 callers observe the durable claim without receiving that authority; crash

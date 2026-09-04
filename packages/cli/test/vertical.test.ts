@@ -502,6 +502,164 @@ describe('installed capture vertical', () => {
     ).toMatchObject({ code: 0, stdout: '{}\n' })
   })
 
+  test('preserves a provider edit discovered during interrupted reconciliation', async () => {
+    const value = await createFixture()
+    const codexPath = join(value.home, '.codex', 'hooks.json')
+    await writeFile(codexPath, '{"hooks":{},"owner":"user"}\n')
+    expect(
+      (
+        await command(value.factory, ['install', '--executable', value.factory], value.repository, {
+          ...value.env,
+          FACTORY_TEST_HOOK_CRASH: 'after-journal',
+        })
+      ).code,
+    ).toBe(1)
+    await writeFile(codexPath, '{"hooks":{},"owner":"edited-concurrently"}\n')
+    expect(
+      (
+        await command(
+          value.factory,
+          ['install', '--executable', value.factory],
+          value.repository,
+          value.env,
+        )
+      ).code,
+    ).toBe(1)
+    expect(JSON.parse(await readFile(codexPath, 'utf8')).owner).toBe('edited-concurrently')
+  })
+
+  test('observes a linked worktree without calling it a cross-repository Session', async () => {
+    const value = await createFixture()
+    expect((await command(value.factory, ['init'], value.repository, value.env)).code).toBe(0)
+    await git(value.repository, 'add', '.factory/manifest.json', '.factory/config.json')
+    await git(value.repository, 'commit', '-m', 'initialize Factory')
+    const linked = join(value.root, 'linked')
+    await git(value.repository, 'worktree', 'add', '-b', 'linked-feature', linked)
+    const transcript = join(value.home, '.codex', 'sessions', 'linked.jsonl')
+    await writeFile(transcript, '{"type":"message"}\n')
+    const send = async (repository: string, payload: Record<string, unknown>) => {
+      expect(
+        await command(
+          value.factory,
+          ['capture', '--provider', 'codex'],
+          repository,
+          value.env,
+          `${JSON.stringify({ session_id: 'linked-session', cwd: repository, ...payload })}\n`,
+        ),
+      ).toMatchObject({ code: 0, stdout: '{}\n' })
+    }
+    await send(value.repository, { hook_event_name: 'Stop', turn_id: 'primary-stop' })
+    await send(linked, {
+      hook_event_name: 'Stop',
+      turn_id: 'linked-stop',
+      transcript_path: transcript,
+    })
+    const ownerReport = JSON.parse(
+      (await command(value.factory, ['doctor'], value.repository, value.env)).stdout,
+    )
+    const linkedReport = JSON.parse(
+      (await command(value.factory, ['doctor'], linked, value.env)).stdout,
+    )
+    expect(ownerReport.projection.sessions[0].turns).toBe(1)
+    expect(linkedReport.projection.sessions[0].turns).toBe(1)
+    const turnRoot = join(
+      linked,
+      '.factory',
+      'sessions',
+      'codex',
+      linkedReport.projection.sessions[0].sessionKey,
+      'turns',
+    )
+    const manifests = await Promise.all(
+      (await readdir(turnRoot)).map(id =>
+        readFile(join(turnRoot, id, 'manifest.json'), 'utf8').then(JSON.parse),
+      ),
+    )
+    const linkedManifest = manifests.find(manifest => manifest.branch === 'linked-feature')
+    expect(linkedManifest).toBeDefined()
+    expect(
+      linkedManifest.limitations.some(
+        (limitation: { code: string }) => limitation.code === 'cross-repository-session',
+      ),
+    ).toBeFalse()
+  })
+
+  test('recovers linked-worktree SessionEnd into its exact portable destination', async () => {
+    const value = await createFixture()
+    expect((await command(value.factory, ['init'], value.repository, value.env)).code).toBe(0)
+    await git(value.repository, 'add', '.factory/manifest.json', '.factory/config.json')
+    await git(value.repository, 'commit', '-m', 'initialize Factory')
+    const linked = join(value.root, 'linked-lifecycle')
+    await git(value.repository, 'worktree', 'add', '-b', 'linked-lifecycle', linked)
+    const send = async (payload: Record<string, unknown>) =>
+      await command(
+        value.factory,
+        ['capture', '--provider', 'codex'],
+        linked,
+        value.env,
+        `${JSON.stringify({ session_id: 'linked-lifecycle', cwd: linked, ...payload })}\n`,
+      )
+    expect(await send({ hook_event_name: 'Stop', turn_id: 'linked-stop' })).toMatchObject({
+      code: 0,
+      stdout: '{}\n',
+    })
+    expect(await send({ hook_event_name: 'SessionEnd' })).toMatchObject({
+      code: 0,
+      stdout: '{}\n',
+    })
+    const linkedReport = JSON.parse(
+      (await command(value.factory, ['doctor'], linked, value.env)).stdout,
+    )
+    const lifecycleRoot = join(
+      linked,
+      '.factory',
+      'sessions',
+      'codex',
+      linkedReport.projection.sessions[0].sessionKey,
+      'lifecycle',
+    )
+    for (const name of await readdir(lifecycleRoot)) await unlink(join(lifecycleRoot, name))
+    const common = await git(
+      value.repository,
+      'rev-parse',
+      '--path-format=absolute',
+      '--git-common-dir',
+    )
+    const database = new Database(join(common, 'factory-runtime', 'journal-v1', 'journal.sqlite'))
+    database.run('DELETE FROM lifecycle_completions')
+    database.close(false)
+
+    const repaired = JSON.parse(
+      (await command(value.factory, ['doctor', '--repair'], value.repository, value.env)).stdout,
+    )
+    expect(repaired.pendingLifecycle).toBe(0)
+    expect((await readdir(lifecycleRoot)).length).toBe(1)
+  })
+
+  test('keeps a linked-worktree Stop pending when that branch predates Factory init', async () => {
+    const value = await createFixture()
+    await git(value.repository, 'branch', 'before-factory')
+    expect((await command(value.factory, ['init'], value.repository, value.env)).code).toBe(0)
+    const linked = join(value.root, 'linked-before-factory')
+    await git(value.repository, 'worktree', 'add', linked, 'before-factory')
+    const send = async (repository: string, turn: string) =>
+      await command(
+        value.factory,
+        ['capture', '--provider', 'codex'],
+        repository,
+        value.env,
+        `${JSON.stringify({ session_id: 'predates-init', hook_event_name: 'Stop', turn_id: turn, cwd: repository })}\n`,
+      )
+    expect(await send(value.repository, 'owner-stop')).toMatchObject({ code: 0, stdout: '{}\n' })
+    expect(await send(linked, 'linked-stop')).toMatchObject({ code: 0, stdout: '{}\n' })
+    const report = JSON.parse(
+      (await command(value.factory, ['doctor'], value.repository, value.env)).stdout,
+    )
+    expect(report.pendingStops).toBe(1)
+    expect(report.captureDiagnostics.length).toBeGreaterThan(0)
+    expect(await pathExists(join(linked, '.factory'))).toBeFalse()
+  })
+
   test('keeps forged or unavailable transcript input partial without leaking its path', async () => {
     const value = await createFixture()
     expect((await command(value.factory, ['init'], value.repository, value.env)).code).toBe(0)

@@ -33,7 +33,7 @@ Status: **in implementation; Slices 01–06 are complete**
 > runtime record validation covers every public v1 family plus the public code
 > manifest; the journal passes 32 Docker tests, repository storage 14, and Git
 > observation/reconstruction 36; the combined workspace passes build,
-> formatting, lint, types, and 122 tests. Global TODOs: rerun current-client
+> formatting, lint, types, and 126 tests. Global TODOs: rerun current-client
 > authority when the registry is reachable; define verified code-state
 > continuity before enabling it; choose the release channel before Slice 12.
 > After every pass, update this prompt with the completed commit, exact next

@@ -57,6 +57,11 @@ export interface TurnRef {
   path: OwnedPath
   sha256: string
 }
+export interface RuntimeRecordRef extends TurnRef {
+  /** Private operational routing; never written to `.factory`. */
+  repositoryRoot: string
+  repositoryId: string
+}
 export interface RecoveryLimitation {
   kind: 'event-count' | 'raw-bytes'
   limit: number
@@ -98,9 +103,9 @@ export interface RuntimeJournalOptions {
   testRuntimeRoot?: string
   lockTimeoutMs?: number
   /** Repository-owned capability returning exact bytes for a verified immutable Turn. */
-  verifyTurn?: (claim: MaterializationClaim, turn: TurnRef) => Promise<Uint8Array>
+  verifyTurn?: (claim: MaterializationClaim, turn: RuntimeRecordRef) => Promise<Uint8Array>
   /** Repository capability proving one immutable lifecycle record before retirement. */
-  verifyLifecycle?: (event: DurableCaptureEvent, record: TurnRef) => Promise<Uint8Array>
+  verifyLifecycle?: (event: DurableCaptureEvent, record: RuntimeRecordRef) => Promise<Uint8Array>
   /** Crash-lab observation seam. It must not perform journal writes. */
   onDurabilityBoundary?: (boundary: DurabilityBoundary) => void | Promise<void>
 }
@@ -112,15 +117,16 @@ export interface RuntimeJournal {
   append(input: RawCaptureInput): Promise<DurableCaptureReceipt>
   appendNonBlocking(input: RawCaptureInput): Promise<HookCaptureResult>
   claimStop(stop: StopIdentity): Promise<ClaimStopResult>
-  complete(claim: MaterializationClaim, turn: TurnRef): Promise<void>
+  complete(claim: MaterializationClaim, turn: RuntimeRecordRef): Promise<void>
   recover(): AsyncIterable<RecoveryWork>
   recoverLifecycle(): AsyncIterable<DurableCaptureEvent>
-  completeLifecycle(event: DurableCaptureEvent, record: TurnRef): Promise<void>
+  completeLifecycle(event: DurableCaptureEvent, record: RuntimeRecordRef): Promise<void>
   readRaw(receipt: DurableCaptureReceipt): Promise<Uint8Array>
   readClaimEvents(
     claim: MaterializationClaim,
   ): Promise<readonly { event: DurableCaptureEvent; raw: Uint8Array }[]>
   inventory(): Promise<{ referenced: string[]; orphaned: string[]; staging: string[] }>
+  recordDiagnostic(error: unknown): Promise<string | undefined>
   close(): Promise<void>
 }
 
@@ -148,7 +154,7 @@ interface JournalRow extends DurableCaptureReceipt {
 interface Completion {
   claimId: string
   stop: StopIdentity
-  turn: TurnRef
+  turn: RuntimeRecordRef
   completedAt: string
 }
 interface ClaimRange {
@@ -428,6 +434,20 @@ class SqliteJournal implements RuntimeJournal {
     }
   }
 
+  async recordDiagnostic(error: unknown): Promise<string | undefined> {
+    const diagnosticId = randomUUID()
+    try {
+      const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error)
+      const bytes = new TextEncoder().encode(`${new Date().toISOString()} ${message}\n`)
+      if (bytes.byteLength > 16 * 1024) return undefined
+      await writeSynced(join(this.diagnostics, `${diagnosticId}.txt`), bytes)
+      await syncDirectory(this.diagnostics)
+      return diagnosticId
+    } catch {
+      return undefined
+    }
+  }
+
   async claimStop(stop: StopIdentity): Promise<ClaimStopResult> {
     return this.withOperation(async () => {
       validateStop(stop)
@@ -494,10 +514,16 @@ class SqliteJournal implements RuntimeJournal {
     })
   }
 
-  async complete(claim: MaterializationClaim, turn: TurnRef): Promise<void> {
+  async complete(claim: MaterializationClaim, turn: RuntimeRecordRef): Promise<void> {
     await this.withOperation(async () => {
       validateStop(claim.stop)
-      if (!claim.claimId || !isOwnedTurnPath(turn.path) || !SHA256.test(turn.sha256))
+      if (
+        !claim.claimId ||
+        !isOwnedTurnPath(turn.path) ||
+        !SHA256.test(turn.sha256) ||
+        !isAbsolute(turn.repositoryRoot) ||
+        !/^repo_[A-Za-z0-9_-]+$/.test(turn.repositoryId)
+      )
         throw new TypeError('Completion requires a valid claim and Turn reference')
       if (!this.options.verifyTurn)
         throw new Error('Completion requires the repository Turn-verification capability')
@@ -590,14 +616,16 @@ class SqliteJournal implements RuntimeJournal {
     for (const event of recovered) yield event
   }
 
-  async completeLifecycle(event: DurableCaptureEvent, reference: TurnRef): Promise<void> {
+  async completeLifecycle(event: DurableCaptureEvent, reference: RuntimeRecordRef): Promise<void> {
     await this.withOperation(async () => {
       if (
         event.eventKind !== 'session-end' ||
         !/^sessions\/(codex|claude)\/[^/]+\/lifecycle\/[a-z][a-z0-9-]*_[0-7][0-9A-HJKMNP-TV-Z]{25}\.json$/.test(
           reference.path,
         ) ||
-        !SHA256.test(reference.sha256)
+        !SHA256.test(reference.sha256) ||
+        !isAbsolute(reference.repositoryRoot) ||
+        !/^repo_[A-Za-z0-9_-]+$/.test(reference.repositoryId)
       )
         throw new TypeError('Lifecycle completion requires a SessionEnd lifecycle reference')
       const durableRow = stmt(this.db, 'SELECT * FROM events WHERE event_key=?').get(event.eventKey)
@@ -935,12 +963,27 @@ class SqliteJournal implements RuntimeJournal {
       const event = events.get(key)
       if (event?.eventKind !== 'session-end')
         throw new JournalCorruptionError('lifecycle completion does not reference SessionEnd')
-      const reference = JSON.parse(stringField(stored, 'record_json')) as TurnRef
+      const reference = record(
+        JSON.parse(stringField(stored, 'record_json')),
+        'lifecycle completion reference',
+      )
       if (
+        !sameJson(Object.keys(reference).sort(), [
+          'path',
+          'repositoryId',
+          'repositoryRoot',
+          'sha256',
+        ]) ||
+        typeof reference.path !== 'string' ||
         !/^sessions\/(codex|claude)\/[^/]+\/lifecycle\/[a-z][a-z0-9-]*_[0-7][0-9A-HJKMNP-TV-Z]{25}\.json$/.test(
           reference.path,
         ) ||
-        !SHA256.test(reference.sha256)
+        typeof reference.sha256 !== 'string' ||
+        !SHA256.test(reference.sha256) ||
+        typeof reference.repositoryRoot !== 'string' ||
+        !isAbsolute(reference.repositoryRoot) ||
+        typeof reference.repositoryId !== 'string' ||
+        !/^repo_[A-Za-z0-9_-]+$/.test(reference.repositoryId)
       )
         throw new JournalCorruptionError('lifecycle completion reference is malformed')
     }
@@ -1232,7 +1275,7 @@ function parseCompletion(value: unknown): Completion {
   const turn = record(completion.turn, 'Turn reference')
   if (
     !sameJson(Object.keys(completion).sort(), ['claimId', 'completedAt', 'stop', 'turn']) ||
-    !sameJson(Object.keys(turn).sort(), ['path', 'sha256']) ||
+    !sameJson(Object.keys(turn).sort(), ['path', 'repositoryId', 'repositoryRoot', 'sha256']) ||
     typeof completion.claimId !== 'string' ||
     typeof completion.completedAt !== 'string' ||
     !isObject(completion.stop) ||
@@ -1240,6 +1283,10 @@ function parseCompletion(value: unknown): Completion {
     !isOwnedTurnPath(turn.path) ||
     typeof turn.sha256 !== 'string' ||
     !SHA256.test(turn.sha256) ||
+    typeof turn.repositoryRoot !== 'string' ||
+    !isAbsolute(turn.repositoryRoot) ||
+    typeof turn.repositoryId !== 'string' ||
+    !/^repo_[A-Za-z0-9_-]+$/.test(turn.repositoryId) ||
     !isStrictTimestamp(String(completion.completedAt))
   )
     throw new JournalCorruptionError('Completion is malformed')
