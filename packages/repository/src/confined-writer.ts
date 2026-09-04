@@ -187,6 +187,7 @@ function sameNativeState(left: NativeIdentity, right: NativeIdentity): boolean {
 
 export type ConfinedReadOptions = {
   maximumBytes: number
+  expectedRoot?: { dev: bigint; ino: bigint }
   /** Test seam after the leaf descriptor is bound. */
   afterOpen?: () => Promise<void>
 }
@@ -208,6 +209,12 @@ export async function readConfinedFile(
   )
   const opened: number[] = []
   try {
+    if (options.expectedRoot !== undefined) {
+      const state = await root.stat({ bigint: true })
+      if (state.dev !== options.expectedRoot.dev || state.ino !== options.expectedRoot.ino) {
+        throw new Error('confined read root changed after inventory')
+      }
+    }
     let parent = root.fd
     for (const segment of path.slice(0, -1)) {
       const descriptor = backend.library.symbols.openat(

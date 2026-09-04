@@ -20,6 +20,7 @@ import {
   buildBundle,
   loadCandidateEvidence,
   loadReviewHistory,
+  loadReviewHistoryForTesting,
   loadReviewInputs,
   planReview as planLoadedReview,
   planReviewForTesting as planReview,
@@ -215,27 +216,15 @@ describe('verified review bundles', () => {
       },
       getObject: async ref => ({ kind: 'readable', bytes: value.objects.get(ref.sha256)! }),
     }
-    const history = await loadReviewHistory(reader, {
+    await expect(loadReviewHistory(reader)).rejects.toThrow('confined tree snapshot')
+    const trustedReader = trustReviewRepositoryReaderForTesting(reader)
+    const history = await loadReviewHistoryForTesting(trustedReader, {
       reviews: [{ manifestPath }],
       coverageActionPaths: [],
     })
     await expect(
-      loadReviewInputs(reader, {
-        mode: 'incremental',
-        subjectPath,
-        history,
-        policies: value.input.policies,
-      }),
-    ).rejects.toThrow('confined tree snapshot')
-    await expect(
       loadReviewInputs(
-        trustReviewRepositoryReaderForTesting({
-          ...reader,
-          getObject: async ref =>
-            ref.role === 'workspace-file'
-              ? { kind: 'missing', detail: 'nested leaf missing' }
-              : { kind: 'readable', bytes: value.objects.get(ref.sha256)! },
-        }),
+        { ...reader },
         {
           mode: 'incremental',
           subjectPath,
@@ -243,8 +232,27 @@ describe('verified review bundles', () => {
           policies: value.input.policies,
         },
       ),
+    ).rejects.toThrow('confined tree snapshot')
+    const missingLeafReader = trustReviewRepositoryReaderForTesting({
+      ...reader,
+      getObject: async ref =>
+        ref.role === 'workspace-file'
+          ? { kind: 'missing', detail: 'nested leaf missing' }
+          : { kind: 'readable', bytes: value.objects.get(ref.sha256)! },
+    })
+    const missingLeafHistory = await loadReviewHistoryForTesting(missingLeafReader, {
+      reviews: [{ manifestPath }],
+      coverageActionPaths: [],
+    })
+    await expect(
+      loadReviewInputs(missingLeafReader, {
+        mode: 'incremental',
+        subjectPath,
+        history: missingLeafHistory,
+        policies: value.input.policies,
+      }),
     ).rejects.toThrow('foundational subject object')
-    const loaded = await loadReviewInputs(trustReviewRepositoryReaderForTesting(reader), {
+    const loaded = await loadReviewInputs(trustedReader, {
       mode: 'incremental',
       subjectPath,
       history,
@@ -325,8 +333,12 @@ describe('verified review bundles', () => {
           ? { kind: 'missing', detail: 'optional provenance was not captured' }
           : { kind: 'readable', bytes: value.objects.get(reference.sha256)! },
     }
-    const history = await loadReviewHistory(reader, { reviews: [], coverageActionPaths: [] })
-    const loaded = await loadReviewInputs(trustReviewRepositoryReaderForTesting(reader), {
+    const trustedReader = trustReviewRepositoryReaderForTesting(reader)
+    const history = await loadReviewHistoryForTesting(trustedReader, {
+      reviews: [],
+      coverageActionPaths: [],
+    })
+    const loaded = await loadReviewInputs(trustedReader, {
       mode: 'incremental',
       subjectPath,
       history,

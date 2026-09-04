@@ -30,7 +30,6 @@ import {
   openReviewRepositoryReader,
   planReview,
   verifyBundle,
-  type LoadedReviewHistory,
   type ReviewPlan,
   type ReviewRepositoryReader,
 } from '@factory/review-plan'
@@ -246,26 +245,16 @@ function addCandidate(
   return { trigger, turn, repositoryObservation }
 }
 
-async function history(
-  store: FixtureStore,
-  manifests: OwnedPath[] = [],
-  actions: OwnedPath[] = [],
-) {
-  return loadReviewHistory(store, {
-    reviews: manifests.map(manifestPath => ({ manifestPath })),
-    coverageActionPaths: actions,
-  })
-}
-
 async function loadPlan(
   store: FixtureStore,
   subjectPath: OwnedPath,
-  loadedHistory: LoadedReviewHistory,
   mode: 'incremental' | 'full' | 'force' = 'incremental',
   policyVersion = 'policy-v1',
 ) {
+  const reader = await store.snapshot()
+  const loadedHistory = await loadReviewHistory(reader)
   return planReview(
-    await loadReviewInputs(await store.snapshot(), {
+    await loadReviewInputs(reader, {
       mode,
       subjectPath,
       history: loadedHistory,
@@ -372,26 +361,24 @@ const code = addCode(store, 'export const reviewed = true\n').manifest
 const subject = observation(100, code)
 const subjectPath = addObservation(store, subject)
 addCandidate(store, 1, subject)
-const empty = await history(store)
-const complete = await loadPlan(store, subjectPath, empty)
+const complete = await loadPlan(store, subjectPath)
 const completeBundle = await buildBundle(
   complete,
   { getObject: async value => store.objects.get(value.sha256)! },
   join(output, 'complete-bundle'),
 )
-const completed = persistReview(store, complete, 1, 'complete')
-const completedHistory = await history(store, [completed.manifestPath])
-const unchanged = await loadPlan(store, subjectPath, completedHistory)
+persistReview(store, complete, 1, 'complete')
+const unchanged = await loadPlan(store, subjectPath)
 addCandidate(store, 2, subject)
-const continuing = await loadPlan(store, subjectPath, completedHistory)
-const policy = await loadPlan(store, subjectPath, completedHistory, 'incremental', 'policy-v2')
+const continuing = await loadPlan(store, subjectPath)
+const policy = await loadPlan(store, subjectPath, 'incremental', 'policy-v2')
 
 const partialStore = new FixtureStore()
 const partialCode = addCode(partialStore, 'export const partial = true\n').manifest
 const partialSubject = observation(110, partialCode)
 const partialPath = addObservation(partialStore, partialSubject)
 addCandidate(partialStore, 3, partialSubject, true)
-const partial = await loadPlan(partialStore, partialPath, await history(partialStore))
+const partial = await loadPlan(partialStore, partialPath)
 const partialBundle = await buildBundle(
   partial,
   { getObject: async value => partialStore.objects.get(value.sha256)! },
@@ -405,7 +392,7 @@ const contextPath = addObservation(contextStore, contextSubject)
 const oldCode = addCode(contextStore, 'export const old = true\n').manifest
 addCandidate(contextStore, 4, observation(121, oldCode))
 addCandidate(contextStore, 5, observation(122, oldCode, { branch: 'other' }))
-const weakAndOrphan = await loadPlan(contextStore, contextPath, await history(contextStore))
+const weakAndOrphan = await loadPlan(contextStore, contextPath)
 
 const corruptStore = new FixtureStore()
 const corruptCode = addCode(corruptStore, 'export const readableSibling = true\n').manifest
@@ -420,7 +407,7 @@ const unavailableId = id('trigger', 9)
 const unavailablePath = makeOwnedPath('review-triggers', [`${unavailableId}.json`])
 corruptStore.paths.add(unavailablePath)
 corruptStore.failures.set(unavailablePath, { kind: 'missing', detail: 'interrupted capture' })
-const corruptSibling = await loadPlan(corruptStore, corruptPath, await history(corruptStore))
+const corruptSibling = await loadPlan(corruptStore, corruptPath)
 const partialReview = persistReview(corruptStore, corruptSibling, 2, 'partial')
 const action = {
   schemaVersion: 1,
@@ -434,13 +421,12 @@ const action = {
 } as const
 const actionPath = makeOwnedPath('reviews', ['coverage-actions', `${action.actionId}.json`])
 corruptStore.put(actionPath, action)
-const acceptedHistory = await history(corruptStore, [partialReview.manifestPath], [actionPath])
 corruptStore.records.delete(missingPath)
 addCandidate(corruptStore, 7, corruptSubject)
 corruptStore.failures.delete(unavailablePath)
 addCandidate(corruptStore, 9, corruptSubject)
-const recoveredDefault = await loadPlan(corruptStore, corruptPath, acceptedHistory)
-const recoveredForce = await loadPlan(corruptStore, corruptPath, acceptedHistory, 'force')
+const recoveredDefault = await loadPlan(corruptStore, corruptPath)
+const recoveredForce = await loadPlan(corruptStore, corruptPath, 'force')
 
 // PR: production loading sees both exact and explicit-manual proofs; a new observation models force-push/base change.
 const prStore = new FixtureStore()
@@ -517,14 +503,13 @@ const manual: SessionPullRequestAssociation = {
   observedAt: at,
 }
 addBatch(prStore, pr, [manual], 2, 'manual')
-const prPlan = await loadPlan(prStore, prPath, await history(prStore))
+const prPlan = await loadPlan(prStore, prPath)
 const prBundle = await buildBundle(
   prPlan,
   { getObject: async value => prStore.objects.get(value.sha256)! },
   join(output, 'pr-bundle'),
 )
-const priorPr = persistReview(prStore, prPlan, 3, 'complete')
-const priorPrHistory = await history(prStore, [priorPr.manifestPath])
+persistReview(prStore, prPlan, 3, 'complete')
 const nextDiff = prStore.putObject(
   new TextEncoder().encode('diff --git a/src/reviewed.ts b/src/reviewed.ts\n+force push\n'),
   'text/x-diff',
@@ -564,7 +549,7 @@ const forcePushPath = makeOwnedPath('pull-requests', [
   `${forcePushPr.observationId}.json`,
 ])
 prStore.put(forcePushPath, forcePushPr)
-const forcePush = await loadPlan(prStore, forcePushPath, priorPrHistory)
+const forcePush = await loadPlan(prStore, forcePushPath)
 
 const corruptBatchPath =
   `pull-requests/github/${repositoryKey}/42/associations/${pr.observationId}/batches/${id('association-batch', 90)}.json` as OwnedPath
@@ -573,20 +558,16 @@ const unsafeBatchPath =
   `pull-requests/github/${repositoryKey}/42/associations/${pr.observationId}/batches/${id('association-batch', 91)}.json` as OwnedPath
 prStore.paths.add(unsafeBatchPath)
 prStore.failures.set(unsafeBatchPath, { kind: 'unsafe', detail: 'symlinked association batch' })
-const prBadBatches = await loadPlan(prStore, prPath, await history(prStore))
+const prBadBatches = await loadPlan(prStore, prPath)
 prStore.objects.delete(raw.sha256)
-const prMissingRaw = await loadPlan(prStore, prPath, await history(prStore))
+const prMissingRaw = await loadPlan(prStore, prPath)
 
 // Canonical permutation: insertion order cannot affect the production projection or plan.
 const permutedStore = new FixtureStore()
 ;[...store.records].reverse().forEach(([path, value]) => permutedStore.records.set(path, value))
 ;[...store.paths].reverse().forEach(path => permutedStore.paths.add(path))
 ;[...store.objects].reverse().forEach(([key, value]) => permutedStore.objects.set(key, value))
-const permuted = await loadPlan(
-  permutedStore,
-  subjectPath,
-  await history(permutedStore, [completed.manifestPath]),
-)
+const permuted = await loadPlan(permutedStore, subjectPath)
 const permutationAPath = join(output, 'permutation-a')
 const permutationBPath = join(output, 'permutation-b')
 const bundleSource = (source: FixtureStore, plan: ReviewPlan) => ({

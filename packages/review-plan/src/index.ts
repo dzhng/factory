@@ -374,6 +374,7 @@ type LoadedReviewHistoryState = {
   reviews: readonly PriorReview[]
   coverageActions: readonly CoverageAction[]
   sources: readonly LoadedHistorySource[]
+  reader?: ReviewRepositoryReader
 }
 
 declare const loadedReviewHistoryBrand: unique symbol
@@ -616,9 +617,10 @@ async function readRequiredRecord(
 }
 
 /** Load restart-safe review history only from validated immutable repository bytes. */
-export async function loadReviewHistory(
+async function loadReviewHistoryFromRequest(
   reader: PortableRecordReader,
   request: ReviewHistoryLoadRequest,
+  repositoryReader?: ReviewRepositoryReader,
 ): Promise<LoadedReviewHistory> {
   const reviewDescriptors = [...request.reviews].sort((left, right) =>
     left.manifestPath.localeCompare(right.manifestPath),
@@ -807,10 +809,37 @@ export async function loadReviewHistory(
     reviews,
     coverageActions: actions,
     sources: [...sourcesByPath.values()].sort((left, right) => left.path.localeCompare(right.path)),
+    ...(repositoryReader === undefined ? {} : { reader: repositoryReader }),
   }
   const history = Object.freeze({}) as LoadedReviewHistory
   loadedHistories.set(history, state)
   return history
+}
+
+/** Load every review and coverage action visible in the same confined repository snapshot. */
+export async function loadReviewHistory(
+  reader: ReviewRepositoryReader,
+): Promise<LoadedReviewHistory> {
+  if (!isTrustedReviewRepositoryReader(reader))
+    throw new TypeError('review history reader was not opened from a confined tree snapshot')
+  const inventory = await reader.inventory()
+  const request: ReviewHistoryLoadRequest = {
+    reviews: inventory
+      .filter(path => /^reviews\/(?:workspace|pull-requests\/)\S+\/manifest\.json$/.test(path))
+      .map(manifestPath => ({ manifestPath })),
+    coverageActionPaths: inventory.filter(path =>
+      /^reviews\/coverage-actions\/[^/]+\.json$/.test(path),
+    ),
+  }
+  return await loadReviewHistoryFromRequest(reader, request, reader)
+}
+
+/** Test-only descriptor seam; production discovers history from a confined inventory. */
+export async function loadReviewHistoryForTesting(
+  reader: ReviewRepositoryReader,
+  request: ReviewHistoryLoadRequest,
+): Promise<LoadedReviewHistory> {
+  return await loadReviewHistoryFromRequest(reader, request, reader)
 }
 
 /** Load and defensively freeze every repository-owned input before planning. */
@@ -823,6 +852,8 @@ export async function loadReviewInputs(
   const history = loadedHistories.get(request.history)
   if (history === undefined)
     throw new TypeError('review history was not produced by loadReviewHistory')
+  if (history.reader !== reader)
+    throw new TypeError('review history and current inputs must share one confined snapshot')
   const inventory = [...(await reader.inventory())]
   if (inventory.length > 200_000) throw new TypeError('review repository inventory exceeds bound')
   inventory.forEach(assertOwnedRecordPath)
@@ -2865,7 +2896,7 @@ export async function verifyBundle(
       }
     }
     if (manifest.plan.historySources.length > 0) {
-      const rebuiltHistory = await loadReviewHistory(
+      const rebuiltHistory = await loadReviewHistoryFromRequest(
         {
           read: async ownedPath => {
             const bytes = recordBytes.get(ownedPath)
