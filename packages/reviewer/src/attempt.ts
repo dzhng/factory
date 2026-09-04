@@ -12,6 +12,7 @@ export type ReviewerExecutionTermination =
 
 export type ReviewerRawAttemptSnapshot = {
   reviewId: RecordId
+  bundleSha256: string
   response: Uint8Array
   termination: ReviewerExecutionTermination
   exitCode: number | null

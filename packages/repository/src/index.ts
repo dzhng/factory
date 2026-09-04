@@ -27,6 +27,7 @@ import {
   validateObjectRef,
   validatePublicRecord,
   type JsonValue,
+  type CoverageAction,
   type ObjectRef,
   type OwnedPath,
   type RepositoryConfig,
@@ -641,6 +642,34 @@ export class RepositoryStore {
       await atomicCreate(destination, path, bytes, this.stagingRoot)
     })
     return { path, sha256: sha256(bytes), bytes: bytes.byteLength }
+  }
+
+  /** Publish one semantic coverage acceptance; identical concurrent retries share its first time. */
+  async createCoverageAction(
+    semantic: Omit<CoverageAction, 'createdAt'>,
+    now: () => Date = () => new Date(),
+  ): Promise<RecordRef> {
+    const path = makeOwnedPath('reviews', ['coverage-actions', `${semantic.actionId}.json`])
+    return await this.withMutationLock(async () => {
+      const destination = await ensureOwnedParent(this.factoryRoot, path)
+      if ((await pathKind(destination)) === 'file') {
+        const bytes = await readBoundedOrdinary(destination, 4 * 1024 * 1024)
+        validateStructuredRecord(path, bytes)
+        const existing = JSON.parse(decodeUtf8(bytes)) as CoverageAction
+        const { createdAt: _createdAt, ...existingSemantic } = existing
+        if (canonicalJson(existingSemantic) !== canonicalJson(semantic))
+          throw new ImmutableRecordConflictError(path)
+        return { path, sha256: sha256(bytes), bytes: bytes.byteLength }
+      }
+      const action: CoverageAction = {
+        ...semantic,
+        createdAt: now().toISOString(),
+      }
+      const bytes = new TextEncoder().encode(canonicalJson(action))
+      validateStructuredRecord(path, bytes)
+      await atomicCreate(destination, path, bytes, this.stagingRoot)
+      return { path, sha256: sha256(bytes), bytes: bytes.byteLength }
+    })
   }
 
   async updateConfig(change: ConfigChange): Promise<void> {

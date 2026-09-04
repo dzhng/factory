@@ -23,7 +23,7 @@ async function fixture() {
     inventory: unknown[]
     plan: { policies: { reviewer: { provider: 'codex'; model: string; effort: string } } }
   }
-  return { bundle, manifest }
+  return { bundle, manifest, sha256: report.bundles.complete }
 }
 
 async function partialFixture() {
@@ -37,7 +37,7 @@ async function partialFixture() {
     inventory: unknown[]
     plan: { policies: { reviewer: { provider: 'codex'; model: string; effort: string } } }
   }
-  return { bundle, manifest }
+  return { bundle, manifest, sha256: report.bundles.partial }
 }
 
 async function authorizedStore(
@@ -59,29 +59,30 @@ async function authorizedStore(
 
 describe('immutable review acceptance', () => {
   test('rejects forged attempts and a target repository outside the bundle authority', async () => {
-    const { bundle, manifest: bundleManifest } = await fixture()
+    const { bundle, manifest: bundleManifest, sha256 } = await fixture()
     await expect(validateReview(bundle, {} as RawAttempt)).rejects.toThrow(
       'attempt capability is not verified',
     )
     const citation = bundleManifest.inventory[0]
-    const validated = await validateReview(
-      bundle,
-      sealReviewerRawAttempt({
-        reviewId,
-        response: new TextEncoder().encode(
-          `${JSON.stringify({ kind: 'summary', summary: 'Review completed', evidence: [{ object: citation }] })}\n`,
-        ),
-        termination: 'completed',
-        exitCode: 0,
-        outputTruncated: false,
-        reviewer: { settings: bundleManifest.plan.policies.reviewer },
-        imageDigest: `sha256:${'b'.repeat(64)}`,
-        providerCliVersion: 'fake-1',
-        hostPlatform: 'linux/arm64',
-        startedAt: at,
-        completedAt: at,
-      }),
-    )
+    const raw = sealReviewerRawAttempt({
+      reviewId,
+      bundleSha256: sha256,
+      response: new TextEncoder().encode(
+        `${JSON.stringify({ kind: 'summary', summary: 'Review completed', evidence: [{ object: citation }] })}\n`,
+      ),
+      termination: 'completed',
+      exitCode: 0,
+      outputTruncated: false,
+      reviewer: { settings: bundleManifest.plan.policies.reviewer },
+      imageDigest: `sha256:${'b'.repeat(64)}`,
+      providerCliVersion: 'fake-1',
+      hostPlatform: 'linux/arm64',
+      startedAt: at,
+      completedAt: at,
+    })
+    const validated = await validateReview(bundle, raw)
+    const { bundle: otherBundle } = await partialFixture()
+    await expect(validateReview(otherBundle, raw)).rejects.toThrow('different verified bundle')
     const store = await authorizedStore(bundle, {
       manifest: { repositoryId: 'repo_elsewhere' },
       async publishImmutableGroup() {
@@ -92,7 +93,7 @@ describe('immutable review acceptance', () => {
   })
 
   test('derives a complete manifest and ledger from cited semantic output', async () => {
-    const { bundle, manifest: bundleManifest } = await fixture()
+    const { bundle, manifest: bundleManifest, sha256 } = await fixture()
     const citation = bundleManifest.inventory[0]
     const response = new TextEncoder().encode(
       `${JSON.stringify({ kind: 'summary', summary: 'Review completed', evidence: [{ object: citation }] })}\n`,
@@ -101,6 +102,7 @@ describe('immutable review acceptance', () => {
       bundle,
       sealReviewerRawAttempt({
         reviewId,
+        bundleSha256: sha256,
         response,
         termination: 'completed',
         exitCode: 0,
@@ -142,7 +144,7 @@ describe('immutable review acceptance', () => {
   })
 
   test('salvages a valid prefix as partial and reports execution failure separately', async () => {
-    const { bundle, manifest: bundleManifest } = await fixture()
+    const { bundle, manifest: bundleManifest, sha256 } = await fixture()
     const response = new TextEncoder().encode(
       `${JSON.stringify({ kind: 'summary', summary: 'Useful prefix', evidence: [{ object: bundleManifest.inventory[0] }] })}\n{"bad"`,
     )
@@ -150,6 +152,7 @@ describe('immutable review acceptance', () => {
       bundle,
       sealReviewerRawAttempt({
         reviewId,
+        bundleSha256: sha256,
         response,
         termination: 'timed-out',
         exitCode: null,
@@ -181,7 +184,7 @@ describe('immutable review acceptance', () => {
   })
 
   test('keeps valid subject coverage when only selected session input is partial', async () => {
-    const { bundle, manifest: bundleManifest } = await partialFixture()
+    const { bundle, manifest: bundleManifest, sha256 } = await partialFixture()
     const response = new TextEncoder().encode(
       `${JSON.stringify({ kind: 'summary', summary: 'Reviewed available evidence', evidence: [{ object: bundleManifest.inventory[0] }] })}\n`,
     )
@@ -189,6 +192,7 @@ describe('immutable review acceptance', () => {
       bundle,
       sealReviewerRawAttempt({
         reviewId,
+        bundleSha256: sha256,
         response,
         termination: 'completed',
         exitCode: 0,
@@ -216,7 +220,7 @@ describe('immutable review acceptance', () => {
   })
 
   test('publishes only the bounded valid UTF-8 response prefix', async () => {
-    const { bundle, manifest: bundleManifest } = await fixture()
+    const { bundle, manifest: bundleManifest, sha256 } = await fixture()
     const prefix = new TextEncoder().encode(
       `${JSON.stringify({ kind: 'summary', summary: 'Useful prefix', evidence: [{ object: bundleManifest.inventory[0] }] })}\n`,
     )
@@ -227,6 +231,7 @@ describe('immutable review acceptance', () => {
       bundle,
       sealReviewerRawAttempt({
         reviewId,
+        bundleSha256: sha256,
         response,
         termination: 'completed',
         exitCode: 0,

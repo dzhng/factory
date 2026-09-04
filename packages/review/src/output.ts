@@ -166,7 +166,7 @@ export function parseSemanticOutput(
   if (start < response.byteLength) lineBytes.push(response.subarray(start))
   const entries: ReviewLedgerEntry[] = []
   const identities = new Set<string>()
-  let ledgerBytes = 0
+  let ledgerBytes = Buffer.byteLength(canonicalJson({ schemaVersion: 1, reviewId, entries: [] }))
   for (const bytes of lineBytes) {
     let line: string
     try {
@@ -188,14 +188,15 @@ export function parseSemanticOutput(
       incomplete = true
       continue
     }
-    const encodedBytes = Buffer.byteLength(canonicalJson(entry))
-    if (ledgerBytes + encodedBytes > 1024 * 1024) {
+    const entryBytes = Buffer.byteLength(canonicalJson(entry).trimEnd())
+    const delimiterBytes = entries.length === 0 ? 0 : 1
+    if (ledgerBytes + entryBytes + delimiterBytes > 1024 * 1024) {
       incomplete = true
       continue
     }
     identities.add(entry.entryId)
     entries.push(entry)
-    ledgerBytes += encodedBytes
+    ledgerBytes += entryBytes + delimiterBytes
   }
   entries.sort((left, right) => left.entryId.localeCompare(right.entryId))
   return { entries, incomplete, response }

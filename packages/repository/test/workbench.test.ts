@@ -8,6 +8,8 @@ import {
   makeOwnedPath,
   objectOwnedPath,
   reviewSubjectCoverageId,
+  type CoverageAction,
+  type RecordId,
 } from '../../contract/src/index'
 import {
   ImmutableRecordConflictError,
@@ -20,7 +22,7 @@ if (process.env.FACTORY_DOCKER_TEST !== '1') {
 }
 
 const roots: string[] = []
-const recordId = (prefix: string) => `${prefix}_${'0'.repeat(26)}`
+const recordId = (prefix: string) => `${prefix}_${'0'.repeat(26)}` as RecordId
 async function fixtureRoot(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'factory-repository-'))
   await mkdir(join(root, '.git'))
@@ -114,6 +116,32 @@ function reviewRecords(id: string, disposition: 'complete' | 'failed' = 'complet
 }
 
 describe('sole repository writer', () => {
+  test('converges semantic coverage acceptance on the first real publication time', async () => {
+    const root = await fixtureRoot()
+    const store = await initializeRepositoryStore(root, manifest, { canonicalBranch: 'main' })
+    const semantic: Omit<CoverageAction, 'createdAt'> = {
+      schemaVersion: 1,
+      actionId: recordId('action'),
+      reviewId: recordId('review'),
+      acceptedLimitations: ['missing-transcript-range'],
+      acceptedTriggerIds: [],
+      acceptedProblemIds: [],
+      settledWatermarks: { session: 1 },
+    }
+    const [first, second] = await Promise.all([
+      store.createCoverageAction(semantic, () => new Date('2026-09-04T01:00:00Z')),
+      store.createCoverageAction(semantic, () => new Date('2026-09-04T02:00:00Z')),
+    ])
+    expect(first).toEqual(second)
+    const saved = JSON.parse(
+      await readFile(join(root, '.factory', first.path), 'utf8'),
+    ) as CoverageAction
+    expect(['2026-09-04T01:00:00.000Z', '2026-09-04T02:00:00.000Z']).toContain(saved.createdAt)
+    await expect(
+      store.createCoverageAction({ ...semantic, settledWatermarks: { session: 2 } }),
+    ).rejects.toBeInstanceOf(ImmutableRecordConflictError)
+  })
+
   test('round-trips objects and converges concurrent identical creation', async () => {
     const root = await fixtureRoot()
     const store = await initializeRepositoryStore(root, manifest, { canonicalBranch: 'main' })

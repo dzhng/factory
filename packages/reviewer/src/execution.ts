@@ -95,6 +95,7 @@ export const dockerReviewerExecutor: ReviewerExecutor = {
       await readVerifiedReviewBundle(bundle)
       return sealReviewerRawAttempt({
         reviewId: input.reviewId,
+        bundleSha256: before.sha256,
         response: response.bytes,
         termination:
           report.termination === 'timed-out'
@@ -118,6 +119,7 @@ export const dockerReviewerExecutor: ReviewerExecutor = {
       await readVerifiedReviewBundle(bundle)
       return sealReviewerRawAttempt({
         reviewId: input.reviewId,
+        bundleSha256: before.sha256,
         response: new Uint8Array(),
         termination: 'docker-unavailable',
         exitCode: null,

@@ -86,9 +86,10 @@ function storeFor(review?: ReviewManifest) {
               ],
       }
     },
-    async createImmutable(_path: string, bytes: Uint8Array) {
-      action = JSON.parse(new TextDecoder().decode(bytes)) as CoverageAction
-      return { path: _path, sha256: '', bytes: bytes.byteLength }
+    async createCoverageAction(semantic: Omit<CoverageAction, 'createdAt'>) {
+      action = { ...semantic, createdAt: '2026-09-05T01:00:00Z' }
+      const path = `reviews/coverage-actions/${semantic.actionId}.json`
+      return { path, sha256: '', bytes: 0 }
     },
   } as unknown as RepositoryStore
   return { store, readAction: () => action }
@@ -104,7 +105,7 @@ describe('partial review coverage acceptance', () => {
 
     expect(first.readAction()).toEqual(second.readAction())
     expect(path).toEndWith(`${first.readAction()!.actionId}.json`)
-    expect(first.readAction()!.createdAt).toBe(review.completedAt)
+    expect(first.readAction()!.createdAt).not.toBe(review.completedAt)
   })
 
   test('rejects unknown, non-partial, wrong-subject, and incomplete acknowledgements', async () => {

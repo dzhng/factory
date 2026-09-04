@@ -80,6 +80,8 @@ export async function validateReview(
 ): Promise<ValidatedAttempt> {
   const verified = await readVerifiedReviewBundle(bundle)
   const observed = readReviewerRawAttempt(attempt)
+  if (observed.bundleSha256 !== verified.sha256)
+    throw new TypeError('review attempt belongs to a different verified bundle')
   if (
     canonicalJson(observed.reviewer.settings) !==
     canonicalJson(verified.manifest.plan.policies.reviewer)
@@ -313,14 +315,10 @@ export async function acceptPartialCoverage(
   if (canonicalJson(expected) !== canonicalJson(supplied)) {
     throw new TypeError('coverage acceptance must acknowledge the exact partial review gaps')
   }
-  const createdAt = review.completedAt
-  const action: CoverageAction = {
+  const semantic: Omit<CoverageAction, 'createdAt'> = {
     schemaVersion: 1,
-    actionId: coverageActionId({ ...expected, createdAt }),
+    actionId: coverageActionId(expected),
     ...expected,
-    createdAt,
   }
-  const path = makeOwnedPath('reviews', ['coverage-actions', `${action.actionId}.json`])
-  await store.createImmutable(path, new TextEncoder().encode(canonicalJson(action)))
-  return path
+  return (await store.createCoverageAction(semantic)).path
 }
