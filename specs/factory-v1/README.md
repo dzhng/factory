@@ -4,17 +4,16 @@ Status: **planned; implementation has not started**
 
 ## Next Agent Prompt
 
-> Continue Factory v1 from this spec. Current status (2026-09-04): planning is
-> complete, the repository has no implementation or commits, and Slice 01 is
-> next. Read `AGENTS.md`, `SECURITY.md`, this README, `choices.md`, `format.md`,
-> and the selected slice file in full. Implement only that slice, run its
-> narrow gates, perform its named human checkpoint without blocking on silence,
-> and update this prompt with the new date, completed slice, exact next slice,
-> blockers, and global TODOs before handing off. Do not begin by re-planning the
-> whole feature. Current blockers: none for Slice 01. Global TODOs: choose the
-> exact journal engine from measured crash/latency results; certify current
-> Codex/Claude hooks and read-only Docker auth; define verified code-state
-> continuity before enabling it; choose the release channel before Slice 12.
+> Continue Factory v1 from this spec. Current status (2026-09-04): the shared
+> Node 22/Bun/Turborepo workspace and quality gates are bootstrapped. Run Slices
+> 01 and 02 in parallel in separate worktrees, then integrate their evidence
+> before Slice 03 freezes the public format. Read `AGENTS.md`, `SECURITY.md`,
+> this README, `choices.md`, `format.md`, and each selected slice in full.
+> Current blockers: none. Global TODOs: choose the journal engine from measured
+> crash/latency results; certify current Codex/Claude hooks and read-only Docker
+> auth; define verified code-state continuity before enabling it; choose the
+> release channel before Slice 12. After every pass, update this prompt with the
+> completed commit, exact next pickup, blockers, and changed gates.
 
 This specification defines Factory's first release: a local CLI that captures
 coding-harness Sessions, stores portable evidence with the repository, reviews
