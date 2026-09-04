@@ -15,6 +15,7 @@ import {
   type AvailablePullRequestObservation,
   type EvidenceEnvelope,
   type Limitation,
+  type JsonValue,
   type ObjectRef,
   type OwnedPath,
   type RepositoryObservation,
@@ -521,6 +522,7 @@ export type BundleVerification =
       sha256: string
       manifest: ReviewBundleManifest
       acceptance: ReviewAcceptanceProjection
+      authority: ReviewAcceptanceAuthority
     }
   | { valid: false; reason: string }
 
@@ -528,6 +530,12 @@ export type ReviewAcceptanceProjection = Pick<
   ReviewManifest,
   'subject' | 'head' | 'codeManifest' | 'patches'
 >
+
+export type ReviewAcceptanceAuthority = {
+  subjectPath: OwnedPath
+  subjectRecord: JsonValue
+  repositoryId?: string
+}
 
 export interface ReviewObjectSource {
   getObject(ref: ObjectRef): Promise<Uint8Array>
@@ -1380,7 +1388,19 @@ export async function verifyBundle(
       canonicalJson(manifest.inventory)
     )
       throw new Error('bundle object inventory differs from the exact semantic closure')
-    return { valid: true, sha256: digest, manifest, acceptance }
+    return {
+      valid: true,
+      sha256: digest,
+      manifest,
+      acceptance,
+      authority: {
+        subjectPath: subjectPath as OwnedPath,
+        subjectRecord: recordValues.get(subjectPath)![0] as JsonValue,
+        ...(bundledSubject.kind === 'workspace'
+          ? { repositoryId: bundledSubject.observation.repositoryId }
+          : {}),
+      },
+    }
   } catch (error) {
     return { valid: false, reason: error instanceof Error ? error.message : String(error) }
   }

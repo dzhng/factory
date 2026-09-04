@@ -7,6 +7,7 @@ import {
 } from '@factory/contract'
 import {
   verifyBundle,
+  type ReviewAcceptanceAuthority,
   type ReviewAcceptanceProjection,
   type ReviewBundleManifest,
 } from '@factory/review-plan'
@@ -19,6 +20,7 @@ type VerifiedReviewBundleState = {
   sha256: string
   manifest: ReviewBundleManifest
   acceptance: ReviewAcceptanceProjection
+  authority: ReviewAcceptanceAuthority
 }
 
 const states = new WeakMap<object, VerifiedReviewBundleState>()
@@ -46,6 +48,7 @@ export async function openVerifiedReviewBundle(
     sha256: expectedSha256,
     manifest: snapshot(verification.manifest),
     acceptance: snapshot(verification.acceptance),
+    authority: snapshot(verification.authority),
   })
   return capability
 }

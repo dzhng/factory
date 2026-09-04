@@ -10,6 +10,7 @@ export {
   verifyBundle,
   type BundleVerification,
   type ReviewAcceptanceProjection,
+  type ReviewAcceptanceAuthority,
   type CandidateRecordDescriptor,
   type CompletedAssociationGroup,
   type EffectiveReviewLimits,

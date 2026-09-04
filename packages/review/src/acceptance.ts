@@ -14,23 +14,16 @@ import {
 import type { RepositoryStore } from '@factory/repository'
 import {
   readVerifiedReviewBundle,
+  readReviewerRawAttempt,
   type ReviewerRawAttempt,
+  type ReviewerRawAttemptSnapshot,
   type VerifiedReviewBundle,
 } from '@factory/reviewer'
 
 import { parseSemanticOutput } from './output'
 
-export type AttemptTermination =
-  | 'completed'
-  | 'timed-out'
-  | 'cancelled'
-  | 'crashed'
-  | 'authentication-unavailable'
-  | 'docker-unavailable'
-
-export type RawAttempt = Omit<ReviewerRawAttempt, 'termination'> & {
-  termination: AttemptTermination
-}
+export type AttemptTermination = import('@factory/reviewer').ReviewerExecutionTermination
+export type RawAttempt = ReviewerRawAttempt
 
 export type AcceptedReview = {
   reviewId: RecordId
@@ -55,12 +48,16 @@ type ValidatedState = {
   response: Uint8Array
   executionFailed: boolean
   rootSegments: readonly string[]
+  repositoryId?: string
+  subjectPath: ReturnType<typeof makeOwnedPath>
+  subjectRecord: string
+  inventory: readonly import('@factory/contract').ObjectRef[]
 }
 
 const validatedAttempts = new WeakMap<object, ValidatedState>()
 
 function failureReason(
-  attempt: RawAttempt,
+  attempt: ReviewerRawAttemptSnapshot,
   hasEntries: boolean,
   invalidOutput: boolean,
 ): ReviewFailureReason | undefined {
@@ -82,22 +79,23 @@ export async function validateReview(
   attempt: RawAttempt,
 ): Promise<ValidatedAttempt> {
   const verified = await readVerifiedReviewBundle(bundle)
+  const observed = readReviewerRawAttempt(attempt)
   if (
-    canonicalJson(attempt.reviewer.settings) !==
+    canonicalJson(observed.reviewer.settings) !==
     canonicalJson(verified.manifest.plan.policies.reviewer)
   )
     throw new TypeError('review attempt reviewer differs from the planned policy')
   const parsed = parseSemanticOutput(
-    attempt.response,
+    observed.response,
     verified.manifest.inventory,
-    attempt.reviewId,
+    observed.reviewId,
   )
   const executionFailed =
-    attempt.termination !== 'completed' ||
-    attempt.exitCode !== 0 ||
-    attempt.outputTruncated ||
+    observed.termination !== 'completed' ||
+    observed.exitCode !== 0 ||
+    observed.outputTruncated ||
     parsed.incomplete
-  const outputIncomplete = attempt.outputTruncated || parsed.incomplete || executionFailed
+  const outputIncomplete = observed.outputTruncated || parsed.incomplete || executionFailed
   const limitations: Limitation[] = [...verified.manifest.plan.limitations]
   if (outputIncomplete) {
     limitations.push({
@@ -122,9 +120,9 @@ export async function validateReview(
         ? 'partial'
         : 'complete'
   const reason = failureReason(
-    attempt,
+    observed,
     parsed.entries.length > 0,
-    parsed.incomplete || attempt.outputTruncated,
+    parsed.incomplete || observed.outputTruncated,
   )
   const subjectAttempt = {
     ...verified.manifest.plan.subjectAttempt,
@@ -134,7 +132,7 @@ export async function validateReview(
   }
   const manifest: ReviewManifest = {
     schemaVersion: 1,
-    reviewId: attempt.reviewId,
+    reviewId: observed.reviewId,
     ...verified.acceptance,
     patches: [...verified.acceptance.patches].sort(compareCanonical),
     sessionWatermarks: verified.manifest.plan.sessionWatermarks,
@@ -149,33 +147,33 @@ export async function validateReview(
       ? {}
       : { priorLedger: verified.manifest.plan.priorLedger.object }),
     limitations: canonicalLimitations,
-    reviewer: attempt.reviewer.settings,
+    reviewer: observed.reviewer.settings,
     analyzerVersion: verified.manifest.plan.policies.analyzerVersion,
     promptVersion: verified.manifest.plan.policies.promptVersion,
     policyVersion: verified.manifest.plan.policies.policyVersion,
     formatVersion: 1,
     bundleSha256: verified.sha256,
-    containerImageDigest: attempt.imageDigest,
-    providerCliVersion: attempt.providerCliVersion,
-    hostPlatform: attempt.hostPlatform,
-    startedAt: attempt.startedAt,
-    completedAt: attempt.completedAt,
+    containerImageDigest: observed.imageDigest,
+    providerCliVersion: observed.providerCliVersion,
+    hostPlatform: observed.hostPlatform,
+    startedAt: observed.startedAt,
+    completedAt: observed.completedAt,
     disposition,
     ...(reason === undefined ? {} : { failureReason: reason }),
   }
   const ledger =
     disposition === 'failed'
       ? undefined
-      : ({ schemaVersion: 1, reviewId: attempt.reviewId, entries: parsed.entries } as const)
+      : ({ schemaVersion: 1, reviewId: observed.reviewId, entries: parsed.entries } as const)
   const rootSegments =
     manifest.subject.kind === 'workspace'
-      ? (['workspace', attempt.reviewId] as const)
+      ? (['workspace', observed.reviewId] as const)
       : ([
           'pull-requests',
           'github',
           manifest.subject.repositoryKey,
           String(manifest.subject.number),
-          attempt.reviewId,
+          observed.reviewId,
         ] as const)
   const capability = Object.freeze({}) as ValidatedAttempt
   validatedAttempts.set(capability, {
@@ -184,6 +182,12 @@ export async function validateReview(
     response: parsed.response,
     executionFailed,
     rootSegments,
+    ...(verified.authority.repositoryId === undefined
+      ? {}
+      : { repositoryId: verified.authority.repositoryId }),
+    subjectPath: verified.authority.subjectPath,
+    subjectRecord: canonicalJson(verified.authority.subjectRecord),
+    inventory: verified.manifest.inventory,
   })
   return capability
 }
@@ -194,6 +198,12 @@ export async function acceptReview(
 ): Promise<AcceptedReview> {
   const state = validatedAttempts.get(attempt)
   if (state === undefined) throw new TypeError('review attempt was not validated')
+  if (state.repositoryId !== undefined && state.repositoryId !== store.manifest.repositoryId)
+    throw new TypeError('review bundle belongs to a different repository')
+  const subjectBytes = await store.readImmutable(state.subjectPath)
+  if (new TextDecoder('utf-8', { fatal: true }).decode(subjectBytes) !== state.subjectRecord)
+    throw new TypeError('review subject differs from the target repository')
+  for (const object of state.inventory) await store.getObject(object)
   const responsePath = makeOwnedPath('reviews', [...state.rootSegments, 'response.txt'])
   const manifestPath = makeOwnedPath('reviews', [...state.rootSegments, 'manifest.json'])
   const records = [

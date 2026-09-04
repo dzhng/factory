@@ -490,7 +490,7 @@ export type ReviewManifest = {
   formatVersion: 1
   bundleSha256: Sha256
   containerImageDigest: string
-  providerCliVersion: string
+  providerCliVersion: string | null
   hostPlatform: string
   startedAt: string
   completedAt: string
@@ -2531,10 +2531,11 @@ function validateRecordShape(
         'promptVersion',
         'policyVersion',
         'containerImageDigest',
-        'providerCliVersion',
         'hostPlatform',
       ])
         assertString(value[key], `review.${key}`)
+      if (value.providerCliVersion !== null)
+        assertString(value.providerCliVersion, 'review.providerCliVersion')
       if (value.formatVersion !== 1) throw new TypeError('review.formatVersion must be 1')
       assertSha256(value.bundleSha256, 'review.bundleSha256')
       if (!/^sha256:[0-9a-f]{64}$/.test(value.containerImageDigest as string))

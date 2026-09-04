@@ -60,6 +60,7 @@ export {
   validateReviewPlanRecord,
   verifyBundle,
   type BundleVerification,
+  type ReviewAcceptanceAuthority,
   type ReviewAcceptanceProjection,
   type ReviewBundleManifest,
   type ReviewPlanRecord,

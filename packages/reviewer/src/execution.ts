@@ -4,30 +4,10 @@ import { platform, arch } from 'node:os'
 
 import type { RecordId } from '@factory/contract'
 
+import { sealReviewerRawAttempt, type ReviewerRawAttempt } from './attempt'
 import { readVerifiedReviewBundle, type ReviewerChoice, type VerifiedReviewBundle } from './bundle'
 import { planReviewerIsolation, type ReadonlyAuthMount } from './index'
 import { runIsolationProbe } from './probe'
-
-export type ReviewerExecutionTermination =
-  | 'completed'
-  | 'timed-out'
-  | 'cancelled'
-  | 'crashed'
-  | 'docker-unavailable'
-
-export type ReviewerRawAttempt = {
-  reviewId: RecordId
-  response: Uint8Array
-  termination: ReviewerExecutionTermination
-  exitCode: number | null
-  outputTruncated: boolean
-  reviewer: ReviewerChoice
-  imageDigest: string
-  providerCliVersion: string
-  hostPlatform: string
-  startedAt: string
-  completedAt: string
-}
 
 export type ReviewerExecutionInput = {
   reviewId: RecordId
@@ -104,7 +84,7 @@ export const dockerReviewerExecutor: ReviewerExecutor = {
       })
       const response = await readResponsePrefix(`${input.outputHostPath}/response.txt`)
       await readVerifiedReviewBundle(bundle)
-      return {
+      return sealReviewerRawAttempt({
         reviewId: input.reviewId,
         response: response.bytes,
         termination:
@@ -123,11 +103,11 @@ export const dockerReviewerExecutor: ReviewerExecutor = {
         hostPlatform: `${platform()}/${arch()}`,
         startedAt,
         completedAt: now().toISOString(),
-      }
+      })
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
       await readVerifiedReviewBundle(bundle)
-      return {
+      return sealReviewerRawAttempt({
         reviewId: input.reviewId,
         response: new Uint8Array(),
         termination: 'docker-unavailable',
@@ -135,11 +115,11 @@ export const dockerReviewerExecutor: ReviewerExecutor = {
         outputTruncated: false,
         reviewer: choice,
         imageDigest: input.imageDigest,
-        providerCliVersion: input.providerCliVersion,
+        providerCliVersion: null,
         hostPlatform: `${platform()}/${arch()}`,
         startedAt,
         completedAt: now().toISOString(),
-      }
+      })
     }
   },
 }

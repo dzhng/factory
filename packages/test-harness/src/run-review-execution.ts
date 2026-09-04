@@ -2,12 +2,14 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
-import type { ReviewManifest } from '@factory/contract'
+import { canonicalJson, type ReviewManifest } from '@factory/contract'
 import type { RepositoryStore } from '@factory/repository'
 import { acceptReview, validateReview } from '@factory/review'
 import {
   dockerReviewerExecutor,
   openVerifiedReviewBundle,
+  readReviewerRawAttempt,
+  readVerifiedReviewBundle,
   type ReviewerChoice,
 } from '@factory/reviewer'
 
@@ -57,9 +59,18 @@ async function main() {
         timeoutMs: 5_000,
       },
     )
+    const observation = readReviewerRawAttempt(raw)
+    const verified = await readVerifiedReviewBundle(bundle)
     const validated = await validateReview(bundle, raw)
     let manifest: ReviewManifest | undefined
     const store = {
+      manifest: { repositoryId: verified.authority.repositoryId },
+      async readImmutable() {
+        return new TextEncoder().encode(canonicalJson(verified.authority.subjectRecord))
+      },
+      async getObject() {
+        return new Uint8Array()
+      },
       async publishImmutableGroup(records: readonly { path: string; bytes: Uint8Array }[]) {
         const value = records.find(record => record.path.endsWith('manifest.json'))!
         manifest = JSON.parse(new TextDecoder().decode(value.bytes)) as ReviewManifest
@@ -68,15 +79,15 @@ async function main() {
     } as unknown as RepositoryStore
     const accepted = await acceptReview(validated, store)
     if (
-      raw.termination !== 'completed' ||
-      raw.exitCode !== 0 ||
+      observation.termination !== 'completed' ||
+      observation.exitCode !== 0 ||
       accepted.disposition !== 'complete' ||
       manifest?.bundleSha256 !== report.bundles.complete
     ) {
       throw new Error('fake review execution did not satisfy the production contract')
     }
     process.stdout.write(
-      `${JSON.stringify({ schemaVersion: 1, imageDigest, termination: raw.termination, disposition: accepted.disposition, bundleSha256: manifest.bundleSha256 })}\n`,
+      `${JSON.stringify({ schemaVersion: 1, imageDigest, termination: observation.termination, disposition: accepted.disposition, bundleSha256: manifest.bundleSha256 })}\n`,
     )
   } finally {
     await rm(root, { recursive: true, force: true })

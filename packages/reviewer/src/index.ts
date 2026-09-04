@@ -21,10 +21,14 @@ export {
 export {
   dockerReviewerExecutor,
   type ReviewerExecutionInput,
-  type ReviewerExecutionTermination,
   type ReviewerExecutor,
-  type ReviewerRawAttempt,
 } from './execution.js'
+export {
+  readReviewerRawAttempt,
+  type ReviewerExecutionTermination,
+  type ReviewerRawAttempt,
+  type ReviewerRawAttemptSnapshot,
+} from './attempt.js'
 
 export type ReviewerProvider = 'codex' | 'claude' | 'fake'
 

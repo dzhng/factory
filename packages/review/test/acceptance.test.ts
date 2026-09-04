@@ -4,9 +4,10 @@ import { join } from 'node:path'
 
 import { canonicalJson, type ReviewManifest } from '@factory/contract'
 import type { RepositoryStore } from '@factory/repository'
-import { openVerifiedReviewBundle } from '@factory/reviewer'
+import { openVerifiedReviewBundle, readVerifiedReviewBundle } from '@factory/reviewer'
 
-import { acceptReview, validateReview } from '../src'
+import { sealReviewerRawAttempt } from '../../reviewer/src/attempt'
+import { acceptReview, validateReview, type RawAttempt } from '../src'
 
 const reviewId = 'review_00000000000000000000000009' as const
 const at = '2026-09-05T00:00:00Z'
@@ -39,30 +40,83 @@ async function partialFixture() {
   return { bundle, manifest }
 }
 
+async function authorizedStore(
+  bundle: Awaited<ReturnType<typeof openVerifiedReviewBundle>>,
+  methods: Record<string, unknown>,
+): Promise<RepositoryStore> {
+  const verified = await readVerifiedReviewBundle(bundle)
+  return {
+    manifest: { repositoryId: verified.authority.repositoryId ?? 'repo_review_lab' },
+    async readImmutable() {
+      return new TextEncoder().encode(canonicalJson(verified.authority.subjectRecord))
+    },
+    async getObject() {
+      return new Uint8Array()
+    },
+    ...methods,
+  } as unknown as RepositoryStore
+}
+
 describe('immutable review acceptance', () => {
+  test('rejects forged attempts and a target repository outside the bundle authority', async () => {
+    const { bundle, manifest: bundleManifest } = await fixture()
+    await expect(validateReview(bundle, {} as RawAttempt)).rejects.toThrow(
+      'attempt capability is not verified',
+    )
+    const citation = bundleManifest.inventory[0]
+    const validated = await validateReview(
+      bundle,
+      sealReviewerRawAttempt({
+        reviewId,
+        response: new TextEncoder().encode(
+          `${JSON.stringify({ kind: 'summary', summary: 'Review completed', evidence: [{ object: citation }] })}\n`,
+        ),
+        termination: 'completed',
+        exitCode: 0,
+        outputTruncated: false,
+        reviewer: { settings: bundleManifest.plan.policies.reviewer },
+        imageDigest: `sha256:${'b'.repeat(64)}`,
+        providerCliVersion: 'fake-1',
+        hostPlatform: 'linux/arm64',
+        startedAt: at,
+        completedAt: at,
+      }),
+    )
+    const store = await authorizedStore(bundle, {
+      manifest: { repositoryId: 'repo_elsewhere' },
+      async publishImmutableGroup() {
+        throw new Error('must not publish')
+      },
+    })
+    await expect(acceptReview(validated, store)).rejects.toThrow('different repository')
+  })
+
   test('derives a complete manifest and ledger from cited semantic output', async () => {
     const { bundle, manifest: bundleManifest } = await fixture()
     const citation = bundleManifest.inventory[0]
     const response = new TextEncoder().encode(
       `${JSON.stringify({ kind: 'summary', summary: 'Review completed', evidence: [{ object: citation }] })}\n`,
     )
-    const validated = await validateReview(bundle, {
-      reviewId,
-      response,
-      termination: 'completed',
-      exitCode: 0,
-      outputTruncated: false,
-      reviewer: { settings: bundleManifest.plan.policies.reviewer },
-      imageDigest: `sha256:${'b'.repeat(64)}`,
-      providerCliVersion: 'fake-1',
-      hostPlatform: 'linux/arm64',
-      startedAt: at,
-      completedAt: at,
-    })
+    const validated = await validateReview(
+      bundle,
+      sealReviewerRawAttempt({
+        reviewId,
+        response,
+        termination: 'completed',
+        exitCode: 0,
+        outputTruncated: false,
+        reviewer: { settings: bundleManifest.plan.policies.reviewer },
+        imageDigest: `sha256:${'b'.repeat(64)}`,
+        providerCliVersion: 'fake-1',
+        hostPlatform: 'linux/arm64',
+        startedAt: at,
+        completedAt: at,
+      }),
+    )
     let published:
       | { records: readonly { path: string; bytes: Uint8Array }[]; commitPath: string }
       | undefined
-    const store = {
+    const store = await authorizedStore(bundle, {
       async publishImmutableGroup(
         records: readonly { path: string; bytes: Uint8Array }[],
         commitPath: string,
@@ -70,7 +124,7 @@ describe('immutable review acceptance', () => {
         published = { records, commitPath }
         return { path: commitPath, sha256: '', bytes: 0 }
       },
-    } as unknown as RepositoryStore
+    })
     const accepted = await acceptReview(validated, store)
     const manifestRecord = published!.records.find(record => record.path.endsWith('manifest.json'))!
     const review = JSON.parse(new TextDecoder().decode(manifestRecord.bytes)) as ReviewManifest
@@ -92,27 +146,30 @@ describe('immutable review acceptance', () => {
     const response = new TextEncoder().encode(
       `${JSON.stringify({ kind: 'summary', summary: 'Useful prefix', evidence: [{ object: bundleManifest.inventory[0] }] })}\n{"bad"`,
     )
-    const validated = await validateReview(bundle, {
-      reviewId,
-      response,
-      termination: 'timed-out',
-      exitCode: null,
-      outputTruncated: true,
-      reviewer: { settings: bundleManifest.plan.policies.reviewer },
-      imageDigest: `sha256:${'b'.repeat(64)}`,
-      providerCliVersion: 'fake-1',
-      hostPlatform: 'linux/arm64',
-      startedAt: at,
-      completedAt: at,
-    })
+    const validated = await validateReview(
+      bundle,
+      sealReviewerRawAttempt({
+        reviewId,
+        response,
+        termination: 'timed-out',
+        exitCode: null,
+        outputTruncated: true,
+        reviewer: { settings: bundleManifest.plan.policies.reviewer },
+        imageDigest: `sha256:${'b'.repeat(64)}`,
+        providerCliVersion: 'fake-1',
+        hostPlatform: 'linux/arm64',
+        startedAt: at,
+        completedAt: at,
+      }),
+    )
     let manifest: ReviewManifest | undefined
-    const store = {
+    const store = await authorizedStore(bundle, {
       async publishImmutableGroup(records: readonly { path: string; bytes: Uint8Array }[]) {
         const record = records.find(item => item.path.endsWith('manifest.json'))!
         manifest = JSON.parse(new TextDecoder().decode(record.bytes)) as ReviewManifest
         return { path: record.path, sha256: '', bytes: 0 }
       },
-    } as unknown as RepositoryStore
+    })
     const accepted = await acceptReview(validated, store)
 
     expect(accepted).toMatchObject({ disposition: 'partial', executionFailed: true })
@@ -128,27 +185,30 @@ describe('immutable review acceptance', () => {
     const response = new TextEncoder().encode(
       `${JSON.stringify({ kind: 'summary', summary: 'Reviewed available evidence', evidence: [{ object: bundleManifest.inventory[0] }] })}\n`,
     )
-    const validated = await validateReview(bundle, {
-      reviewId,
-      response,
-      termination: 'completed',
-      exitCode: 0,
-      outputTruncated: false,
-      reviewer: { settings: bundleManifest.plan.policies.reviewer },
-      imageDigest: `sha256:${'b'.repeat(64)}`,
-      providerCliVersion: 'fake-1',
-      hostPlatform: 'linux/arm64',
-      startedAt: at,
-      completedAt: at,
-    })
+    const validated = await validateReview(
+      bundle,
+      sealReviewerRawAttempt({
+        reviewId,
+        response,
+        termination: 'completed',
+        exitCode: 0,
+        outputTruncated: false,
+        reviewer: { settings: bundleManifest.plan.policies.reviewer },
+        imageDigest: `sha256:${'b'.repeat(64)}`,
+        providerCliVersion: 'fake-1',
+        hostPlatform: 'linux/arm64',
+        startedAt: at,
+        completedAt: at,
+      }),
+    )
     let manifest: ReviewManifest | undefined
-    const store = {
+    const store = await authorizedStore(bundle, {
       async publishImmutableGroup(records: readonly { path: string; bytes: Uint8Array }[]) {
         const record = records.find(item => item.path.endsWith('manifest.json'))!
         manifest = JSON.parse(new TextDecoder().decode(record.bytes)) as ReviewManifest
         return { path: record.path, sha256: '', bytes: 0 }
       },
-    } as unknown as RepositoryStore
+    })
     await acceptReview(validated, store)
 
     expect(manifest!.disposition).toBe('partial')
@@ -163,27 +223,30 @@ describe('immutable review acceptance', () => {
     const response = new Uint8Array(2 * 1024 * 1024)
     response.set(prefix)
     response[prefix.byteLength] = 0xff
-    const validated = await validateReview(bundle, {
-      reviewId,
-      response,
-      termination: 'completed',
-      exitCode: 0,
-      outputTruncated: false,
-      reviewer: { settings: bundleManifest.plan.policies.reviewer },
-      imageDigest: `sha256:${'b'.repeat(64)}`,
-      providerCliVersion: 'fake-1',
-      hostPlatform: 'linux/arm64',
-      startedAt: at,
-      completedAt: at,
-    })
+    const validated = await validateReview(
+      bundle,
+      sealReviewerRawAttempt({
+        reviewId,
+        response,
+        termination: 'completed',
+        exitCode: 0,
+        outputTruncated: false,
+        reviewer: { settings: bundleManifest.plan.policies.reviewer },
+        imageDigest: `sha256:${'b'.repeat(64)}`,
+        providerCliVersion: 'fake-1',
+        hostPlatform: 'linux/arm64',
+        startedAt: at,
+        completedAt: at,
+      }),
+    )
     let publishedResponse: Uint8Array | undefined
-    const store = {
+    const store = await authorizedStore(bundle, {
       async publishImmutableGroup(records: readonly { path: string; bytes: Uint8Array }[]) {
         publishedResponse = records.find(item => item.path.endsWith('response.txt'))!.bytes
         const record = records.find(item => item.path.endsWith('manifest.json'))!
         return { path: record.path, sha256: '', bytes: 0 }
       },
-    } as unknown as RepositoryStore
+    })
     const accepted = await acceptReview(validated, store)
 
     expect(publishedResponse).toEqual(prefix)
