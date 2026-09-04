@@ -20,4 +20,6 @@ publishes immutable evidence first and a validated completion marker last;
 orphaned prefixes from a crash are not projected. Provider acquisition bounds
 also cover content-addressed evidence writes. A store that finishes after its
 deadline can leave only an unreferenced object, which is inert because no
-observation or completion marker names it.
+observation or completion marker names it. Optional code capture has its own
+smaller phase deadline inside that total budget, so a hanging snapshot provider
+does not consume the entire PR acquisition window.

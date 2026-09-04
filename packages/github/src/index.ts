@@ -80,6 +80,7 @@ export type GithubPrObserverOptions = {
   maxCommandDurationMs?: number
   maxGhBytes?: number
   maxAcquisitionDurationMs?: number
+  maxCodeCaptureDurationMs?: number
   maxCommits?: number
   maxCommitPages?: number
   /** Optional exact-SHA snapshot seam; requested failures remain explicit limitations. */
@@ -433,6 +434,7 @@ export class GithubPrObserver {
   private readonly maxCommandDurationMs: number
   private readonly maxGhBytes: number
   private readonly maxAcquisitionDurationMs: number
+  private readonly maxCodeCaptureDurationMs: number
 
   constructor(private readonly options: GithubPrObserverOptions) {
     const maximumBytes = options.maxCommandBytes ?? 16 * 1024 * 1024
@@ -457,6 +459,7 @@ export class GithubPrObserver {
     this.maxCommandDurationMs = maximumDurationMs
     this.maxGhBytes = options.maxGhBytes ?? 64 * 1024 * 1024
     this.maxAcquisitionDurationMs = options.maxAcquisitionDurationMs ?? 120_000
+    this.maxCodeCaptureDurationMs = options.maxCodeCaptureDurationMs ?? 30_000
     if (!Number.isSafeInteger(this.maxCommits) || this.maxCommits < 1) {
       throw new TypeError('maxCommits must be a positive integer')
     }
@@ -466,6 +469,7 @@ export class GithubPrObserver {
     for (const [label, value] of [
       ['maxGhBytes', this.maxGhBytes],
       ['maxAcquisitionDurationMs', this.maxAcquisitionDurationMs],
+      ['maxCodeCaptureDurationMs', this.maxCodeCaptureDurationMs],
     ] as const) {
       if (!Number.isSafeInteger(value) || value < 1)
         throw new TypeError(`${label} must be a positive integer`)
@@ -777,7 +781,13 @@ export class GithubPrObserver {
         : githubRepositoryKey(ref.hostname, first.headRepositoryId)
     let codeManifest: ObjectRef | undefined
     if (headRepositoryKey !== undefined && first.headSha !== undefined) {
-      const remaining = Math.max(0, this.maxAcquisitionDurationMs - (performance.now() - startedAt))
+      const remaining = Math.max(
+        0,
+        Math.min(
+          this.maxCodeCaptureDurationMs,
+          this.maxAcquisitionDurationMs - (performance.now() - startedAt),
+        ),
+      )
       const controller = new AbortController()
       let captureTimer: NodeJS.Timeout | undefined
       try {

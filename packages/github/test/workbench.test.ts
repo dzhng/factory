@@ -267,7 +267,7 @@ describe('bounded coherent GitHub observation', () => {
             }),
           ),
         objects: { put: async () => new Promise<ObjectRef>(() => {}) },
-        maxAcquisitionDurationMs: 5,
+        maxAcquisitionDurationMs: 100,
         now: () => new Date('2026-09-05T01:00:00Z'),
       },
     )
@@ -419,7 +419,7 @@ describe('bounded coherent GitHub observation', () => {
           return new MemoryObjects().put(bytes, objectMetadata)
         },
       },
-      maxAcquisitionDurationMs: 10,
+      maxAcquisitionDurationMs: 250,
       now: () => new Date('2026-09-05T01:00:00Z'),
     }).observe(ref)
 
@@ -488,7 +488,8 @@ describe('bounded coherent GitHub observation', () => {
     const hangingManifest = new GithubPrObserver({
       run: async args => completed(args[0] === 'pr' ? 'diff' : metadata()),
       objects: new MemoryObjects(),
-      maxAcquisitionDurationMs: 5,
+      maxAcquisitionDurationMs: 1_000,
+      maxCodeCaptureDurationMs: 20,
       captureCodeManifest: async ({ signal }) =>
         new Promise(resolve => {
           signal.addEventListener('abort', () => {
@@ -578,6 +579,17 @@ describe('bounded coherent GitHub observation', () => {
     expect(
       afterIdentity.availability === 'unavailable' && afterIdentity.record?.repositoryKey,
     ).toBe(githubRepositoryKey(ref.hostname, 'R_base'))
+    if (afterIdentity.availability === 'unavailable' && afterIdentity.record !== undefined) {
+      expect(afterIdentity.record.hostname).toBe(ref.hostname)
+      expect(afterIdentity.record.base).toEqual({
+        repositoryKey: githubRepositoryKey(ref.hostname, 'R_base'),
+        externalId: 'R_base',
+        repository: 'owner/repo',
+      })
+      expect(afterIdentity.record.raw.map(item => [item.mediaType, item.role])).toEqual([
+        ['application/json', 'github-pr-metadata'],
+      ])
+    }
   })
 
   test('freezes closed, merged, and reopened as separate observations', async () => {

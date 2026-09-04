@@ -81,7 +81,8 @@ if (mode === 'mapping-store') {
   const result = await new GithubPrObserver({
     run: async args => completed(args[0] === 'pr' ? 'diff' : metadata),
     objects: mode === 'pr-store' ? hanging : memory,
-    maxAcquisitionDurationMs: 20,
+    maxAcquisitionDurationMs: mode === 'capture' ? 1_000 : 20,
+    ...(mode === 'capture' ? { maxCodeCaptureDurationMs: 20 } : {}),
     ...(mode === 'capture'
       ? { captureCodeManifest: async () => new Promise<ObjectRef>(() => {}) }
       : {}),
