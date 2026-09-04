@@ -1,0 +1,72 @@
+import { spawn } from 'node:child_process'
+import { constants } from 'node:fs'
+import { appendFile, access, readFile, writeFile } from 'node:fs/promises'
+
+const scenario = process.argv[2] ?? 'success'
+const provider = process.argv[3] ?? 'fake'
+const authPath = `/auth/${provider}/credentials.json`
+
+if (scenario === 'hang') {
+  await new Promise(() => undefined)
+}
+
+if (scenario === 'descendant') {
+  spawn('sh', ['-c', 'while true; do sleep 1; done'], {
+    detached: false,
+    stdio: 'ignore',
+  })
+  await new Promise(() => undefined)
+}
+
+async function canRead(path: string): Promise<boolean> {
+  try {
+    await access(path, constants.R_OK)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function writeIsBlocked(path: string): Promise<boolean> {
+  try {
+    await appendFile(path, 'forbidden')
+    return false
+  } catch {
+    return true
+  }
+}
+
+const otherProviderAuth =
+  provider === 'fake'
+    ? ['/auth/codex', '/auth/claude']
+    : [provider === 'codex' ? '/auth/claude' : '/auth/codex']
+const forbiddenPaths = [
+  '/bundle/.git',
+  '/workspace/factory-live-checkout-sentinel',
+  '/var/run/docker.sock',
+  ...otherProviderAuth,
+  '/root/.codex',
+  '/root/.claude',
+]
+const forbiddenPathsAbsent: string[] = []
+for (const path of forbiddenPaths) {
+  if (!(await canRead(path))) forbiddenPathsAbsent.push(path)
+}
+
+await readFile(authPath)
+await writeFile('/out/result.txt', 'fake-review-complete\n')
+const routeTable = await readFile('/proc/net/route', 'utf8').catch(() => '')
+
+console.log(
+  JSON.stringify({
+    providerVersion: 'fake-provider/1',
+    uid: process.getuid?.() ?? -1,
+    bundleReadable: await canRead('/bundle/input.json'),
+    bundleWriteBlocked: await writeIsBlocked('/bundle/input.json'),
+    authReadable: await canRead(authPath),
+    authWriteBlocked: await writeIsBlocked(authPath),
+    outputWritable: await canRead('/out/result.txt'),
+    forbiddenPathsAbsent,
+    networkRoutePresent: routeTable.includes('eth0'),
+  }),
+)

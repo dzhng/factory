@@ -1,0 +1,13 @@
+{
+  "name": "@factory/reviewer",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "check-types": "tsc --noEmit",
+    "lint": "oxlint src test",
+    "test": "bun test"
+  }
+}

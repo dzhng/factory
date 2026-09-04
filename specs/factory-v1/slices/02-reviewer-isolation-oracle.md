@@ -1,5 +1,8 @@
 # 02 — Reviewer isolation and authentication oracle
 
+Status: **implemented for the fake-provider boundary; live provider and
+linux/amd64 authorities remain explicitly unavailable**
+
 ## Contract
 
 Prove that each current provider CLI can execute headlessly in an ephemeral
@@ -57,3 +60,18 @@ Review the sanitized isolation report. If a provider requires writable state,
 reslice that provider into read-only source auth plus a disposable derived
 overlay and update `SECURITY.md` before proceeding. A required broad home mount
 or credential mutation blocks that provider rather than widening both.
+
+## Implementation evidence
+
+`bun run lab:reviewer-isolation` builds a digest-addressed fake-provider image
+and writes sanitized JSON and HTML reports. The lab observes the created
+container rather than trusting the requested plan, then checks immutable input,
+read-only file authentication, the sole writable output mount, network routing,
+non-root execution, dropped capabilities, timeout, cancellation, descendant
+cleanup, and credential-value absence.
+
+The 2026-09-04 authority run verified Docker `linux/arm64`. Codex 0.144.4 and
+Claude Code 2.1.260 were present on the host, but no dedicated test credentials
+were configured, so neither provider was reported as verified. Native
+`linux/amd64` was likewise not run. These are explicit unavailable results,
+not passes; Slice 09 must obtain those authorities before release acceptance.

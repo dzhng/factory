@@ -117,3 +117,41 @@ second normative schema; the master specification and format own mechanics.
 - **Verdict:** Sound. It keeps commits attributable without weakening source
   formatting.
 - **Confidence:** Medium.
+
+## Implementation choices — reviewer isolation oracle
+
+### Kill the container, not only the waiting client
+
+- **When:** Slice 02 reviewer-isolation implementation.
+- **The choice:** A reviewer starts detached, while Factory waits through a
+  separate Docker client process. If a review times out or is cancelled,
+  Factory stops waiting and forcibly removes the named container. Docker then
+  kills the whole container process namespace, including a child process the
+  reviewer started. Merely killing the local `docker wait` command would leave
+  that container and its descendants running in the background.
+- **The gap:** The spec required timeout, cancellation, descendant cleanup, and
+  container removal but did not choose the process-control sequence.
+- **The reach:** The production reviewer executor inherits a cleanup path that
+  addresses the actual isolation unit. A future engine may replace Docker, but
+  it must retain this whole-sandbox cancellation property.
+- **Verdict:** Sound. Cleanup is tied to the resource that owns every reviewer
+  process rather than to one observer of that resource.
+- **Confidence:** High.
+
+### Give the container a small disposable filesystem, not a writable root
+
+- **When:** Slice 02 reviewer-isolation implementation.
+- **The choice:** The reviewer runs as numeric user `65532`, with all Linux
+  capabilities dropped, a read-only root filesystem, and a 16 MiB temporary
+  filesystem at `/tmp`. For example, a CLI may create a Unix socket or scratch
+  file in `/tmp`, but it cannot install files into its image or modify mounted
+  evidence. The alternative was a writable root filesystem whose mutations
+  would disappear later but could hide undeclared reviewer dependencies.
+- **The gap:** The plan delegated the base image and disposable cache layout; it
+  did not set the container user or initial scratch-space budget.
+- **The reach:** Slice 09 can depend on immutable image state and one bounded
+  scratch location. The 16 MiB value is an oracle starting point, not a public
+  format promise; authenticated provider runs must measure it before release.
+- **Verdict:** Sound. It proves the stronger isolation shape while leaving one
+  reversible size knob for measured provider needs.
+- **Confidence:** Medium.

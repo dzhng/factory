@@ -1,0 +1,15 @@
+{
+  "name": "@factory/test-harness",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "check-types": "tsc --noEmit",
+    "lab:reviewer-isolation": "bun run src/reviewer-isolation.ts",
+    "lint": "oxlint src"
+  },
+  "dependencies": {
+    "@factory/reviewer": "workspace:*"
+  }
+}
