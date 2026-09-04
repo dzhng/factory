@@ -85,6 +85,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@factory/contract": "workspace:*",
+        "@factory/repository": "workspace:*",
         "@factory/review-plan": "workspace:*",
       },
     },

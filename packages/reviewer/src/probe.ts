@@ -124,6 +124,7 @@ async function readOutputFiles(
   root: string,
   current = root,
   state = { entries: 0, bytes: 0 },
+  rejectDirectories = false,
 ): Promise<Map<string, Buffer>> {
   const files = new Map<string, Buffer>()
   const entries = await readdir(current, { withFileTypes: true })
@@ -132,7 +133,9 @@ async function readOutputFiles(
     if (state.entries > 32) throw new Error('Reviewer output exceeds entry bound')
     const path = join(current, entry.name)
     if (entry.isDirectory()) {
-      for (const [name, bytes] of await readOutputFiles(root, path, state)) files.set(name, bytes)
+      if (rejectDirectories) throw new Error('Reviewer output contains a foreign directory')
+      for (const [name, bytes] of await readOutputFiles(root, path, state, rejectDirectories))
+        files.set(name, bytes)
     } else if (entry.isFile()) {
       const metadata = await stat(path)
       const name = relative(root, path)
@@ -158,9 +161,9 @@ async function readOutputFiles(
   return files
 }
 
-async function hashOutputs(root: string): Promise<Record<string, string>> {
+async function hashOutputs(files: ReadonlyMap<string, Buffer>): Promise<Record<string, string>> {
   const hashes: Record<string, string> = {}
-  for (const [name, bytes] of await readOutputFiles(root)) {
+  for (const [name, bytes] of files) {
     hashes[name] = createHash('sha256').update(bytes).digest('hex')
   }
   return hashes
@@ -389,7 +392,17 @@ export async function runIsolationProbe(
   if (inspect.exitCode === 0 || !inspect.stderr.toLowerCase().includes('no such object')) {
     throw new Error('Docker could not prove the reviewer container was removed')
   }
-  const outputFiles = await readOutputFiles(plan.output.hostPath)
+  const outputFiles = await readOutputFiles(
+    plan.output.hostPath,
+    plan.output.hostPath,
+    { entries: 0, bytes: 0 },
+    options.scenario === 'review',
+  )
+  if (
+    options.scenario === 'review' &&
+    [...outputFiles.keys()].some(path => path !== 'response.txt')
+  )
+    throw new Error('Reviewer output contains a foreign file')
   const leakSurfaces = [capturedLogs, ...outputFiles.values()].map(value => value.toString())
   if (
     options.sensitiveValues?.some(secret => leakSurfaces.some(surface => surface.includes(secret)))
@@ -407,7 +420,7 @@ export async function runIsolationProbe(
     termination: result.termination,
     exitCode: result.exitCode,
     ...(observation === undefined ? {} : { observation }),
-    outputHashes: await hashOutputs(plan.output.hostPath),
+    outputHashes: await hashOutputs(outputFiles),
     cleanup: { containerRemoved: true },
   }
 }

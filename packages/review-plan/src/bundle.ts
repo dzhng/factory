@@ -534,6 +534,7 @@ export type ReviewAcceptanceProjection = Pick<
 export type ReviewAcceptanceAuthority = {
   subjectPath: OwnedPath
   subjectRecord: JsonValue
+  records: readonly { path: OwnedPath; sha256: string }[]
   repositoryId?: string
 }
 
@@ -1396,6 +1397,13 @@ export async function verifyBundle(
       authority: {
         subjectPath: subjectPath as OwnedPath,
         subjectRecord: recordValues.get(subjectPath)![0] as JsonValue,
+        records: manifest.files
+          .filter(file => file.kind === 'record')
+          .map(file => ({
+            path: file.path.replace(/^\.factory\//, '') as OwnedPath,
+            sha256: file.sha256,
+          }))
+          .sort((left, right) => left.path.localeCompare(right.path)),
         ...(bundledSubject.kind === 'workspace'
           ? { repositoryId: bundledSubject.observation.repositoryId }
           : {}),

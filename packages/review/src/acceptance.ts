@@ -52,6 +52,7 @@ type ValidatedState = {
   subjectPath: ReturnType<typeof makeOwnedPath>
   subjectRecord: string
   inventory: readonly import('@factory/contract').ObjectRef[]
+  records: readonly { path: ReturnType<typeof makeOwnedPath>; sha256: string }[]
 }
 
 const validatedAttempts = new WeakMap<object, ValidatedState>()
@@ -190,6 +191,7 @@ export async function validateReview(
     subjectPath: verified.authority.subjectPath,
     subjectRecord: canonicalJson(verified.authority.subjectRecord),
     inventory: verified.manifest.inventory,
+    records: verified.authority.records,
   })
   return capability
 }
@@ -202,6 +204,7 @@ export async function acceptReview(
   if (state === undefined) throw new TypeError('review attempt was not validated')
   if (state.repositoryId !== undefined && state.repositoryId !== store.manifest.repositoryId)
     throw new TypeError('review bundle belongs to a different repository')
+  for (const record of state.records) await store.readImmutable(record.path, record.sha256)
   const subjectBytes = await store.readImmutable(state.subjectPath)
   if (new TextDecoder('utf-8', { fatal: true }).decode(subjectBytes) !== state.subjectRecord)
     throw new TypeError('review subject differs from the target repository')

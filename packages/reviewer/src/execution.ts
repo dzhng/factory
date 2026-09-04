@@ -68,17 +68,17 @@ export const dockerReviewerExecutor: ReviewerExecutor = {
       throw new TypeError('reviewer choice differs from the verified plan')
     }
     const outputHostPath = await mkdtemp(`${input.runtimeRoot}/review-output-`)
-    await chmod(outputHostPath, 0o777)
-    const plan = planReviewerIsolation({
-      provider: choice.settings.provider,
-      bundleHostPath: before.path,
-      outputHostPath,
-      auth: input.auth,
-    })
-    if (!plan.ok) throw new Error(`reviewer isolation refused: ${plan.reason}`)
     const now = input.now ?? (() => new Date())
     const startedAt = now().toISOString()
     try {
+      await chmod(outputHostPath, 0o777)
+      const plan = planReviewerIsolation({
+        provider: choice.settings.provider,
+        bundleHostPath: before.path,
+        outputHostPath,
+        auth: input.auth,
+      })
+      if (!plan.ok) throw new Error(`reviewer isolation refused: ${plan.reason}`)
       const report = await runIsolationProbe(plan.plan, {
         imageDigest: input.imageDigest,
         expectedBundleSha256: before.sha256,

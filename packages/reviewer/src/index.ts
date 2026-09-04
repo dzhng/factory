@@ -29,6 +29,11 @@ export {
   type ReviewerRawAttempt,
   type ReviewerRawAttemptSnapshot,
 } from './attempt.js'
+export {
+  ReviewAttemptCoordinator,
+  type ReviewAttemptBoundary,
+  type ReviewAttemptCoordinatorOptions,
+} from './coordinator.js'
 
 export type ReviewerProvider = 'codex' | 'claude' | 'fake'
 
