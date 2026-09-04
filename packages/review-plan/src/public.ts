@@ -17,6 +17,9 @@ export {
   type ReviewCandidate,
   type ReviewPlan,
   type ReviewPlanRecord,
+  type ReviewRepositoryReader,
   type ReviewInputLoadRequest,
   type ReviewSubject,
 } from './index'
+
+export type { ReviewInputProblem } from '@factory/contract'

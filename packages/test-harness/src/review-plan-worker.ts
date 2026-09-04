@@ -264,6 +264,7 @@ const prior = {
   sessionWatermarks: complete.sessionWatermarks,
   coverageTargetWatermarks: complete.coverageTargetWatermarks,
   selections: complete.selections,
+  inputProblems: [],
   triggerIds: complete.triggerIds,
   disposition: 'complete' as const,
   policies: complete.policies,

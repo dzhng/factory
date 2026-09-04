@@ -421,6 +421,27 @@ export type ReviewEvidenceSelection = ReviewEvidenceSelectionBase &
     | { kind: 'opaque-problem' }
   )
 
+export type ReviewInputProblem =
+  | {
+      kind: 'association-batch'
+      problemId: Sha256
+      path: OwnedPath
+      classification: 'unavailable' | 'unsafe' | 'corrupt'
+      limitation: Limitation
+    }
+  | {
+      kind: 'subject-object'
+      problemId: Sha256
+      field: 'codeManifest' | 'stagedPatch' | 'unstagedPatch' | 'raw' | 'limitation'
+      object: ObjectRef
+      classification: 'unavailable' | 'unsafe' | 'corrupt' | 'excluded'
+      limitation: Limitation
+    }
+
+export function reviewInputProblemId(problem: Omit<ReviewInputProblem, 'problemId'>): Sha256 {
+  return createHash('sha256').update(canonicalJson(problem)).digest('hex') as Sha256
+}
+
 export type ReviewManifest = {
   schemaVersion: 1
   reviewId: RecordId
@@ -449,6 +470,7 @@ export type ReviewManifest = {
   }
   /** Durable exact attempt/classification history used after process restart. */
   evidenceSelections: readonly ReviewEvidenceSelection[]
+  inputProblems: readonly ReviewInputProblem[]
   triggerIds: readonly RecordId[]
   associationBatchIds: readonly RecordId[]
   priorLedger?: ObjectRef
@@ -486,6 +508,8 @@ export type CoverageAction = {
   acceptedLimitations: readonly LimitationCode[]
   /** Opaque corrupt/unavailable triggers explicitly acknowledged without inventing a watermark. */
   acceptedTriggerIds: readonly RecordId[]
+  /** Exact non-trigger acquisition problems explicitly acknowledged. */
+  acceptedProblemIds: readonly Sha256[]
   acceptedSubject?: {
     fingerprint: Sha256
     coverageId: Sha256
@@ -913,6 +937,7 @@ const RECORD_KEYS = {
     'subjectFingerprint',
     'subjectAttempt',
     'evidenceSelections',
+    'inputProblems',
     'triggerIds',
     'associationBatchIds',
     'priorLedger',
@@ -938,6 +963,7 @@ const RECORD_KEYS = {
     'reviewId',
     'acceptedLimitations',
     'acceptedTriggerIds',
+    'acceptedProblemIds',
     'acceptedSubject',
     'settledWatermarks',
     'createdAt',
@@ -2328,6 +2354,70 @@ function validateRecordShape(
       ) {
         throw new TypeError('review.evidenceSelections contains a duplicate trigger')
       }
+      assertArray(value.inputProblems, 'review.inputProblems')
+      value.inputProblems.forEach((problem, index) => {
+        const label = `review.inputProblems[${index}]`
+        assertRecord(problem, label)
+        assertEnum(problem.kind, ['association-batch', 'subject-object'], `${label}.kind`)
+        assertSha256(problem.problemId, `${label}.problemId`)
+        assertLimitations([problem.limitation], `${label}.limitation`)
+        if (problem.kind === 'association-batch') {
+          assertExactKeys(
+            problem,
+            ['kind', 'problemId', 'path', 'classification', 'limitation'],
+            label,
+          )
+          assertString(problem.path, `${label}.path`)
+          assertOwnedRecordPath(problem.path as OwnedPath)
+          assertEnum(
+            problem.classification,
+            ['unavailable', 'unsafe', 'corrupt'],
+            `${label}.classification`,
+          )
+        } else {
+          assertExactKeys(
+            problem,
+            ['kind', 'problemId', 'field', 'object', 'classification', 'limitation'],
+            label,
+          )
+          assertEnum(
+            problem.field,
+            ['codeManifest', 'stagedPatch', 'unstagedPatch', 'raw', 'limitation'],
+            `${label}.field`,
+          )
+          assertObjectRef(problem.object, `${label}.object`)
+          assertEnum(
+            problem.classification,
+            ['unavailable', 'unsafe', 'corrupt', 'excluded'],
+            `${label}.classification`,
+          )
+        }
+        const { problemId: _problemId, ...payload } = problem
+        assertIdentity(
+          problem.problemId,
+          reviewInputProblemId(payload as Omit<ReviewInputProblem, 'problemId'>),
+          `${label}.problemId`,
+        )
+      })
+      const problems = value.inputProblems as unknown as ReviewInputProblem[]
+      if (
+        canonicalJson(
+          [...problems].sort((left, right) =>
+            canonicalJson(left).localeCompare(canonicalJson(right)),
+          ),
+        ) !== canonicalJson(problems) ||
+        new Set(problems.map(problem => problem.problemId)).size !== problems.length
+      )
+        throw new TypeError('review.inputProblems must be canonical and unique')
+      if (
+        problems.some(
+          problem =>
+            !(value.limitations as unknown as Limitation[]).some(
+              limitation => canonicalJson(limitation) === canonicalJson(problem.limitation),
+            ),
+        )
+      )
+        throw new TypeError('review.inputProblems limitations must appear in review.limitations')
       const rangeAttempts = evidenceSelections.filter(
         (
           selection,
@@ -2420,6 +2510,7 @@ function validateRecordShape(
         value.disposition === 'complete' &&
         ((value.subjectAttempt as { effect: string }).effect === 'reviewed-partial' ||
           selections.some(selection => selection.coverageEffect === 'eligible-gap') ||
+          (value.inputProblems as unknown[]).length > 0 ||
           (value.limitations as unknown[]).length > 0)
       ) {
         throw new TypeError('complete review must be blocker-free')
@@ -2488,6 +2579,22 @@ function validateRecordShape(
         assertEnum(code, [...LIMITATION_CODES], `coverage.acceptedLimitations[${index}]`),
       )
       assertRecordIdArray(value.acceptedTriggerIds, 'coverage.acceptedTriggerIds')
+      assertArray(value.acceptedProblemIds, 'coverage.acceptedProblemIds')
+      value.acceptedProblemIds.forEach((id, index) =>
+        assertSha256(id, `coverage.acceptedProblemIds[${index}]`),
+      )
+      if (
+        canonicalJson([...value.acceptedLimitations].sort()) !==
+          canonicalJson(value.acceptedLimitations) ||
+        new Set(value.acceptedLimitations).size !== value.acceptedLimitations.length ||
+        canonicalJson([...value.acceptedTriggerIds].sort()) !==
+          canonicalJson(value.acceptedTriggerIds) ||
+        new Set(value.acceptedTriggerIds).size !== value.acceptedTriggerIds.length ||
+        canonicalJson([...value.acceptedProblemIds].sort()) !==
+          canonicalJson(value.acceptedProblemIds) ||
+        new Set(value.acceptedProblemIds).size !== value.acceptedProblemIds.length
+      )
+        throw new TypeError('coverage acceptance arrays must be canonical and unique')
       if ('acceptedSubject' in value) {
         assertRecord(value.acceptedSubject, 'coverage.acceptedSubject')
         assertExactKeys(
@@ -2506,6 +2613,13 @@ function validateRecordShape(
         value.acceptedSubject.limitations.forEach((code, index) =>
           assertEnum(code, [...LIMITATION_CODES], `coverage.acceptedSubject.limitations[${index}]`),
         )
+        if (
+          canonicalJson([...value.acceptedSubject.limitations].sort()) !==
+            canonicalJson(value.acceptedSubject.limitations) ||
+          new Set(value.acceptedSubject.limitations).size !==
+            value.acceptedSubject.limitations.length
+        )
+          throw new TypeError('coverage subject limitations must be canonical and unique')
       }
       assertWatermarks(value.settledWatermarks, 'coverage.settledWatermarks')
       assertTimestamp(value.createdAt, 'coverage.createdAt')

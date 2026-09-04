@@ -366,6 +366,7 @@ describe('public repository contract', () => {
             effect: 'current-included',
             limitations: [],
           },
+          inputProblems: [],
           evidenceSelections: [
             {
               kind: 'range',
@@ -410,6 +411,7 @@ describe('public repository contract', () => {
           reviewId: recordId('review'),
           acceptedLimitations: [],
           acceptedTriggerIds: [],
+          acceptedProblemIds: [],
           settledWatermarks: {},
           createdAt: timestamp,
         },
@@ -1070,6 +1072,7 @@ describe('public repository contract', () => {
             effect: 'current-included',
             limitations: [],
           },
+          inputProblems: [],
           evidenceSelections: [],
           triggerIds: [],
           associationBatchIds: [],
@@ -1100,6 +1103,7 @@ describe('public repository contract', () => {
           reviewId: recordId('review'),
           acceptedLimitations: [],
           acceptedTriggerIds: [],
+          acceptedProblemIds: [],
           settledWatermarks: {},
           createdAt: timestamp,
         },
@@ -1134,5 +1138,56 @@ describe('public repository contract', () => {
     for (const [path, value] of mismatches) {
       expect(() => validatePublicRecord(path, value)).toThrow('owned path')
     }
+  })
+
+  test('requires canonical unique coverage acceptance arrays', () => {
+    const actionId = recordId('coverage')
+    const path = makeOwnedPath('reviews', ['coverage-actions', `${actionId}.json`])
+    const action = {
+      schemaVersion: 1,
+      actionId,
+      reviewId: recordId('review'),
+      acceptedLimitations: ['corrupt-input', 'unverified-object'],
+      acceptedTriggerIds: [recordId('trigger', '0'), recordId('trigger', '1')],
+      acceptedProblemIds: ['a'.repeat(64), 'b'.repeat(64)],
+      acceptedSubject: {
+        fingerprint: 'c'.repeat(64),
+        coverageId: 'd'.repeat(64),
+        limitations: ['corrupt-input', 'unverified-object'],
+      },
+      settledWatermarks: {},
+      createdAt: '2026-09-05T00:00:00Z',
+    }
+    expect(() => validatePublicRecord(path, action)).not.toThrow()
+    for (const field of [
+      'acceptedLimitations',
+      'acceptedTriggerIds',
+      'acceptedProblemIds',
+    ] as const) {
+      expect(() =>
+        validatePublicRecord(path, { ...action, [field]: [...action[field]].reverse() }),
+      ).toThrow('canonical')
+      expect(() =>
+        validatePublicRecord(path, { ...action, [field]: [action[field][0], action[field][0]] }),
+      ).toThrow('canonical')
+    }
+    expect(() =>
+      validatePublicRecord(path, {
+        ...action,
+        acceptedSubject: {
+          ...action.acceptedSubject,
+          limitations: [...action.acceptedSubject.limitations].reverse(),
+        },
+      }),
+    ).toThrow('canonical')
+    expect(() =>
+      validatePublicRecord(path, {
+        ...action,
+        acceptedSubject: {
+          ...action.acceptedSubject,
+          limitations: ['corrupt-input', 'corrupt-input'],
+        },
+      }),
+    ).toThrow('canonical')
   })
 })

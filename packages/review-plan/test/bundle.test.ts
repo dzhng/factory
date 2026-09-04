@@ -26,6 +26,7 @@ import {
   verifyBundle,
   type PortableRecordReader,
   type ReviewInputs,
+  type ReviewRepositoryReader,
 } from '../src'
 
 const roots: string[] = []
@@ -180,6 +181,7 @@ describe('verified review bundles', () => {
       subjectFingerprint: initial.subjectFingerprint,
       subjectAttempt: initial.subjectAttempt,
       evidenceSelections: [],
+      inputProblems: [],
       triggerIds: [],
       associationBatchIds: [],
       limitations: [],
@@ -204,7 +206,8 @@ describe('verified review bundles', () => {
       ],
       [subjectPath, new TextEncoder().encode(canonicalJson(value.input.subject.observation))],
     ])
-    const reader: PortableRecordReader = {
+    const reader: ReviewRepositoryReader = {
+      inventory: async () => [...records.keys()].sort() as ReturnType<typeof makeOwnedPath>[],
       read: async path => {
         const bytes = records.get(path)
         return bytes === undefined ? { kind: 'missing', detail: path } : { kind: 'readable', bytes }
@@ -215,16 +218,34 @@ describe('verified review bundles', () => {
       reviews: [{ manifestPath }],
       coverageActionPaths: [],
     })
+    await expect(
+      loadReviewInputs(
+        {
+          ...reader,
+          getObject: async ref =>
+            ref.role === 'workspace-file'
+              ? { kind: 'missing', detail: 'nested leaf missing' }
+              : { kind: 'readable', bytes: value.objects.get(ref.sha256)! },
+        },
+        {
+          mode: 'incremental',
+          subjectPath,
+          history,
+          policies: value.input.policies,
+        },
+      ),
+    ).rejects.toThrow('foundational subject object')
     const loaded = await loadReviewInputs(reader, {
       mode: 'incremental',
       subjectPath,
-      candidateTriggerIds: [],
-      associationBatchPaths: [],
       history,
       policies: { ...value.input.policies, policyVersion: 'policy-v2' },
     })
     records.set(subjectPath, new TextEncoder().encode('{}\n'))
     const plan = planLoadedReview(loaded)
+    expect(() => planLoadedReview({} as Parameters<typeof planLoadedReview>[0])).toThrow(
+      'loadReviewInputs',
+    )
     expect(plan.status).toBe('ready')
     expect(plan.historySources.map(source => source.path)).toEqual(
       [subjectPath, ledgerPath, manifestPath].sort(),
@@ -234,6 +255,76 @@ describe('verified review bundles', () => {
     const built = await buildBundle(
       plan,
       { getObject: async ref => value.objects.get(ref.sha256)! },
+      join(parent, 'bundle'),
+    )
+    expect((await verifyBundle(built.path, built.sha256)).valid).toBe(true)
+  })
+
+  test('verifies an omitted object owned by a workspace code-manifest limitation', async () => {
+    const value = fixture()
+    if (value.input.subject.kind !== 'workspace') throw new Error('expected workspace fixture')
+    const originalReference = value.input.subject.observation.codeManifest!
+    const originalManifest = JSON.parse(
+      new TextDecoder().decode(value.objects.get(originalReference.sha256)),
+    )
+    const unavailableBytes = new TextEncoder().encode('optional provenance')
+    const unavailable = object(unavailableBytes, 'application/octet-stream', 'limitation-evidence')
+    const manifestBytes = new TextEncoder().encode(
+      canonicalJson({
+        ...originalManifest,
+        limitations: [
+          {
+            code: 'unverified-object',
+            detail: 'optional code provenance unavailable',
+            object: unavailable,
+          },
+        ],
+      }),
+    )
+    const codeManifest = object(
+      manifestBytes,
+      'application/vnd.factory.code-manifest+json',
+      'workspace-code-manifest',
+    )
+    value.objects.set(codeManifest.sha256, manifestBytes)
+    const observation = {
+      ...value.input.subject.observation,
+      codeManifest,
+      worktreeFingerprint: codeManifest.sha256,
+    }
+    const subjectPath = makeOwnedPath('repository-observations', [
+      `${observation.observationId}.json`,
+    ])
+    const records = new Map<string, Uint8Array>([
+      [subjectPath, new TextEncoder().encode(canonicalJson(observation))],
+    ])
+    const reader: ReviewRepositoryReader = {
+      inventory: async () => [subjectPath],
+      read: async path => {
+        const bytes = records.get(path)
+        return bytes === undefined ? { kind: 'missing', detail: path } : { kind: 'readable', bytes }
+      },
+      getObject: async reference =>
+        canonicalJson(reference) === canonicalJson(unavailable)
+          ? { kind: 'missing', detail: 'optional provenance was not captured' }
+          : { kind: 'readable', bytes: value.objects.get(reference.sha256)! },
+    }
+    const history = await loadReviewHistory(reader, { reviews: [], coverageActionPaths: [] })
+    const loaded = await loadReviewInputs(reader, {
+      mode: 'incremental',
+      subjectPath,
+      history,
+      policies: value.input.policies,
+    })
+    const plan = planLoadedReview(loaded)
+    expect(plan.inputProblems).toEqual([
+      expect.objectContaining({ kind: 'subject-object', field: 'limitation', object: unavailable }),
+    ])
+    const parent = await mkdtemp(join(tmpdir(), 'factory-review-code-limitation-'))
+    roots.push(parent)
+    const built = await buildBundle(
+      plan,
+      { getObject: async reference => value.objects.get(reference.sha256)! },
       join(parent, 'bundle'),
     )
     expect((await verifyBundle(built.path, built.sha256)).valid).toBe(true)
@@ -299,6 +390,18 @@ describe('verified review bundles', () => {
     const contradictory = structuredClone(original)
     contradictory.plan.selections[0].selectedForReview = false
     expect((await verifyTamper(contradictory)).valid).toBe(false)
+    const bogusKind = structuredClone(original)
+    bogusKind.files[0].kind = 'mystery'
+    expect((await verifyTamper(bogusKind)).valid).toBe(false)
+    const extraKey = structuredClone(original)
+    extraKey.files[0].surprise = true
+    expect((await verifyTamper(extraKey)).valid).toBe(false)
+    const arbitraryPath = structuredClone(original)
+    arbitraryPath.files[0].path = '../outside'
+    expect((await verifyTamper(arbitraryPath)).valid).toBe(false)
+    const falseNoop = structuredClone(original)
+    falseNoop.plan.status = 'already-reviewed'
+    expect((await verifyTamper(falseNoop)).valid).toBe(false)
     await verifyTamper(original)
     expect((await verifyBundle(destination, built.sha256)).valid).toBe(true)
   })

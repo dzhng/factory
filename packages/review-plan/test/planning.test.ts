@@ -1,7 +1,16 @@
 import { describe, expect, test } from 'bun:test'
 
-import { newRecordId, reviewSubjectCoverageId } from '@factory/contract'
+import {
+  canonicalJson,
+  githubRepositoryKey,
+  makeOwnedPath,
+  newRecordId,
+  reviewInputProblemId,
+  reviewSubjectCoverageId,
+} from '@factory/contract'
 import type {
+  AssociationBatch,
+  AvailablePullRequestObservation,
   ObjectRef,
   RepositoryObservation,
   ReviewTrigger,
@@ -144,6 +153,7 @@ describe('review planning', () => {
         ),
         sessionWatermarks: { 'session-a': 1 },
         coverageTargetWatermarks: { 'session-a': 1 },
+        inputProblems: [],
         selections: [
           {
             kind: 'range',
@@ -186,6 +196,7 @@ describe('review planning', () => {
         subjectAttempt: settledSubject(fingerprint),
         sessionWatermarks: { 'session-a': 2 },
         coverageTargetWatermarks: { 'session-a': 2 },
+        inputProblems: [],
         selections: [
           {
             kind: 'range',
@@ -212,6 +223,7 @@ describe('review planning', () => {
         subjectAttempt: settledSubject(fingerprint),
         sessionWatermarks: { 'session-a': 3 },
         coverageTargetWatermarks: { 'session-a': 3 },
+        inputProblems: [],
         selections: [
           {
             kind: 'range',
@@ -246,6 +258,7 @@ describe('review planning', () => {
         subjectAttempt: settledSubject(fingerprint),
         sessionWatermarks: { 'session-a': 2 },
         coverageTargetWatermarks: { 'session-a': 2 },
+        inputProblems: [],
         selections: [
           {
             kind: 'range',
@@ -303,6 +316,7 @@ describe('review planning', () => {
         ),
         sessionWatermarks: { 'session-a': 2 },
         coverageTargetWatermarks: { 'session-a': 2 },
+        inputProblems: [],
         selections: [
           {
             kind: 'range',
@@ -351,6 +365,7 @@ describe('review planning', () => {
         subjectAttempt: settledSubject(fingerprint),
         sessionWatermarks: { 'session-a': 2 },
         coverageTargetWatermarks: { 'session-a': 2 },
+        inputProblems: [],
         selections: [
           {
             kind: 'range',
@@ -389,6 +404,7 @@ describe('review planning', () => {
         ),
         sessionWatermarks: { 'session-a': 2 },
         coverageTargetWatermarks: { 'session-a': 2 },
+        inputProblems: [],
         selections: [
           {
             kind: 'range',
@@ -423,6 +439,7 @@ describe('review planning', () => {
           subjectAttempt: settledSubject(initial.subjectFingerprint),
           sessionWatermarks: { 'session-a': 2 },
           coverageTargetWatermarks: { 'session-a': 2 },
+          inputProblems: [],
           selections: initial.selections,
           triggerIds: initial.triggerIds,
           disposition: 'complete',
@@ -448,6 +465,7 @@ describe('review planning', () => {
         subjectAttempt: settledSubject(initial.subjectFingerprint),
         sessionWatermarks: { 'session-a': 2 },
         coverageTargetWatermarks: { 'session-a': 2 },
+        inputProblems: [],
         selections: [
           {
             ...initial.selections[0]!,
@@ -500,6 +518,7 @@ describe('review planning', () => {
         subjectAttempt: settledSubject(initial.subjectFingerprint),
         sessionWatermarks: {},
         coverageTargetWatermarks: {},
+        inputProblems: [],
         selections: [
           {
             kind: 'opaque-problem',
@@ -523,6 +542,7 @@ describe('review planning', () => {
         reviewId: firstReviewId,
         acceptedLimitations: ['corrupt-input'],
         acceptedTriggerIds: [opaqueTrigger],
+        acceptedProblemIds: [],
         settledWatermarks: {},
         createdAt: '2026-09-05T00:00:09Z',
       },
@@ -590,6 +610,7 @@ describe('review planning', () => {
         subjectAttempt: first.subjectAttempt,
         sessionWatermarks: {},
         coverageTargetWatermarks: {},
+        inputProblems: [],
         selections: [],
         triggerIds: [],
         disposition: 'partial',
@@ -604,6 +625,7 @@ describe('review planning', () => {
         reviewId: firstReviewId,
         acceptedLimitations: [],
         acceptedTriggerIds: [],
+        acceptedProblemIds: [],
         acceptedSubject: {
           fingerprint: first.subjectFingerprint,
           coverageId: first.subjectAttempt.coverageId,
@@ -642,6 +664,7 @@ describe('review planning', () => {
         subjectAttempt: settledSubject(first.subjectFingerprint),
         sessionWatermarks: first.sessionWatermarks,
         coverageTargetWatermarks: first.coverageTargetWatermarks,
+        inputProblems: [],
         selections: first.selections,
         triggerIds: first.triggerIds,
         disposition: 'partial',
@@ -677,6 +700,7 @@ describe('review planning', () => {
         subjectAttempt: settledSubject(initial.subjectFingerprint),
         sessionWatermarks: initial.sessionWatermarks,
         coverageTargetWatermarks: initial.coverageTargetWatermarks,
+        inputProblems: [],
         selections: [unavailableSelection],
         triggerIds: initial.triggerIds,
         disposition: 'partial',
@@ -699,5 +723,161 @@ describe('review planning', () => {
     expect(retry.status).toBe('pending-partial')
     expect(retry.triggerIds).toEqual([trigger(2).triggerId])
     expect(retry.selections[0]?.coverageEffect).toBe('eligible-gap')
+  })
+
+  test('accepts one exact non-trigger problem without changing subject coverage', () => {
+    const input = inputs()
+    input.candidates = []
+    const payload = {
+      kind: 'association-batch' as const,
+      path: makeOwnedPath('pull-requests', [
+        'github',
+        'repo',
+        '1',
+        'associations',
+        'observation_00000000000000000000000000',
+        'batches',
+        'batch_00000000000000000000000000.json',
+      ]),
+      classification: 'corrupt' as const,
+      limitation: { code: 'corrupt-input' as const, detail: 'bad batch' },
+    }
+    const problem = { ...payload, problemId: reviewInputProblemId(payload) }
+    input.inputProblems = [problem]
+    const first = planReview(input)
+    expect(first.subjectAttempt.effect).toBe('current-included')
+    input.reviews = [
+      {
+        reviewId: firstReviewId,
+        subject: input.subject,
+        subjectFingerprint: first.subjectFingerprint,
+        subjectAttempt: first.subjectAttempt,
+        sessionWatermarks: {},
+        coverageTargetWatermarks: {},
+        selections: [],
+        inputProblems: [problem],
+        triggerIds: [],
+        disposition: 'partial',
+        policies: input.policies,
+      },
+    ]
+    input.coverageActions = [
+      {
+        schemaVersion: 1,
+        actionId: id('coverage', 8),
+        reviewId: firstReviewId,
+        acceptedLimitations: ['corrupt-input'],
+        acceptedTriggerIds: [],
+        acceptedProblemIds: [problem.problemId],
+        settledWatermarks: {},
+        createdAt: '2026-09-05T00:00:08Z',
+      },
+    ]
+    expect(planReview(input).status).toBe('already-reviewed')
+    input.mode = 'force'
+    expect(planReview(input).inputProblems).toEqual([problem])
+    input.mode = 'incremental'
+    input.inputProblems = []
+    expect(planReview(input).status).toBe('already-reviewed')
+  })
+
+  test('includes completed manual PR association without relabeling it verified', () => {
+    const input = inputs()
+    const value = candidate(2)
+    const repositoryKey = githubRepositoryKey('github.com', 'R_fixture')
+    const pr: AvailablePullRequestObservation = {
+      schemaVersion: 1,
+      observationId: id('pr-observation', 2),
+      provider: 'github',
+      repositoryKey,
+      number: 42,
+      availability: 'available',
+      completeness: 'partial',
+      commitMembership: 'prefix',
+      codeAvailability: 'unavailable',
+      externalId: 'PR_42',
+      hostname: 'github.com',
+      url: 'https://github.com/owner/repo/pull/42',
+      state: 'open',
+      observedAt: '2026-09-05T00:00:02Z',
+      providerUpdatedAt: '2026-09-05T00:00:02Z',
+      base: {
+        repositoryKey,
+        externalId: 'R_fixture',
+        repository: 'owner/repo',
+        ref: 'main',
+        sha: 'a'.repeat(40),
+      },
+      head: {
+        repositoryKey,
+        externalId: 'R_fixture',
+        repository: 'owner/repo',
+        ref: 'feature',
+        sha: 'b'.repeat(40),
+      },
+      commits: [],
+      raw: [
+        {
+          ...ref('7', 'github-pr-metadata'),
+          mediaType: 'application/json',
+          role: 'github-pr-metadata',
+        },
+      ],
+      diff: {
+        ...ref('8', 'pull-request-diff'),
+        mediaType: 'text/x-diff',
+        role: 'pull-request-diff',
+      },
+      limitations: [
+        { code: 'incomplete-pull-request-commits', detail: 'prefix only' },
+        { code: 'unavailable-pull-request-code', detail: 'diff remains readable' },
+      ],
+    }
+    const evidence = {
+      schemaVersion: 1 as const,
+      evidenceId: id('association', 2),
+      sessionKey: value.trigger.sessionKey,
+      pullRequestObservationId: pr.observationId,
+      kind: 'manual' as const,
+      strength: 'asserted' as const,
+      shas: [] as [],
+      repositoryIdentity: 'unavailable' as const,
+      sourceObservationIds: [] as [],
+      assertion: { actor: 'developer', reason: 'paired during review' },
+      observedAt: pr.observedAt,
+    }
+    const batch: AssociationBatch = {
+      schemaVersion: 1,
+      batchId: id('association-batch', 2),
+      provider: 'github',
+      repositoryKey,
+      number: 42,
+      pullRequestObservationId: pr.observationId,
+      kind: 'manual',
+      evidence: [
+        {
+          evidenceId: evidence.evidenceId,
+          sha256: Bun.CryptoHasher.hash(
+            'sha256',
+            new TextEncoder().encode(canonicalJson(evidence)),
+            'hex',
+          ),
+        },
+      ],
+      sourceObservationIds: [],
+      observedAt: pr.observedAt,
+      policyVersion: 'manual-v1',
+    }
+    input.subject = { kind: 'pull-request', observation: pr }
+    input.associations = [{ batch, evidence: [evidence] }]
+    const plan = planReview(input)
+    expect(plan.selections[0]?.association?.proofs).toEqual([
+      {
+        batchId: batch.batchId,
+        evidenceId: evidence.evidenceId,
+        authority: 'manual-asserted',
+      },
+    ])
+    expect(plan.subjectReview).toBe('full-current-pr-diff')
   })
 })
