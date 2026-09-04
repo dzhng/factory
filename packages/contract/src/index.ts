@@ -783,6 +783,11 @@ function parseRecordPath(path: OwnedPath): RecordPath {
   throw new TypeError(`path is not a declared Factory v1 record: ${path}`)
 }
 
+/** Prove an untrusted string names one declared v1 record before filesystem access. */
+export function assertOwnedRecordPath(path: string): asserts path is OwnedPath {
+  parseRecordPath(path as OwnedPath)
+}
+
 function assertExactKeys(
   value: Record<string, unknown>,
   allowed: readonly string[],
@@ -1093,7 +1098,7 @@ function validateRecordShape(
       assertEnum(value.provider, ['codex', 'claude'], 'sessionIdentity.provider')
       assertString(value.nativeSessionId, 'sessionIdentity.nativeSessionId')
       assertString(value.sessionKey, 'sessionIdentity.sessionKey')
-      assertPositiveInteger(value.captureGeneration, 'sessionIdentity.captureGeneration')
+      assertNonNegativeInteger(value.captureGeneration, 'sessionIdentity.captureGeneration')
       assertString(value.repositoryId, 'sessionIdentity.repositoryId')
       if (!/^repo_[A-Za-z0-9_-]+$/.test(value.repositoryId))
         throw new TypeError('sessionIdentity.repositoryId is invalid')

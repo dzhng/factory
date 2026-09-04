@@ -13,6 +13,28 @@
         "typescript": "5.9.2",
       },
     },
+    "packages/capture": {
+      "name": "@factory/capture",
+      "version": "0.0.0",
+      "dependencies": {
+        "@factory/contract": "workspace:*",
+        "@factory/repository": "workspace:*",
+        "@factory/runtime-journal": "workspace:*",
+      },
+    },
+    "packages/cli": {
+      "name": "@factory/cli",
+      "version": "0.0.0",
+      "bin": {
+        "factory": "./src/main.ts",
+      },
+      "dependencies": {
+        "@factory/capture": "workspace:*",
+        "@factory/contract": "workspace:*",
+        "@factory/repository": "workspace:*",
+        "@factory/runtime-journal": "workspace:*",
+      },
+    },
     "packages/contract": {
       "name": "@factory/contract",
       "version": "0.0.0",
@@ -44,6 +66,10 @@
     },
   },
   "packages": {
+    "@factory/capture": ["@factory/capture@workspace:packages/capture"],
+
+    "@factory/cli": ["@factory/cli@workspace:packages/cli"],
+
     "@factory/contract": ["@factory/contract@workspace:packages/contract"],
 
     "@factory/repository": ["@factory/repository@workspace:packages/repository"],

@@ -1,0 +1,22 @@
+{
+  "name": "@factory/cli",
+  "version": "0.0.0",
+  "private": true,
+  "bin": {
+    "factory": "./dist/factory.js"
+  },
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "build": "bun build src/main.ts --target=bun --outfile=dist/factory.js && tsc -p tsconfig.build.json",
+    "check-types": "tsc --noEmit",
+    "lint": "oxlint src test",
+    "test": "bun run test/docker.ts"
+  },
+  "dependencies": {
+    "@factory/capture": "workspace:*",
+    "@factory/contract": "workspace:*",
+    "@factory/repository": "workspace:*",
+    "@factory/runtime-journal": "workspace:*"
+  }
+}

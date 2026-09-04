@@ -7,14 +7,16 @@ import {
   open,
   readFile,
   readdir,
+  rename,
   rm,
+  symlink,
   unlink,
   writeFile,
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { ConfinedWriter } from '../src/confined-writer'
+import { ConfinedWriter, readConfinedFile } from '../src/confined-writer'
 
 const roots: string[] = []
 
@@ -23,6 +25,30 @@ afterEach(async () => {
 })
 
 describe('ConfinedWriter', () => {
+  test('confined reads cannot follow a swapped parent outside their root', async () => {
+    const base = await mkdtemp(join(tmpdir(), 'factory-confined-reader-'))
+    roots.push(base)
+    const root = join(base, 'root')
+    const outside = join(base, 'outside')
+    await mkdir(join(root, 'nested'), { recursive: true })
+    await mkdir(outside)
+    await writeFile(join(root, 'nested', 'transcript.jsonl'), 'inside\n')
+    await writeFile(join(outside, 'transcript.jsonl'), 'outside-secret\n')
+
+    const bytes = await readConfinedFile(
+      root,
+      [Buffer.from('nested'), Buffer.from('transcript.jsonl')],
+      {
+        maximumBytes: 1024,
+        afterOpen: async () => {
+          await rename(join(root, 'nested'), join(root, 'old-nested'))
+          await symlink(outside, join(root, 'nested'))
+        },
+      },
+    )
+    expect(new TextDecoder().decode(bytes)).toBe('inside\n')
+  })
+
   test('rejects an invalid symlink target before opening or creating parent directories', async () => {
     const root = await mkdtemp(join(tmpdir(), 'factory-confined-writer-'))
     roots.push(root)

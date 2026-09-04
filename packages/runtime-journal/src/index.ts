@@ -89,6 +89,8 @@ export type DurabilityBoundary =
   | 'journal-commit-attempt'
   | 'claim-commit-attempt'
   | 'completion-commit-attempt'
+  | 'lifecycle-completion-transaction-staged'
+  | 'lifecycle-completion-transaction-committed'
 export interface RuntimeJournalOptions {
   /** Repository worktree used to locate the one Git-common runtime. */
   repositoryRoot?: string
@@ -606,7 +608,7 @@ class SqliteJournal implements RuntimeJournal {
       const bytes = await this.options.verifyLifecycle(event, reference)
       if (digest(bytes) !== reference.sha256)
         throw new JournalCorruptionError('Verified lifecycle bytes do not match the reference')
-      await this.transaction(undefined, () => {
+      await this.transaction(undefined, async () => {
         const existing = stmt(
           this.db,
           'SELECT record_json FROM lifecycle_completions WHERE event_key=?',
@@ -618,7 +620,18 @@ class SqliteJournal implements RuntimeJournal {
           return
         }
         stmt(this.db, 'INSERT INTO lifecycle_completions VALUES(?,?)').run(event.eventKey, encoded)
+        const totals = record(
+          stmt(
+            this.db,
+            'SELECT COALESCE(SUM(length(CAST(event_key AS BLOB)) + length(CAST(record_json AS BLOB))), 0) AS metadata_bytes FROM lifecycle_completions',
+          ).get(),
+          'lifecycle completion totals',
+        )
+        if (numberField(totals, 'metadata_bytes') > MAX_STATE_METADATA_BYTES)
+          throw new Error('lifecycle completion table reached its metadata byte bound')
+        await this.boundary('lifecycle-completion-transaction-staged')
       })
+      await this.boundary('lifecycle-completion-transaction-committed')
     })
   }
 
@@ -894,6 +907,42 @@ class SqliteJournal implements RuntimeJournal {
         !sameJson(completion.stop, claim.stop)
       )
         throw new JournalCorruptionError('Completion does not match its durable claim')
+    }
+    const lifecycleTotals = record(
+      stmt(
+        this.db,
+        'SELECT COUNT(*) AS row_count, COALESCE(SUM(length(CAST(event_key AS BLOB)) + length(CAST(record_json AS BLOB))), 0) AS metadata_bytes FROM lifecycle_completions',
+      ).get(),
+      'lifecycle completion totals',
+    )
+    if (
+      numberField(lifecycleTotals, 'row_count') > MAX_JOURNAL_ROWS ||
+      numberField(lifecycleTotals, 'metadata_bytes') > MAX_STATE_METADATA_BYTES
+    )
+      throw new JournalCorruptionError('lifecycle completion table exceeds its bounds')
+    const lifecycleRows = stmt(
+      this.db,
+      `SELECT event_key, CASE WHEN length(CAST(record_json AS BLOB))<=${MAX_COMPLETION_JSON_BYTES} THEN record_json END AS record_json, length(CAST(record_json AS BLOB)) AS json_bytes FROM lifecycle_completions ORDER BY event_key LIMIT ${MAX_JOURNAL_ROWS + 1}`,
+    ).all()
+    if (lifecycleRows.length !== numberField(lifecycleTotals, 'row_count'))
+      throw new JournalCorruptionError('lifecycle completion rows are inconsistent')
+    const events = new Map(rows.map(row => [row.eventKey, row]))
+    for (const value of lifecycleRows) {
+      const stored = record(value, 'lifecycle completion row')
+      const key = stringField(stored, 'event_key')
+      if (!SHA256.test(key) || numberField(stored, 'json_bytes') > MAX_COMPLETION_JSON_BYTES)
+        throw new JournalCorruptionError('lifecycle completion row exceeds its bounds')
+      const event = events.get(key)
+      if (event?.eventKind !== 'session-end')
+        throw new JournalCorruptionError('lifecycle completion does not reference SessionEnd')
+      const reference = JSON.parse(stringField(stored, 'record_json')) as TurnRef
+      if (
+        !/^sessions\/(codex|claude)\/[^/]+\/lifecycle\/[a-z][a-z0-9-]*_[0-7][0-9A-HJKMNP-TV-Z]{25}\.json$/.test(
+          reference.path,
+        ) ||
+        !SHA256.test(reference.sha256)
+      )
+        throw new JournalCorruptionError('lifecycle completion reference is malformed')
     }
   }
   private async publishRaw(bytes: Uint8Array, sha: string): Promise<void> {
@@ -1229,7 +1278,6 @@ function sameCapture(row: JournalRow, input: RawCaptureInput, sha: string): bool
     row.generation === input.generation &&
     row.eventId === input.eventId &&
     row.eventKind === input.eventKind &&
-    row.occurredAt === input.occurredAt &&
     row.stopId === input.stopId &&
     row.worktreePath === input.worktreePath &&
     row.rawSha256 === sha &&

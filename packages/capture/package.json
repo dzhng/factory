@@ -1,0 +1,18 @@
+{
+  "name": "@factory/capture",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "check-types": "tsc --noEmit",
+    "lint": "oxlint src test",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@factory/contract": "workspace:*",
+    "@factory/repository": "workspace:*",
+    "@factory/runtime-journal": "workspace:*"
+  }
+}

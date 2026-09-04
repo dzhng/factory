@@ -1,9 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { createReadStream, createWriteStream } from 'node:fs'
+import { constants, createReadStream, createWriteStream } from 'node:fs'
 import {
   link,
   lstat,
   mkdir,
+  open,
   readFile,
   readdir,
   realpath,
@@ -19,6 +20,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 
 import {
   assertNoMachinePaths,
+  assertOwnedRecordPath,
   canonicalJson,
   makeOwnedPath,
   objectOwnedPath,
@@ -32,6 +34,8 @@ import {
   type RepositoryConfig,
   type RepositoryManifest,
 } from '@factory/contract'
+
+export { readConfinedFile, type ConfinedReadOptions } from './confined-writer'
 
 export * from './git-observer'
 export { ReconstructionUnavailableError } from './confined-writer'
@@ -137,6 +141,37 @@ async function requireOrdinaryFile(path: string): Promise<void> {
   if (kind !== 'file') throw new Error(`Factory requires an ordinary file: ${path}`)
 }
 
+async function readBoundedOrdinary(path: string, maximumBytes: number): Promise<Uint8Array> {
+  const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
+  try {
+    const before = await handle.stat({ bigint: true })
+    if (!before.isFile()) throw new Error(`Factory requires an ordinary file: ${path}`)
+    if (before.size > BigInt(maximumBytes))
+      throw new Error(`Factory file exceeds read bound: ${path}`)
+    const bytes = new Uint8Array(Number(before.size))
+    let offset = 0
+    while (offset < bytes.byteLength) {
+      const result = await handle.read(bytes, offset, bytes.byteLength - offset, offset)
+      if (result.bytesRead === 0) break
+      offset += result.bytesRead
+    }
+    const after = await handle.stat({ bigint: true })
+    if (
+      offset !== bytes.byteLength ||
+      before.dev !== after.dev ||
+      before.ino !== after.ino ||
+      before.size !== after.size ||
+      before.mtimeNs !== after.mtimeNs ||
+      before.ctimeNs !== after.ctimeNs
+    ) {
+      throw new Error(`Factory file changed while reading: ${path}`)
+    }
+    return bytes
+  } finally {
+    await handle.close()
+  }
+}
+
 async function readManifest(path: string): Promise<RepositoryManifest> {
   await requireOrdinaryFile(path)
   const text = decodeUtf8(await readFile(path))
@@ -200,6 +235,7 @@ function validateStructuredRecord(path: OwnedPath, bytes: Uint8Array): void {
     return
   }
   if (path.endsWith('.jsonl')) {
+    if (text.length === 0) return
     if (!text.endsWith('\n')) throw new TypeError(`${path} must end with a newline`)
     for (const line of text.slice(0, -1).split('\n')) {
       if (line.length === 0) throw new TypeError(`${path} contains an empty JSONL record`)
@@ -442,8 +478,7 @@ export class RepositoryStore {
     validateObjectRef(ref)
     if (ref.bytes > this.maxObjectBytes) throw new Error('Factory object exceeds configured limit')
     const path = join(this.factoryRoot, objectOwnedPath(ref.sha256))
-    await requireOrdinaryFile(path)
-    const bytes = await readFile(path)
+    const bytes = await readBoundedOrdinary(path, Math.min(this.maxObjectBytes, ref.bytes))
     if (bytes.byteLength !== ref.bytes || sha256(bytes) !== ref.sha256) {
       throw new Error(`Factory object failed verification: ${ref.sha256}`)
     }
@@ -452,15 +487,24 @@ export class RepositoryStore {
 
   /** Verify and return one immutable record; used as journal completion proof. */
   async readImmutable(path: OwnedPath, expectedSha256?: string): Promise<Uint8Array> {
+    assertOwnedRecordPath(path)
     if (path === makeOwnedPath('config')) throw new TypeError('config is mutable')
     const absolute = join(this.factoryRoot, path)
-    await requireOrdinaryFile(absolute)
-    const bytes = await readFile(absolute)
+    const bytes = await readBoundedOrdinary(absolute, 4 * 1024 * 1024)
     validateStructuredRecord(path, bytes)
     if (expectedSha256 !== undefined && sha256(bytes) !== expectedSha256) {
       throw new Error(`Factory immutable record failed verification: ${path}`)
     }
     return bytes
+  }
+
+  async tryReadImmutable(path: OwnedPath): Promise<Uint8Array | undefined> {
+    try {
+      return await this.readImmutable(path)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+      throw error
+    }
   }
 
   /**
@@ -473,6 +517,9 @@ export class RepositoryStore {
     commitPath: OwnedPath,
   ): Promise<RecordRef> {
     if (records.length === 0) throw new TypeError('immutable group must not be empty')
+    if (!commitPath.startsWith('review-triggers/') || !commitPath.endsWith('.json')) {
+      throw new TypeError('immutable group commit point must be a review trigger')
+    }
     const paths = new Set<string>()
     for (const record of records) {
       if (record.path === makeOwnedPath('manifest') || record.path === makeOwnedPath('config')) {
@@ -528,11 +575,11 @@ export class RepositoryStore {
         aggregateBytes += file.size
         if (aggregateBytes > 64 * 1024 * 1024)
           throw new Error('Factory record tree exceeds aggregate read bound')
-        const bytes = await readFile(absolute)
+        const bytes = await readBoundedOrdinary(absolute, 4 * 1024 * 1024)
         validateStructuredRecord(path, bytes)
         const text = decodeUtf8(bytes)
         if (path.endsWith('.json')) records.push({ path, value: JSON.parse(text) as JsonValue })
-        else if (path.endsWith('.jsonl')) {
+        else if (path.endsWith('.jsonl') && text.length > 0) {
           for (const line of text.trimEnd().split('\n')) {
             records.push({ path, value: JSON.parse(line) as JsonValue })
           }
@@ -688,7 +735,7 @@ export class RepositoryStore {
           validateStructuredRecord(relativePath as OwnedPath, content)
           if (relativePath.endsWith('.json')) {
             collectObjectRefs(JSON.parse(decodeUtf8(content)), refs)
-          } else if (relativePath.endsWith('.jsonl')) {
+          } else if (relativePath.endsWith('.jsonl') && content.byteLength > 0) {
             for (const line of decodeUtf8(content).trimEnd().split('\n')) {
               collectObjectRefs(JSON.parse(line), refs)
             }

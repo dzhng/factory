@@ -1,0 +1,405 @@
+import { afterEach, describe, expect, test } from 'bun:test'
+import { createHash } from 'node:crypto'
+import { chmod, cp, lstat, mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+if (process.env.FACTORY_DOCKER_TEST !== '1') {
+  throw new Error('capture vertical tests must run in the project Docker environment')
+}
+
+const roots: string[] = []
+afterEach(() => {
+  roots.length = 0
+})
+
+async function command(
+  executable: string,
+  args: readonly string[],
+  cwd: string,
+  env: Record<string, string>,
+  stdin?: string,
+) {
+  const child = Bun.spawn([executable, ...args], {
+    cwd,
+    env,
+    stdin: stdin === undefined ? 'ignore' : new Blob([stdin]),
+    stdout: 'pipe',
+    stderr: 'pipe',
+  })
+  const [code, stdout, stderr] = await Promise.all([
+    child.exited,
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+  ])
+  return { code, stdout, stderr }
+}
+
+async function git(root: string, ...args: string[]) {
+  const result = await command('git', args, root, { ...process.env, HOME: join(root, '.home') })
+  if (result.code !== 0) throw new Error(result.stderr)
+  return result.stdout.trim()
+}
+
+async function createFixture() {
+  const root = await mkdtemp(join(tmpdir(), 'factory-capture-'))
+  roots.push(root)
+  const home = join(root, 'home')
+  const repository = join(root, 'repository')
+  const bin = join(root, 'bin')
+  await Promise.all([
+    mkdir(join(home, '.codex', 'sessions'), { recursive: true }),
+    mkdir(join(home, '.claude', 'projects'), { recursive: true }),
+    mkdir(repository),
+    mkdir(bin),
+  ])
+  const factory = join(bin, 'factory')
+  await writeFile(factory, '#!/bin/sh\nexec bun /workspace/packages/cli/dist/factory.js "$@"\n')
+  await chmod(factory, 0o755)
+  await git(repository, 'init', '-b', 'main')
+  await git(repository, 'config', 'user.email', 'factory@example.invalid')
+  await git(repository, 'config', 'user.name', 'Factory Test')
+  await writeFile(join(repository, 'app.ts'), 'export const value = 1\n')
+  await git(repository, 'add', 'app.ts')
+  await git(repository, 'commit', '-m', 'fixture')
+  const env = {
+    ...process.env,
+    HOME: home,
+    XDG_CONFIG_HOME: join(home, '.config'),
+    XDG_STATE_HOME: join(home, '.state'),
+    CODEX_HOME: join(home, '.codex'),
+    CLAUDE_CONFIG_DIR: join(home, '.claude'),
+    PATH: `${bin}:${process.env.PATH}`,
+  }
+  return { root, home, repository, factory, env }
+}
+
+async function replay(
+  fixture: Awaited<ReturnType<typeof createFixture>>,
+  provider: 'codex' | 'claude',
+): Promise<Record<string, unknown>[]> {
+  const source = `/workspace/packages/test-harness/fixtures/providers/${provider}/hooks.jsonl`
+  const transcript = join(
+    fixture.home,
+    provider === 'codex' ? '.codex/sessions/transcript.jsonl' : '.claude/projects/transcript.jsonl',
+  )
+  await cp(
+    `/workspace/packages/test-harness/fixtures/providers/${provider}/transcript.jsonl`,
+    transcript,
+  )
+  const rows = (await readFile(source, 'utf8'))
+    .trimEnd()
+    .split('\n')
+    .map(line => JSON.parse(line))
+  for (const value of rows.filter(value =>
+    [
+      'SessionStart',
+      'UserPromptSubmit',
+      'PreToolUse',
+      'PostToolUse',
+      'Stop',
+      'SessionEnd',
+    ].includes(value.hook_event_name),
+  )) {
+    value.cwd = fixture.repository
+    if (value.transcript_path !== undefined) value.transcript_path = transcript
+    const result = await command(
+      fixture.factory,
+      ['capture', '--provider', provider],
+      fixture.repository,
+      fixture.env,
+      `${JSON.stringify(value)}\n`,
+    )
+    expect(result).toMatchObject({ code: 0, stdout: '{}\n' })
+  }
+  return rows
+}
+
+async function treeDigest(root: string): Promise<string> {
+  const hash = createHash('sha256')
+  const visit = async (directory: string, relative = ''): Promise<void> => {
+    for (const name of (await readdir(directory)).sort()) {
+      const path = join(directory, name)
+      const item = await lstat(path)
+      const key = relative === '' ? name : `${relative}/${name}`
+      hash.update(key)
+      if (item.isDirectory()) await visit(path, key)
+      else hash.update(await readFile(path))
+    }
+  }
+  await visit(root)
+  return hash.digest('hex')
+}
+
+describe('installed capture vertical', () => {
+  test('initializes, installs direct hooks, materializes both providers, and rebuilds projection', async () => {
+    const value = await createFixture()
+    expect((await command(value.factory, ['init'], value.repository, value.env)).code).toBe(0)
+    expect(
+      (
+        await command(
+          value.factory,
+          ['install', '--executable', value.factory],
+          value.repository,
+          value.env,
+        )
+      ).code,
+    ).toBe(0)
+    const codexHooks = JSON.parse(await readFile(join(value.home, '.codex', 'hooks.json'), 'utf8'))
+    const claudeHooks = JSON.parse(
+      await readFile(join(value.home, '.claude', 'settings.json'), 'utf8'),
+    )
+    expect(codexHooks.hooks.Stop).toHaveLength(1)
+    expect(claudeHooks.hooks.Stop).toHaveLength(1)
+
+    const gitHeadBefore = await git(value.repository, 'rev-parse', 'HEAD')
+    const gitIndexBefore = await git(value.repository, 'write-tree')
+    const codexRows = await replay(value, 'codex')
+    await replay(value, 'claude')
+
+    const repeatedStop = codexRows.find(row => row.hook_event_name === 'Stop')!
+    expect(
+      await command(
+        value.factory,
+        ['capture', '--provider', 'codex'],
+        value.repository,
+        value.env,
+        `${JSON.stringify(repeatedStop)}\n`,
+      ),
+    ).toMatchObject({ code: 0, stdout: '{}\n' })
+
+    const doctor = await command(value.factory, ['doctor'], value.repository, value.env)
+    expect(doctor.code).toBe(0)
+    const report = JSON.parse(doctor.stdout)
+    expect(report.repository).toBe('ok')
+    expect(
+      report.projection.sessions.map((session: { provider: string }) => session.provider),
+    ).toEqual(['claude', 'codex'])
+    expect(report.projection.triggers).toBe(2)
+    expect(report.projection.issues).toEqual([])
+    expect(await git(value.repository, 'rev-parse', 'HEAD')).toBe(gitHeadBefore)
+    expect(await git(value.repository, 'write-tree')).toBe(gitIndexBefore)
+    const providers = await readdir(join(value.repository, '.factory', 'sessions'))
+    expect(providers.sort()).toEqual(['claude', 'codex'])
+    const factoryDigest = await treeDigest(join(value.repository, '.factory'))
+    const readOnlyDoctor = await command(value.factory, ['doctor'], value.repository, value.env)
+    expect(readOnlyDoctor.code).toBe(0)
+    expect(await treeDigest(join(value.repository, '.factory'))).toBe(factoryDigest)
+    expect((await command(value.factory, ['uninstall'], value.repository, value.env)).code).toBe(0)
+    expect(
+      JSON.parse(await readFile(join(value.home, '.codex', 'hooks.json'), 'utf8')).hooks.Stop,
+    ).toEqual([])
+  }, 30_000)
+
+  test('keeps a continuing Session in its first repository across branch and repository changes', async () => {
+    const value = await createFixture()
+    expect((await command(value.factory, ['init'], value.repository, value.env)).code).toBe(0)
+    const transcript = join(value.home, '.codex', 'sessions', 'continued.jsonl')
+    await writeFile(transcript, '{"type":"message"}\n')
+    const send = async (repository: string, payload: Record<string, unknown>) => {
+      const result = await command(
+        value.factory,
+        ['capture', '--provider', 'codex'],
+        repository,
+        value.env,
+        `${JSON.stringify({ session_id: 'continued', cwd: repository, ...payload })}\n`,
+      )
+      expect(result).toMatchObject({ code: 0, stdout: '{}\n' })
+    }
+    await send(value.repository, { hook_event_name: 'SessionStart' })
+    await send(value.repository, {
+      hook_event_name: 'Stop',
+      turn_id: 'stop-1',
+      transcript_path: transcript,
+    })
+    await git(value.repository, 'checkout', '-b', 'feature')
+    await send(value.repository, { hook_event_name: 'UserPromptSubmit', turn_id: 'turn-2' })
+    await send(value.repository, {
+      hook_event_name: 'Stop',
+      turn_id: 'stop-2',
+      transcript_path: transcript,
+    })
+    const other = join(value.root, 'other-repository')
+    await mkdir(other)
+    await git(other, 'init', '-b', 'main')
+    await send(other, { hook_event_name: 'UserPromptSubmit', turn_id: 'turn-3' })
+    await send(other, {
+      hook_event_name: 'Stop',
+      turn_id: 'stop-3',
+      transcript_path: transcript,
+    })
+
+    const report = JSON.parse(
+      (await command(value.factory, ['doctor'], value.repository, value.env)).stdout,
+    )
+    expect(report.projection.sessions).toHaveLength(1)
+    expect(report.projection.sessions[0].turns).toBe(3)
+    const sessionRoot = join(
+      value.repository,
+      '.factory',
+      'sessions',
+      'codex',
+      report.projection.sessions[0].sessionKey,
+      'turns',
+    )
+    const manifests = await Promise.all(
+      (await readdir(sessionRoot)).map(id =>
+        readFile(join(sessionRoot, id, 'manifest.json'), 'utf8').then(JSON.parse),
+      ),
+    )
+    expect(manifests.some(manifest => manifest.branch === 'feature')).toBeTrue()
+    expect(
+      manifests.some(manifest =>
+        manifest.limitations.some(
+          (limitation: { code: string }) => limitation.code === 'cross-repository-session',
+        ),
+      ),
+    ).toBeTrue()
+    expect(await pathExists(join(other, '.factory'))).toBeFalse()
+  }, 30_000)
+
+  test('requires plaintext acknowledgement for global automatic initialization', async () => {
+    const value = await createFixture()
+    const refused = await command(
+      value.factory,
+      ['configure', '--global', '--repository-initialization', 'automatic'],
+      value.repository,
+      value.env,
+    )
+    expect(refused.code).toBe(1)
+    expect(refused.stderr).toContain('acknowledge-plaintext-evidence')
+    expect(
+      (
+        await command(
+          value.factory,
+          [
+            'configure',
+            '--global',
+            '--repository-initialization',
+            'automatic',
+            '--acknowledge-plaintext-evidence',
+            '--canonical-branch',
+            'main',
+          ],
+          value.repository,
+          value.env,
+        )
+      ).code,
+    ).toBe(0)
+
+    const secondRepository = join(value.root, 'automatic-repository')
+    await mkdir(secondRepository)
+    await git(secondRepository, 'init', '-b', 'main')
+    await git(secondRepository, 'config', 'user.email', 'factory@example.invalid')
+    await git(secondRepository, 'config', 'user.name', 'Factory Test')
+    await writeFile(join(secondRepository, 'code.ts'), 'export {}\n')
+    await git(secondRepository, 'add', 'code.ts')
+    await git(secondRepository, 'commit', '-m', 'fixture')
+    const transcript = join(value.home, '.codex', 'sessions', 'automatic.jsonl')
+    await writeFile(transcript, '{"type":"message"}\n')
+    for (const payload of [
+      {
+        session_id: 'automatic-session',
+        hook_event_name: 'SessionStart',
+        cwd: secondRepository,
+      },
+      {
+        session_id: 'automatic-session',
+        turn_id: 'automatic-stop',
+        hook_event_name: 'Stop',
+        cwd: secondRepository,
+        transcript_path: transcript,
+      },
+    ]) {
+      const captured = await command(
+        value.factory,
+        ['capture', '--provider', 'codex'],
+        secondRepository,
+        value.env,
+        `${JSON.stringify(payload)}\n`,
+      )
+      expect(captured).toMatchObject({ code: 0, stdout: '{}\n' })
+    }
+    expect(
+      JSON.parse(await readFile(join(secondRepository, '.factory', 'config.json'), 'utf8')),
+    ).toMatchObject({
+      canonicalBranch: 'main',
+    })
+  })
+
+  test('recovers interrupted hook installation without losing foreign hooks', async () => {
+    const value = await createFixture()
+    const codexPath = join(value.home, '.codex', 'hooks.json')
+    const foreign = {
+      future: true,
+      hooks: { Stop: [{ hooks: [{ type: 'command', command: '/foreign' }] }] },
+    }
+    await writeFile(codexPath, `${JSON.stringify(foreign)}\n`)
+    const crashed = await command(
+      value.factory,
+      ['install', '--executable', value.factory],
+      value.repository,
+      { ...value.env, FACTORY_TEST_HOOK_CRASH: 'after-config' },
+    )
+    expect(crashed.code).toBe(1)
+    expect(
+      (
+        await command(
+          value.factory,
+          ['install', '--executable', value.factory],
+          value.repository,
+          value.env,
+        )
+      ).code,
+    ).toBe(0)
+    const installed = JSON.parse(await readFile(codexPath, 'utf8'))
+    expect(installed.future).toBeTrue()
+    expect(installed.hooks.Stop[0]).toEqual(foreign.hooks.Stop[0])
+    expect(installed.hooks.Stop).toHaveLength(2)
+  })
+
+  test('keeps forged or unavailable transcript input partial without leaking its path', async () => {
+    const value = await createFixture()
+    expect((await command(value.factory, ['init'], value.repository, value.env)).code).toBe(0)
+    const payload = {
+      session_id: 'forged-transcript',
+      turn_id: 'partial-stop',
+      hook_event_name: 'Stop',
+      cwd: value.repository,
+      transcript_path: '/etc/passwd',
+    }
+    expect(
+      await command(
+        value.factory,
+        ['capture', '--provider', 'codex'],
+        value.repository,
+        value.env,
+        `${JSON.stringify(payload)}\n`,
+      ),
+    ).toMatchObject({ code: 0, stdout: '{}\n' })
+    const report = JSON.parse(
+      (await command(value.factory, ['doctor'], value.repository, value.env)).stdout,
+    )
+    expect(report.projection.triggers).toBe(1)
+    const serialized = JSON.stringify(report)
+    expect(serialized).not.toContain('/etc/passwd')
+    const session = report.projection.sessions[0]
+    const turnRoot = join(value.repository, '.factory', 'sessions', 'codex', session.sessionKey, 'turns')
+    const turnId = (await readdir(turnRoot))[0]!
+    const manifest = JSON.parse(await readFile(join(turnRoot, turnId, 'manifest.json'), 'utf8'))
+    expect(manifest.limitations).toContainEqual({
+      code: 'missing-transcript-range',
+      detail: 'provider transcript path is outside its configured home',
+    })
+  })
+})
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await lstat(path)
+    return true
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
+    throw error
+  }
+}
