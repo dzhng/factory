@@ -10,6 +10,7 @@ import {
   parseCodeManifest,
   parseRepositoryConfig,
   parseRepositoryManifest,
+  reviewSubjectCoverageId,
   UnsupportedRepositoryVersionError,
   validatePublicRecord,
 } from '../src/index'
@@ -359,6 +360,12 @@ describe('public repository contract', () => {
           sessionWatermarks: { session_01: 1 },
           coverageTargetWatermarks: { session_01: 1 },
           subjectFingerprint: hash,
+          subjectAttempt: {
+            fingerprint: hash,
+            coverageId: reviewSubjectCoverageId(hash, []),
+            effect: 'current-included',
+            limitations: [],
+          },
           evidenceSelections: [
             {
               kind: 'range',
@@ -1057,6 +1064,12 @@ describe('public repository contract', () => {
           sessionWatermarks: {},
           coverageTargetWatermarks: {},
           subjectFingerprint: hash,
+          subjectAttempt: {
+            fingerprint: hash,
+            coverageId: reviewSubjectCoverageId(hash, []),
+            effect: 'current-included',
+            limitations: [],
+          },
           evidenceSelections: [],
           triggerIds: [],
           associationBatchIds: [],

@@ -65,3 +65,13 @@ promoted.
 Read one complete and one partial plan plus the ambiguous inclusion explanation.
 If users cannot distinguish useful partiality from unsafe input, split
 classification from bundle construction before Slice 09.
+
+## Implementation evidence
+
+`@factory/review-plan` owns the pure coverage/selection fold, typed portable
+graph loader, and compact verified directory bundle. The promoted Docker lab
+under `../assets/review-plan/` includes workspace and partial-PR bundles and
+records deterministic complete, readable-partial, corrupt, unchanged,
+continuing-Session, forced, and policy-change plans. Bundle acceptance reuses
+the repository's descriptor-rooted read and tree-inventory capabilities and
+proves source-repository-independent verification and code reading.

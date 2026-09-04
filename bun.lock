@@ -61,6 +61,15 @@
         "@factory/contract": "workspace:*",
       },
     },
+    "packages/review-plan": {
+      "name": "@factory/review-plan",
+      "version": "0.0.0",
+      "dependencies": {
+        "@factory/contract": "workspace:*",
+        "@factory/github": "workspace:*",
+        "@factory/repository": "workspace:*",
+      },
+    },
     "packages/reviewer": {
       "name": "@factory/reviewer",
       "version": "0.0.0",
@@ -79,6 +88,7 @@
         "@factory/contract": "workspace:*",
         "@factory/domain": "workspace:*",
         "@factory/github": "workspace:*",
+        "@factory/review-plan": "workspace:*",
         "@factory/reviewer": "workspace:*",
       },
     },
@@ -95,6 +105,8 @@
     "@factory/github": ["@factory/github@workspace:packages/github"],
 
     "@factory/repository": ["@factory/repository@workspace:packages/repository"],
+
+    "@factory/review-plan": ["@factory/review-plan@workspace:packages/review-plan"],
 
     "@factory/reviewer": ["@factory/reviewer@workspace:packages/reviewer"],
 

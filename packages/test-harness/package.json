@@ -14,6 +14,7 @@
     "lab:provider-processes": "bun run src/refresh-provider-process-probe.ts",
     "lab:repository-store": "bun run src/run-repository-workbench.ts",
     "lab:pr-workbench": "bun run src/run-pr-workbench.ts",
+    "lab:review-plan": "bun run src/run-review-plan.ts",
     "lab:reviewer-isolation": "bun run src/reviewer-isolation.ts",
     "lint": "oxlint src test docker",
     "test": "bun test"
@@ -22,6 +23,7 @@
     "@factory/contract": "workspace:*",
     "@factory/domain": "workspace:*",
     "@factory/github": "workspace:*",
+    "@factory/review-plan": "workspace:*",
     "@factory/reviewer": "workspace:*"
   }
 }

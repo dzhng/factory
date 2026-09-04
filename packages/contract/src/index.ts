@@ -398,6 +398,13 @@ type ReviewEvidenceSelectionBase = {
     | 'weak-context'
   reason: string
   limitations: readonly Limitation[]
+  association?: {
+    proofs: readonly {
+      batchId: RecordId
+      evidenceId: RecordId
+      authority: 'verified-exact' | 'manual-asserted'
+    }[]
+  }
 }
 
 /** Exact per-trigger attempt history; coverage folds never infer holes from a high watermark. */
@@ -432,6 +439,12 @@ export type ReviewManifest = {
   coverageTargetWatermarks: Readonly<Record<string, number>>
   /** Semantic subject bytes/state, excluding observation IDs and timestamps. */
   subjectFingerprint: Sha256
+  subjectAttempt: {
+    fingerprint: Sha256
+    coverageId: Sha256
+    effect: 'current-included' | 'reviewed-partial' | 'previously-analyzed-unsettled' | 'settled'
+    limitations: readonly Limitation[]
+  }
   /** Durable exact attempt/classification history used after process restart. */
   evidenceSelections: readonly ReviewEvidenceSelection[]
   triggerIds: readonly RecordId[]
@@ -471,6 +484,11 @@ export type CoverageAction = {
   acceptedLimitations: readonly LimitationCode[]
   /** Opaque corrupt/unavailable triggers explicitly acknowledged without inventing a watermark. */
   acceptedTriggerIds: readonly RecordId[]
+  acceptedSubject?: {
+    fingerprint: Sha256
+    coverageId: Sha256
+    limitations: readonly LimitationCode[]
+  }
   settledWatermarks: Readonly<Record<string, number>>
   createdAt: string
 }
@@ -638,6 +656,17 @@ function canonicalize(value: unknown, ancestors: Set<object>): string {
 /** Deterministic UTF-8 JSON used by every Factory-authored structured file. */
 export function canonicalJson(value: unknown): string {
   return `${canonicalize(value, new Set())}\n`
+}
+
+/** Bind subject coverage to semantic bytes and the exact canonical limitation set. */
+export function reviewSubjectCoverageId(
+  fingerprint: Sha256,
+  limitations: readonly Limitation[],
+): Sha256 {
+  assertSha256(fingerprint, 'subject coverage fingerprint')
+  return createHash('sha256')
+    .update(canonicalJson({ fingerprint, limitations }))
+    .digest('hex') as Sha256
 }
 
 export function makeOwnedPath(area: OwnedArea, segments: readonly string[] = []): OwnedPath {
@@ -880,6 +909,7 @@ const RECORD_KEYS = {
     'sessionWatermarks',
     'coverageTargetWatermarks',
     'subjectFingerprint',
+    'subjectAttempt',
     'evidenceSelections',
     'triggerIds',
     'associationBatchIds',
@@ -906,6 +936,7 @@ const RECORD_KEYS = {
     'reviewId',
     'acceptedLimitations',
     'acceptedTriggerIds',
+    'acceptedSubject',
     'settledWatermarks',
     'createdAt',
   ],
@@ -1414,7 +1445,7 @@ function validateRecordShape(
       key => !['head', 'codeManifest', 'priorLedger', 'failureReason'].includes(key),
     ),
     ledger: RECORD_KEYS.ledger,
-    coverage: RECORD_KEYS.coverage,
+    coverage: RECORD_KEYS.coverage.filter(key => key !== 'acceptedSubject'),
     decisionObservation: RECORD_KEYS.decisionObservation,
     decisionAction: RECORD_KEYS.decisionAction.filter(key => key !== 'note'),
   }
@@ -1718,6 +1749,7 @@ function validateRecordShape(
             'observedAt',
             'raw',
             'limitations',
+            'association',
           ],
           'pullRequestObservation',
         )
@@ -2085,6 +2117,38 @@ function validateRecordShape(
       assertWatermarks(value.sessionWatermarks, 'review.sessionWatermarks')
       assertWatermarks(value.coverageTargetWatermarks, 'review.coverageTargetWatermarks')
       assertSha256(value.subjectFingerprint, 'review.subjectFingerprint')
+      assertRecord(value.subjectAttempt, 'review.subjectAttempt')
+      assertExactKeys(
+        value.subjectAttempt,
+        ['fingerprint', 'coverageId', 'effect', 'limitations'],
+        'review.subjectAttempt',
+      )
+      requireFields(
+        value.subjectAttempt,
+        ['fingerprint', 'coverageId', 'effect', 'limitations'],
+        'review.subjectAttempt',
+      )
+      assertSha256(value.subjectAttempt.fingerprint, 'review.subjectAttempt.fingerprint')
+      assertSha256(value.subjectAttempt.coverageId, 'review.subjectAttempt.coverageId')
+      assertIdentity(
+        value.subjectAttempt.fingerprint,
+        value.subjectFingerprint as string,
+        'review.subjectAttempt.fingerprint',
+      )
+      assertEnum(
+        value.subjectAttempt.effect,
+        ['current-included', 'reviewed-partial', 'previously-analyzed-unsettled', 'settled'],
+        'review.subjectAttempt.effect',
+      )
+      assertLimitations(value.subjectAttempt.limitations, 'review.subjectAttempt.limitations')
+      assertIdentity(
+        value.subjectAttempt.coverageId,
+        reviewSubjectCoverageId(
+          value.subjectAttempt.fingerprint as Sha256,
+          value.subjectAttempt.limitations as unknown as readonly Limitation[],
+        ),
+        'review.subjectAttempt.coverageId',
+      )
       assertArray(value.evidenceSelections, 'review.evidenceSelections')
       value.evidenceSelections.forEach((selection, index) => {
         const label = `review.evidenceSelections[${index}]`
@@ -2102,6 +2166,7 @@ function validateRecordShape(
             'classification',
             'reason',
             'limitations',
+            'association',
           ],
           label,
         )
@@ -2160,6 +2225,40 @@ function validateRecordShape(
         )
         assertString(selection.reason, `${label}.reason`)
         assertLimitations(selection.limitations, `${label}.limitations`)
+        if ('association' in selection) {
+          assertRecord(selection.association, `${label}.association`)
+          assertExactKeys(selection.association, ['proofs'], `${label}.association`)
+          requireFields(selection.association, ['proofs'], `${label}.association`)
+          assertArray(selection.association.proofs, `${label}.association.proofs`)
+          if (selection.association.proofs.length === 0)
+            throw new TypeError(`${label}.association.proofs must not be empty`)
+          selection.association.proofs.forEach((proof, proofIndex) => {
+            const proofLabel = `${label}.association.proofs[${proofIndex}]`
+            assertRecord(proof, proofLabel)
+            assertExactKeys(proof, ['batchId', 'evidenceId', 'authority'], proofLabel)
+            requireFields(proof, ['batchId', 'evidenceId', 'authority'], proofLabel)
+            assertRecordId(proof.batchId, `${proofLabel}.batchId`)
+            assertRecordId(proof.evidenceId, `${proofLabel}.evidenceId`)
+            assertEnum(
+              proof.authority,
+              ['verified-exact', 'manual-asserted'],
+              `${proofLabel}.authority`,
+            )
+          })
+          const proofKeys = selection.association.proofs.map(proof => canonicalJson(proof))
+          if (
+            canonicalJson(
+              [...selection.association.proofs].sort((left, right) =>
+                canonicalJson(left).localeCompare(canonicalJson(right)),
+              ),
+            ) !== canonicalJson(selection.association.proofs) ||
+            new Set(proofKeys).size !== proofKeys.length
+          )
+            throw new TypeError(`${label}.association.proofs must be canonical and unique`)
+          if (selection.kind !== 'range') {
+            throw new TypeError(`${label} opaque problem cannot carry PR association provenance`)
+          }
+        }
         const legalState =
           (selection.classification === 'included' &&
             selection.selectedForReview === true &&
@@ -2278,6 +2377,29 @@ function validateRecordShape(
       assertTimestamp(value.completedAt, 'review.completedAt')
       assertEnum(value.disposition, ['complete', 'partial', 'failed'], 'review.disposition')
       assertOptionalString(value, 'failureReason', 'review')
+      if (value.disposition === 'failed') {
+        if (!('failureReason' in value))
+          throw new TypeError('failed review requires a failureReason')
+      } else if ('failureReason' in value) {
+        throw new TypeError('nonfailed review forbids failureReason')
+      }
+      const selections = value.evidenceSelections as unknown as ReviewEvidenceSelection[]
+      if (
+        value.disposition === 'complete' &&
+        ((value.subjectAttempt as { effect: string }).effect === 'reviewed-partial' ||
+          selections.some(selection => selection.coverageEffect === 'eligible-gap') ||
+          (value.limitations as unknown[]).length > 0)
+      ) {
+        throw new TypeError('complete review must be blocker-free')
+      }
+      if (
+        value.disposition === 'partial' &&
+        (value.subjectAttempt as { effect: string }).effect !== 'reviewed-partial' &&
+        !selections.some(selection => selection.coverageEffect === 'eligible-gap') &&
+        (value.limitations as unknown[]).length === 0
+      ) {
+        throw new TypeError('partial review requires an explicit limitation')
+      }
       assertIdentity(value.reviewId, path.reviewId, 'review.reviewId')
       break
     }
@@ -2293,6 +2415,8 @@ function validateRecordShape(
         assertEnum(entry.kind, ['decision', 'finding', 'summary'], `${label}.kind`)
         assertString(entry.summary, `${label}.summary`)
         assertArray(entry.evidence, `${label}.evidence`)
+        if (entry.evidence.length === 0)
+          throw new TypeError(`${label}.evidence must contain at least one citation`)
         entry.evidence.forEach((citation, citationIndex) => {
           const citationLabel = `${label}.evidence[${citationIndex}]`
           assertRecord(citation, citationLabel)
@@ -2301,7 +2425,27 @@ function validateRecordShape(
           assertObjectRef(citation.object, `${citationLabel}.object`)
           if ('locator' in citation) assertString(citation.locator, `${citationLabel}.locator`)
         })
+        const orderedEvidence = [...entry.evidence].sort((left, right) =>
+          canonicalJson(left).localeCompare(canonicalJson(right)),
+        )
+        if (
+          canonicalJson(orderedEvidence) !== canonicalJson(entry.evidence) ||
+          new Set(entry.evidence.map(citation => canonicalJson(citation))).size !==
+            entry.evidence.length
+        ) {
+          throw new TypeError(`${label}.evidence must be canonical and unique`)
+        }
       })
+      const orderedEntries = [...value.entries].sort((left, right) =>
+        (left as { entryId: string }).entryId.localeCompare((right as { entryId: string }).entryId),
+      )
+      if (
+        canonicalJson(orderedEntries) !== canonicalJson(value.entries) ||
+        new Set(value.entries.map(entry => (entry as { entryId: string }).entryId)).size !==
+          value.entries.length
+      ) {
+        throw new TypeError('ledger.entries must be canonical and unique')
+      }
       assertIdentity(value.reviewId, path.reviewId, 'ledger.reviewId')
       break
     case 'coverage':
@@ -2312,6 +2456,25 @@ function validateRecordShape(
         assertEnum(code, [...LIMITATION_CODES], `coverage.acceptedLimitations[${index}]`),
       )
       assertRecordIdArray(value.acceptedTriggerIds, 'coverage.acceptedTriggerIds')
+      if ('acceptedSubject' in value) {
+        assertRecord(value.acceptedSubject, 'coverage.acceptedSubject')
+        assertExactKeys(
+          value.acceptedSubject,
+          ['fingerprint', 'coverageId', 'limitations'],
+          'coverage.acceptedSubject',
+        )
+        requireFields(
+          value.acceptedSubject,
+          ['fingerprint', 'coverageId', 'limitations'],
+          'coverage.acceptedSubject',
+        )
+        assertSha256(value.acceptedSubject.fingerprint, 'coverage.acceptedSubject.fingerprint')
+        assertSha256(value.acceptedSubject.coverageId, 'coverage.acceptedSubject.coverageId')
+        assertArray(value.acceptedSubject.limitations, 'coverage.acceptedSubject.limitations')
+        value.acceptedSubject.limitations.forEach((code, index) =>
+          assertEnum(code, [...LIMITATION_CODES], `coverage.acceptedSubject.limitations[${index}]`),
+        )
+      }
       assertWatermarks(value.settledWatermarks, 'coverage.settledWatermarks')
       assertTimestamp(value.createdAt, 'coverage.createdAt')
       assertIdentity(value.actionId, path.actionId, 'coverage.actionId')

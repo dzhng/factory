@@ -16,6 +16,7 @@
     "lab:git-observation": "bun run --cwd packages/test-harness lab:git-observation",
     "lab:repository-store": "bun run --cwd packages/test-harness lab:repository-store",
     "lab:pr-workbench": "bun run --cwd packages/test-harness lab:pr-workbench",
+    "lab:review-plan": "bun run --cwd packages/test-harness lab:review-plan",
     "lint": "turbo lint",
     "lab:reviewer-isolation": "bun run --cwd packages/test-harness lab:reviewer-isolation",
     "test": "turbo test --continue"

@@ -258,6 +258,21 @@ A coverage action accepts one named partial review and its exact limitations.
 It settles only the trigger watermarks that review actually attempted and does
 not mutate the review, triggers, or missing evidence inventory.
 
+Every review manifest also keeps the canonical per-trigger selection ledger:
+the exact Session, Turn, watermark, classification, reason, and limitations
+seen by planning. A high watermark is therefore never interpreted as proof
+that an earlier hole was reviewed. Complete reviews settle only a hole-free
+prefix of fully verified inputs; readable partial evidence is remembered as
+analyzed but remains unsettled until recovery or an exact coverage action.
+
+The disposable review bundle mirrors each selected portable record at its
+declared `.factory` path and includes the complete transitive object closure.
+Its compact manifest names those files by relative path, digest, length, and
+kind instead of duplicating rich evidence. Verification is rooted in directory
+descriptors, enforces pinned limits, rejects foreign entries, and recomputes
+the semantic subject fingerprint from the bundled observation. It does not
+read the live checkout or Git metadata.
+
 ## Decisions
 
 ```text
