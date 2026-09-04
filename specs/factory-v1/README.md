@@ -1,27 +1,32 @@
 # Factory v1 specification
 
-Status: **in implementation; Slices 01 and 02 are complete**
+Status: **in implementation; Slices 01–03 are complete**
 
 ## Next Agent Prompt
 
 > Continue Factory v1 from this spec. Current status (2026-09-04): the shared
 > workspace is bootstrapped; Slice 01's provider/reference oracle is implemented
 > at `ec8dae8`, and Slice 02's provider-independent reviewer-isolation oracle is
-> implemented at `b669b63`. Begin Slice 03 to freeze the public format and
-> repository store. Read `AGENTS.md`, `SECURITY.md`, this README, `choices.md`,
-> `format.md`, and Slice 03 in full. Current evidence gaps: Docker registry DNS
-> prevented the pinned current-client refresh; no dedicated provider test
-> credentials exist; and native `linux/amd64` isolation was not run. These are
-> explicit unavailable authorities, not passes. Real Codex and Claude execution
-> is a Slice 09 release gate through the packaged production path; never borrow
-> a developer login. Changed gates: both Docker labs pass, cross-process
-> sequencing is contiguous and unique for 200 records, and the combined
-> workspace passes build, formatting, lint, types, and 11 tests. Global TODOs:
+> implemented at `b669b63`. Slice 03's public contract and sole repository
+> writer are implemented at `82856b7`. Begin Slices 04 and 05: build the durable
+> runtime-journal crash oracle and safe Git-observation oracle against the frozen
+> contract. Read `AGENTS.md`, `SECURITY.md`, this README, `choices.md`,
+> `format.md`, and both slice files in full. Current evidence gaps: Docker
+> registry DNS prevented the pinned current-client refresh; no dedicated
+> provider test credentials exist; native `linux/amd64` isolation was not run;
+> the repository workbench used locally available Bun 1.3.11 rather than pinned
+> 1.3.14; and its browser screenshot critique was blocked by local-file browser
+> policy. These are explicit unavailable authorities, not passes. Real Codex
+> and Claude execution is a Slice 09 release gate through the packaged
+> production path; never borrow a developer login. Changed gates: all three
+> deterministic labs pass, runtime record validation covers every public v1
+> family, the repository suite passes 13 Docker tests, and the combined
+> workspace passes build, formatting, lint, types, and 36 tests. Global TODOs:
 > rerun current-client authority when the registry is reachable; choose the
-> journal engine from Slice 04 crash/latency evidence; define verified code-state
-> continuity before enabling it; choose the release channel before Slice 12.
-> After every pass, update this prompt with the completed commit, exact next
-> pickup, blockers, and changed gates.
+> journal engine only from Slice 04 crash/latency evidence; define verified
+> code-state continuity before enabling it; choose the release channel before
+> Slice 12. After every pass, update this prompt with the completed commit,
+> exact next pickup, blockers, and changed gates.
 
 This specification defines Factory's first release: a local CLI that captures
 coding-harness Sessions, stores portable evidence with the repository, reviews
