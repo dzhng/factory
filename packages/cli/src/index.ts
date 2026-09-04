@@ -1038,11 +1038,30 @@ async function dedicatedReviewerAuth(environment: NodeJS.ProcessEnv): Promise<{
       (metadata.mode & 0o400) === 0
     )
       continue
+    const canonicalPath = await realpath(path)
+    const canonicalMetadata = await lstat(canonicalPath).catch(() => undefined)
+    if (
+      canonicalMetadata === undefined ||
+      !canonicalMetadata.isFile() ||
+      canonicalMetadata.dev !== metadata.dev ||
+      canonicalMetadata.ino !== metadata.ino ||
+      canonicalMetadata.size !== metadata.size ||
+      canonicalMetadata.uid !== metadata.uid ||
+      canonicalMetadata.mode !== metadata.mode
+    )
+      continue
     availability[provider] = true
     mounts[provider] = {
-      hostPath: await realpath(path),
+      hostPath: canonicalPath,
       containerPath:
         provider === 'codex' ? '/auth/codex/auth.json' : '/auth/claude/.credentials.json',
+      expectedIdentity: {
+        dev: metadata.dev,
+        ino: metadata.ino,
+        size: metadata.size,
+        uid: metadata.uid,
+        mode: metadata.mode,
+      },
     }
   }
   return { availability, mounts }
@@ -1214,6 +1233,7 @@ async function reviewCommand(
     output.stdout(canonicalJson({ schemaVersion: 1, status: 'accepted-partial', path }))
     return 0
   }
+  const coordinator = await ReviewAttemptCoordinator.open({ repositoryRoot })
   if (environment.FACTORY_REVIEW_TEST_MODE !== '1')
     throw new Error(
       'factory review execution is unavailable until current-subject observation and packaged reviewer authority are configured',
@@ -1233,7 +1253,6 @@ async function reviewCommand(
     .map(review => review.reviewId)
     .sort()
     .at(-1)
-  const coordinator = await ReviewAttemptCoordinator.open({ repositoryRoot })
   await coordinator.reconcileAccepted(committedReviews)
   const reader = await openReviewRepositoryReader(store.factoryRoot)
   const history = await loadReviewHistory(reader)
@@ -1276,33 +1295,42 @@ async function reviewCommand(
     const bundle = await openVerifiedReviewBundle(built.path, built.sha256)
     const mount = auth.mounts[selected.choice.settings.provider]
     let raw
-    try {
-      raw = await coordinator.run(
-        bundle,
-        selected.choice,
-        selected.kind === 'selected' ? dockerReviewerExecutor : unavailableReviewerExecutor(),
-        {
-          imageDigest,
-          auth: mount === undefined ? [] : [mount],
-          timeoutMs: 10 * 60 * 1000,
-          ...(retryGeneration === undefined ? {} : { retryGeneration }),
-        },
-      )
-    } catch (error) {
-      if (!(error instanceof ReviewAttemptAlreadyFinalizedError)) throw error
-      const enforced = await reviewFindingsEnforced(store, error.reviewId, options.failOn)
-      output.stdout(
-        canonicalJson({
-          schemaVersion: 1,
-          status: 'already-reviewed',
-          reviewId: error.reviewId,
-          ...error.outcome,
-        }),
-      )
-      return error.outcome.executionFailed || enforced ? 1 : 0
+    let executionGeneration = retryGeneration
+    for (let advances = 0; ; advances += 1) {
+      if (advances > 64) throw new Error('review attempt tombstone chain exceeds its bound')
+      try {
+        raw = await coordinator.run(
+          bundle,
+          selected.choice,
+          selected.kind === 'selected' ? dockerReviewerExecutor : unavailableReviewerExecutor(),
+          {
+            imageDigest,
+            auth: mount === undefined ? [] : [mount],
+            timeoutMs: 10 * 60 * 1000,
+            ...(executionGeneration === undefined ? {} : { retryGeneration: executionGeneration }),
+          },
+        )
+        break
+      } catch (error) {
+        if (!(error instanceof ReviewAttemptAlreadyFinalizedError)) throw error
+        if (!committedReviews.some(review => review.reviewId === error.reviewId)) {
+          executionGeneration = error.reviewId
+          continue
+        }
+        const enforced = await reviewFindingsEnforced(store, error.reviewId, options.failOn)
+        output.stdout(
+          canonicalJson({
+            schemaVersion: 1,
+            status: 'already-reviewed',
+            reviewId: error.reviewId,
+            ...error.outcome,
+          }),
+        )
+        return error.outcome.executionFailed || enforced ? 1 : 0
+      }
     }
     const accepted = await acceptReview(await validateReview(bundle, raw), store)
-    await coordinator.finalize(bundle, selected.choice, imageDigest, accepted, retryGeneration)
+    await coordinator.finalize(bundle, selected.choice, imageDigest, accepted, executionGeneration)
     const enforced = await reviewFindingsEnforced(store, accepted.reviewId, options.failOn)
     output.stdout(
       canonicalJson({ schemaVersion: 1, ...accepted, reviewer: selected.choice.settings }),

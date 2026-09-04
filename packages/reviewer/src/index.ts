@@ -1,4 +1,4 @@
-import { realpath } from 'node:fs/promises'
+import { lstat, realpath } from 'node:fs/promises'
 import { isAbsolute, normalize, posix, sep } from 'node:path'
 
 export {
@@ -49,6 +49,15 @@ export type ReadonlyAuthMount = {
   hostPath: string
   containerPath: `/auth/${ReviewerProvider}/${string}`
   mode: 'ro'
+  expectedIdentity?: AuthFileIdentity
+}
+
+export type AuthFileIdentity = {
+  dev: number
+  ino: number
+  size: number
+  uid: number
+  mode: number
 }
 
 export type IsolationInput = {
@@ -193,11 +202,32 @@ export function planReviewerIsolation(input: IsolationInput): IsolationPlanResul
 export async function resolveReviewerIsolation(
   input: IsolationInput,
 ): Promise<IsolationPlanResult> {
+  const authBefore = await Promise.all(input.auth.map(({ hostPath }) => lstat(hostPath)))
   const [bundleHostPath, outputHostPath, ...authHostPaths] = await Promise.all([
     realpath(input.bundleHostPath),
     realpath(input.outputHostPath),
     ...input.auth.map(({ hostPath }) => realpath(hostPath)),
   ])
+  const authAfter = await Promise.all(authHostPaths.map(path => lstat(path)))
+  for (const [index, before] of authBefore.entries()) {
+    const after = authAfter[index]
+    const expected = input.auth[index]?.expectedIdentity
+    if (
+      before.isSymbolicLink() ||
+      !before.isFile() ||
+      after === undefined ||
+      !after.isFile() ||
+      before.dev !== after.dev ||
+      before.ino !== after.ino ||
+      (expected !== undefined &&
+        (after.dev !== expected.dev ||
+          after.ino !== expected.ino ||
+          after.size !== expected.size ||
+          after.uid !== expected.uid ||
+          after.mode !== expected.mode))
+    )
+      throw new Error('Reviewer authentication path changed during canonicalization')
+  }
 
   return planReviewerIsolation({
     ...input,
@@ -206,6 +236,17 @@ export async function resolveReviewerIsolation(
     auth: input.auth.map((auth, index) => ({
       ...auth,
       hostPath: authHostPaths[index] ?? auth.hostPath,
+      expectedIdentity:
+        auth.expectedIdentity ??
+        (authAfter[index] === undefined
+          ? undefined
+          : {
+              dev: authAfter[index].dev,
+              ino: authAfter[index].ino,
+              size: authAfter[index].size,
+              uid: authAfter[index].uid,
+              mode: authAfter[index].mode,
+            }),
     })),
   })
 }

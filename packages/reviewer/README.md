@@ -16,15 +16,16 @@ starting Docker, so a path or caller-built object cannot authorize a review.
 Automatic selection chooses one reviewer from exact attempted Session evidence;
 weak context may inform analysis but cannot choose whose harness reviews it.
 
-The pinned image owns a small runner contract: copy the exact declared bundle
-tree into a private in-container snapshot, then invoke one provider directly
-with Factory's fixed arguments, environment, prompt, and response channel. The
-provider never reads the live bind mount, and only its bounded semantic response
-can cross back into portable history. Logs and crash coordination remain in the
-Git-common private runtime area.
+The host copies and re-verifies the exact declared bundle into a private runtime
+snapshot. Docker mounts that snapshot read-only at `/review-input`; the runner
+enumerates and hashes it before invoking one provider directly with Factory's
+fixed arguments, environment, prompt, and response channel. The provider never
+receives the live bundle path, and only its bounded semantic response can cross
+back into portable history. Logs and crash coordination remain in the Git-common
+private runtime area.
 
 Credentials remain host-owned read-only files. Factory does not copy them,
 change their permissions, borrow token environment variables, or translate a
 host keyring into the container. A provider whose dedicated file cannot be read
-by the fixed container identity is unavailable; changing that boundary requires
-an explicit security decision.
+by its validated non-root owner identity is unavailable; changing that boundary
+requires an explicit security decision.

@@ -1,4 +1,5 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -8,8 +9,11 @@ import { acceptReview, validateReview } from '@factory/review'
 import {
   dockerReviewerExecutor,
   openVerifiedReviewBundle,
+  planReviewerIsolation,
   readReviewerRawAttempt,
   readVerifiedReviewBundle,
+  reviewerAdapter,
+  runIsolationProbe,
   type ReviewerChoice,
 } from '@factory/reviewer'
 
@@ -36,10 +40,8 @@ async function main() {
     const bundleManifest = JSON.parse(await readFile(join(bundlePath, 'bundle.json'), 'utf8')) as {
       plan: { policies: { reviewer: ReviewerChoice['settings'] } }
     }
-    const image = 'factory-reviewer-execution:local'
     const context = resolve(import.meta.dir, '../docker/reviewer-isolation')
-    await command(['docker', 'build', '--quiet', '--tag', image, context])
-    const imageDigest = await command(['docker', 'image', 'inspect', '--format', '{{.Id}}', image])
+    const imageDigest = await command(['docker', 'build', '--quiet', context])
     const authRoot = join(root, 'auth')
     await mkdir(authRoot)
     const auth = join(authRoot, 'auth.json')
@@ -53,7 +55,10 @@ async function main() {
         runtimeRoot: root,
         auth: [{ hostPath: auth, containerPath: '/auth/codex/auth.json' }],
         timeoutMs: 5_000,
-        containerIdentity: { name: 'factory-review-execution-lab', label: 'execution-lab' },
+        containerIdentity: {
+          name: `factory-review-execution-${randomUUID()}`,
+          label: randomUUID(),
+        },
       },
     )
     const observation = readReviewerRawAttempt(raw)
@@ -92,6 +97,54 @@ async function main() {
       throw new Error(
         `fake review execution did not satisfy the production contract: ${JSON.stringify({ observation, accepted, manifest })}`,
       )
+    }
+
+    for (const expected of [
+      { behavior: 'factory-test-prefix-nonzero', termination: 'completed', exitCode: 1 },
+      { behavior: 'factory-test-prefix-timeout', termination: 'timed-out', exitCode: null },
+      { behavior: 'factory-test-oversized', termination: 'completed', exitCode: 1 },
+    ] as const) {
+      const scenarioAuth = join(authRoot, `${expected.behavior}.json`)
+      const scenarioOutput = join(root, expected.behavior)
+      await writeFile(scenarioAuth, expected.behavior, { mode: 0o444 })
+      await mkdir(scenarioOutput)
+      await chmod(scenarioOutput, 0o777)
+      const scenarioPlan = planReviewerIsolation({
+        provider: 'claude',
+        bundleHostPath: bundlePath,
+        outputHostPath: scenarioOutput,
+        auth: [
+          {
+            hostPath: scenarioAuth,
+            containerPath: '/auth/claude/.credentials.json',
+          },
+        ],
+      })
+      if (!scenarioPlan.ok) throw new Error(scenarioPlan.detail)
+      const scenario = await runIsolationProbe(scenarioPlan.plan, {
+        imageDigest,
+        expectedBundleSha256: report.bundles.complete,
+        reviewer: {
+          model: 'claude-test',
+          effort: 'high',
+          promptVersion: 'prompt-v1',
+        },
+        invocation: reviewerAdapter({ provider: 'claude', model: 'claude-test', effort: 'high' }),
+        containerIdentity: {
+          name: `factory-review-scenario-${randomUUID()}`,
+          label: randomUUID(),
+        },
+        scenario: 'review',
+        timeoutMs: expected.behavior === 'factory-test-prefix-timeout' ? 500 : 5_000,
+      })
+      const responseInfo = await stat(join(scenarioOutput, 'response.txt'))
+      if (
+        scenario.termination !== expected.termination ||
+        scenario.exitCode !== expected.exitCode ||
+        responseInfo.size === 0 ||
+        (expected.behavior === 'factory-test-oversized' && responseInfo.size <= 1024 * 1024)
+      )
+        throw new Error(`review response boundary failed: ${expected.behavior}`)
     }
     process.stdout.write(
       `${JSON.stringify({ schemaVersion: 1, imageDigest, termination: observation.termination, disposition: accepted.disposition, bundleSha256: manifest.bundleSha256 })}\n`,

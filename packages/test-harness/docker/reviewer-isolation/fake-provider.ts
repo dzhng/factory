@@ -13,6 +13,8 @@ if (!prompt.includes('/review-input') || !prompt.includes('newline-delimited JSO
   throw new Error('Factory review prompt was not delivered on stdin')
 const bundle = (await Bun.file('/review-input/bundle.json').json()) as { inventory: unknown[] }
 const response = `${JSON.stringify({ kind: 'summary', summary: 'Deterministic fake review completed', evidence: [{ object: bundle.inventory[0] }] })}\n`
+const authPath = provider === 'codex' ? '/auth/codex/auth.json' : '/auth/claude/.credentials.json'
+const behavior = await Bun.file(authPath).text()
 if (provider === 'codex') {
   const outputIndex = process.argv.indexOf('--output-last-message')
   if (
@@ -34,5 +36,9 @@ if (provider === 'codex') {
     process.env.CLAUDE_CONFIG_DIR !== '/auth/claude'
   )
     throw new Error('Claude adapter invocation differs from the pinned contract')
-  process.stdout.write(response)
+  process.stdout.write(
+    behavior.includes('factory-test-oversized') ? response.repeat(20_000) : response,
+  )
+  if (behavior.includes('factory-test-prefix-timeout')) await new Promise(() => undefined)
+  if (behavior.includes('factory-test-prefix-nonzero')) process.exit(7)
 }

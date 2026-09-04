@@ -1,13 +1,19 @@
 import { constants } from 'node:fs'
-import { chmod, mkdtemp, open, rm } from 'node:fs/promises'
+import { chmod, copyFile, mkdir, mkdtemp, open, rm } from 'node:fs/promises'
 import { platform, arch } from 'node:os'
+import { dirname, join } from 'node:path'
 
 import type { RecordId } from '@factory/contract'
 import { canonicalJson } from '@factory/contract'
 
 import { reviewerAdapter } from './adapter'
 import { sealReviewerRawAttempt, type ReviewerRawAttempt } from './attempt'
-import { readVerifiedReviewBundle, type ReviewerChoice, type VerifiedReviewBundle } from './bundle'
+import {
+  openVerifiedReviewBundle,
+  readVerifiedReviewBundle,
+  type ReviewerChoice,
+  type VerifiedReviewBundle,
+} from './bundle'
 import { planReviewerIsolation, type ReadonlyAuthMount } from './index'
 import { ReviewerCleanupUnprovenError, runIsolationProbe } from './probe'
 
@@ -64,6 +70,27 @@ export interface ReviewerExecutor {
   ): Promise<ReviewerRawAttempt>
 }
 
+async function immutableBundleSnapshot(
+  bundle: VerifiedReviewBundle,
+  runtimeRoot: string,
+): Promise<{ bundle: VerifiedReviewBundle; root: string }> {
+  const verified = await readVerifiedReviewBundle(bundle)
+  const root = await mkdtemp(join(runtimeRoot, 'review-input-'))
+  await chmod(root, 0o755)
+  try {
+    for (const file of [{ path: 'bundle.json' }, ...verified.manifest.files]) {
+      const target = join(root, file.path)
+      await mkdir(dirname(target), { recursive: true, mode: 0o755 })
+      await copyFile(join(verified.path, file.path), target, constants.COPYFILE_EXCL)
+      await chmod(target, 0o444)
+    }
+    return { bundle: await openVerifiedReviewBundle(root, verified.sha256), root }
+  } catch (error) {
+    await rm(root, { recursive: true, force: true })
+    throw error
+  }
+}
+
 export function unavailableReviewerExecutor(): ReviewerExecutor {
   return {
     async run(bundle, choice, input) {
@@ -100,12 +127,15 @@ export const dockerReviewerExecutor: ReviewerExecutor = {
     const deadline = Date.now() + input.timeoutMs
     const remaining = () => Math.max(1, deadline - Date.now())
     let outputHostPath: string | undefined
+    let snapshotRoot: string | undefined
     try {
       outputHostPath = await mkdtemp(`${input.runtimeRoot}/review-output-`)
       await chmod(outputHostPath, 0o777)
+      const snapshot = await immutableBundleSnapshot(bundle, input.runtimeRoot)
+      snapshotRoot = snapshot.root
       const plan = planReviewerIsolation({
         provider: choice.settings.provider,
-        bundleHostPath: before.path,
+        bundleHostPath: snapshot.root,
         outputHostPath,
         auth: input.auth,
       })
@@ -113,9 +143,6 @@ export const dockerReviewerExecutor: ReviewerExecutor = {
       const report = await runIsolationProbe(plan.plan, {
         imageDigest: input.imageDigest,
         expectedBundleSha256: before.sha256,
-        bundleBytes:
-          Buffer.byteLength(canonicalJson(before.manifest)) +
-          before.manifest.files.reduce((total, file) => total + file.bytes, 0),
         reviewer: {
           model: choice.settings.model,
           effort: choice.settings.effort,
@@ -128,6 +155,7 @@ export const dockerReviewerExecutor: ReviewerExecutor = {
         ...(input.signal === undefined ? {} : { signal: input.signal }),
       })
       const response = await readResponsePrefix(`${outputHostPath}/response.txt`)
+      await readVerifiedReviewBundle(snapshot.bundle)
       await readVerifiedReviewBundle(bundle)
       return sealReviewerRawAttempt({
         reviewId: input.reviewId,
@@ -170,6 +198,7 @@ export const dockerReviewerExecutor: ReviewerExecutor = {
       })
     } finally {
       if (outputHostPath !== undefined) await rm(outputHostPath, { recursive: true, force: true })
+      if (snapshotRoot !== undefined) await rm(snapshotRoot, { recursive: true, force: true })
     }
   },
 }

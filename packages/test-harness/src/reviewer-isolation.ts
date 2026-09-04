@@ -205,10 +205,8 @@ async function main(): Promise<void> {
     await writeFile(join(root, 'auth', 'credentials.json'), `${secret}\n`)
     await chmod(join(root, 'auth', 'credentials.json'), 0o444)
 
-    const image = 'factory-reviewer-isolation:local'
     const context = resolve(import.meta.dir, '../docker/reviewer-isolation')
-    await command(['docker', 'build', '--quiet', '--tag', image, context])
-    const imageDigest = await command(['docker', 'image', 'inspect', '--format', '{{.Id}}', image])
+    const imageDigest = await command(['docker', 'build', '--quiet', context])
 
     const collisionOutput = join(root, 'output-foreign-collision')
     await mkdir(collisionOutput)
@@ -220,7 +218,7 @@ async function main(): Promise<void> {
       auth: [],
     })
     if (!collisionPlan.ok) throw new Error(collisionPlan.detail)
-    const collisionName = 'factory-reviewer-foreign-collision'
+    const collisionName = `factory-reviewer-foreign-${crypto.randomUUID()}`
     await command([
       'docker',
       'create',
@@ -324,7 +322,7 @@ async function main(): Promise<void> {
         throw error
     }
 
-    const imageHistory = await command(['docker', 'image', 'history', '--no-trunc', image])
+    const imageHistory = await command(['docker', 'image', 'history', '--no-trunc', imageDigest])
     const scanned = [
       imageHistory,
       await readFile(join(context, 'Dockerfile'), 'utf8'),

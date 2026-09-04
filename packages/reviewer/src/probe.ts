@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
-import { open, readdir, stat } from 'node:fs/promises'
+import { lstat, open, readdir, stat } from 'node:fs/promises'
 import { join, relative } from 'node:path'
 
 import type { ReviewerAdapterInvocation } from './adapter.js'
@@ -56,8 +56,6 @@ export type IsolationProbeOptions = {
   /** Exact immutable image identity; mutable tags are refused. */
   imageDigest: string
   expectedBundleSha256?: string
-  /** Exact verified bundle bytes copied into the private in-container snapshot. */
-  bundleBytes?: number
   reviewer?: { model: string; effort: string; promptVersion: string }
   invocation?: ReviewerAdapterInvocation
   containerIdentity?: { name: string; label: string }
@@ -66,20 +64,6 @@ export type IsolationProbeOptions = {
   signal?: AbortSignal
   /** Ephemeral test-only sentinels that must not appear in logs or recursive output. */
   sensitiveValues?: readonly string[]
-}
-
-const SNAPSHOT_OVERHEAD_BYTES = 16 * 1024 * 1024
-const MAX_SNAPSHOT_TMPFS_BYTES = 768 * 1024 * 1024
-
-function snapshotTmpfsBytes(bundleBytes: number | undefined): number {
-  if (bundleBytes === undefined) return SNAPSHOT_OVERHEAD_BYTES
-  if (!Number.isSafeInteger(bundleBytes) || bundleBytes <= 0)
-    throw new TypeError('verified bundle byte length must be a positive safe integer')
-  const required = bundleBytes + SNAPSHOT_OVERHEAD_BYTES
-  if (required > MAX_SNAPSHOT_TMPFS_BYTES)
-    throw new Error('verified bundle exceeds reviewer snapshot capacity')
-  const mebibyte = 1024 * 1024
-  return Math.ceil(required / mebibyte) * mebibyte
 }
 
 type CommandResult = {
@@ -261,6 +245,20 @@ export async function runIsolationProbe(
   if (!bundle.isDirectory() || !output.isDirectory() || auth.some(entry => !entry.isFile())) {
     throw new Error('Reviewer mounts require bundle/output directories and auth files')
   }
+  if (
+    auth.some((entry, index) => {
+      const expected = plan.auth[index]?.expectedIdentity
+      return (
+        expected !== undefined &&
+        (entry.dev !== expected.dev ||
+          entry.ino !== expected.ino ||
+          entry.size !== expected.size ||
+          entry.uid !== expected.uid ||
+          entry.mode !== expected.mode)
+      )
+    })
+  )
+    throw new Error('Reviewer authentication differs from its selected identity')
   if (auth.length > 1) throw new Error('Reviewer execution accepts one provider auth file')
   const privateAuth = auth[0] !== undefined && (auth[0].mode & 0o004) === 0
   if (privateAuth && auth[0]!.uid === 0)
@@ -271,7 +269,8 @@ export async function runIsolationProbe(
     label: randomUUID(),
   }
   const containerName = containerIdentity.name
-  const reviewSnapshotBytes = snapshotTmpfsBytes(options.bundleBytes)
+  const reviewMode = options.scenario === 'review'
+  const bundleTarget = reviewMode ? '/review-input' : plan.bundle.containerPath
   const observedImage = await runCommand(
     'docker',
     ['image', 'inspect', '--format', '{{.Id}}', options.imageDigest],
@@ -297,10 +296,8 @@ export async function runIsolationProbe(
     'no-new-privileges',
     '--tmpfs',
     '/tmp:rw,noexec,nosuid,nodev,size=16m',
-    '--tmpfs',
-    `/review-input:rw,noexec,nosuid,nodev,size=${reviewSnapshotBytes}`,
     '--mount',
-    dockerMount(plan.bundle.hostPath, plan.bundle.containerPath, true),
+    dockerMount(plan.bundle.hostPath, bundleTarget, true),
     '--mount',
     dockerMount(plan.output.hostPath, plan.output.containerPath, false),
   ]
@@ -319,6 +316,7 @@ export async function runIsolationProbe(
           options.reviewer.promptVersion,
           options.expectedBundleSha256 ?? '',
           Buffer.from(JSON.stringify(options.invocation ?? null)).toString('base64'),
+          String(Math.max(1, deadline - Date.now())),
         ]),
   )
 
@@ -331,7 +329,7 @@ export async function runIsolationProbe(
   let probeFailure: unknown
   let removalFailure: Error | undefined
   try {
-    const currentAuth = await Promise.all(plan.auth.map(({ hostPath }) => stat(hostPath)))
+    const currentAuth = await Promise.all(plan.auth.map(({ hostPath }) => lstat(hostPath)))
     if (
       currentAuth.some((entry, index) => {
         const before = auth[index]
@@ -352,6 +350,22 @@ export async function runIsolationProbe(
       throw new Error(`Docker refused reviewer container: ${created.stderr.trim()}`)
     }
     creationSucceeded = true
+    const mountedAuth = await Promise.all(plan.auth.map(({ hostPath }) => lstat(hostPath)))
+    if (
+      mountedAuth.some((entry, index) => {
+        const before = auth[index]
+        return (
+          before === undefined ||
+          !entry.isFile() ||
+          entry.dev !== before.dev ||
+          entry.ino !== before.ino ||
+          entry.size !== before.size ||
+          entry.uid !== before.uid ||
+          entry.mode !== before.mode
+        )
+      })
+    )
+      throw new Error('Reviewer authentication changed after container creation')
     const inspected = await runCommand('docker', ['inspect', containerName], commandOptions())
     if (inspected.exitCode !== 0) {
       throw new Error('Docker could not inspect the reviewer container')
@@ -376,13 +390,18 @@ export async function runIsolationProbe(
       throw new Error('Docker reviewer container has the wrong Factory ownership label')
     inspectedMounts = container.Mounts.map(
       ({ Destination, RW }): IsolationReport['mounts'][number] => ({
-        role: Destination === '/bundle' ? 'bundle' : Destination === '/out' ? 'output' : 'auth',
+        role:
+          Destination === '/bundle' || Destination === '/review-input'
+            ? 'bundle'
+            : Destination === '/out'
+              ? 'output'
+              : 'auth',
         containerPath: Destination,
         mode: RW ? 'rw' : 'ro',
       }),
     ).sort((left, right) => left.containerPath.localeCompare(right.containerPath))
     const expectedTargets = [
-      '/bundle',
+      bundleTarget,
       '/out',
       ...plan.auth.map(({ containerPath }) => containerPath),
     ].sort()
@@ -393,7 +412,7 @@ export async function runIsolationProbe(
       throw new Error('Docker reviewer container received an unexpected mount')
     }
     const expectedSources = new Map([
-      ['/bundle', plan.bundle.hostPath],
+      [bundleTarget, plan.bundle.hostPath],
       ['/out', plan.output.hostPath],
       ...plan.auth.map(({ containerPath, hostPath }) => [containerPath, hostPath] as const),
     ])
@@ -405,7 +424,7 @@ export async function runIsolationProbe(
       throw new Error('Docker reviewer container received an unexpected mount source')
     }
     const expectedModes = new Map([
-      ['/bundle', 'ro'],
+      [bundleTarget, 'ro'],
       ['/out', 'rw'],
       ...plan.auth.map(({ containerPath }) => [containerPath, 'ro'] as const),
     ])
@@ -427,8 +446,7 @@ export async function runIsolationProbe(
       containerPolicy.user !== containerUser ||
       !containerPolicy.capDrop.includes('ALL') ||
       !containerPolicy.securityOptions.some(option => option.startsWith('no-new-privileges')) ||
-      canonicalTmpfs(container.HostConfig.Tmpfs?.['/review-input']) !==
-        canonicalTmpfs(`rw,noexec,nosuid,nodev,size=${reviewSnapshotBytes}`) ||
+      container.HostConfig.Tmpfs?.['/review-input'] !== undefined ||
       canonicalTmpfs(container.HostConfig.Tmpfs?.['/tmp']) !==
         canonicalTmpfs('rw,noexec,nosuid,nodev,size=16m')
     ) {

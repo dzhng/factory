@@ -177,6 +177,23 @@ second normative schema; the master specification and format own mechanics.
   renaming another check.
 - **Confidence:** High.
 
+### Freeze the verified bundle before the reviewer sees it
+
+- **When:** Slice 09 review execution hardening.
+- **The choice:** Factory copies the already-verified bundle into its private
+  Git-common runtime area, verifies the copy again, and mounts only that copy
+  read-only at `/review-input`. The container hashes the same read-only tree
+  before starting the provider. The alternative was a writable in-container
+  copy, which the provider could rewrite after the runner checked it.
+- **The gap:** The spec required an immutable bundle but did not choose which
+  trust domain owns the frozen copy.
+- **The reach:** Provider tools never receive the live bundle path. A crash can
+  leave only a Factory-owned runtime copy, which recovery may remove without
+  touching portable evidence.
+- **Verdict:** Sound. Read-only mounting makes immutability an enforced boundary
+  instead of relying on file permissions the provider itself could change.
+- **Confidence:** High.
+
 ### Authorize mounts by canonical filesystem identity
 
 - **When:** Slice 02 integration security review.
