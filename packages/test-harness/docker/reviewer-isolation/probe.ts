@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { constants } from 'node:fs'
 import { appendFile, access, readFile, writeFile } from 'node:fs/promises'
 
@@ -55,7 +56,24 @@ for (const path of forbiddenPaths) {
 
 await readFile(authPath)
 if (scenario === 'review') {
-  const bundle = JSON.parse(await readFile('/bundle/bundle.json', 'utf8'))
+  const manifestBytes = await readFile('/bundle/bundle.json')
+  const actualDigest = createHash('sha256').update(manifestBytes).digest('hex')
+  if (actualDigest !== process.argv[7])
+    throw new Error('bundle digest differs inside reviewer container')
+  const bundle = JSON.parse(manifestBytes.toString()) as {
+    files: { path: string; sha256: string; bytes: number }[]
+    inventory: unknown[]
+  }
+  for (const file of bundle.files) {
+    const bytes = await readFile(`/bundle/${file.path}`)
+    if (
+      bytes.byteLength !== file.bytes ||
+      createHash('sha256').update(bytes).digest('hex') !== file.sha256
+    )
+      throw new Error('bundle file differs inside reviewer container')
+  }
+  if (!process.argv[4] || !process.argv[5] || !process.argv[6])
+    throw new Error('reviewer model, effort, and prompt version are required')
   await writeFile(
     '/out/response.txt',
     `${JSON.stringify({ kind: 'summary', summary: 'Deterministic fake review completed', evidence: [{ object: bundle.inventory[0] }] })}\n`,

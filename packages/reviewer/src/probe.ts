@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
-import { readdir, readFile, stat } from 'node:fs/promises'
+import { constants } from 'node:fs'
+import { open, readdir, stat } from 'node:fs/promises'
 import { join, relative } from 'node:path'
 
 import { resolveReviewerIsolation, type MountPlan, type ReviewerProvider } from './index.js'
@@ -46,6 +47,8 @@ export type IsolationReport = {
 export type IsolationProbeOptions = {
   /** Exact immutable image identity; mutable tags are refused. */
   imageDigest: string
+  expectedBundleSha256?: string
+  reviewer?: { model: string; effort: string; promptVersion: string }
   scenario?: 'success' | 'hang' | 'descendant' | 'review'
   timeoutMs?: number
   signal?: AbortSignal
@@ -97,21 +100,23 @@ async function runCommand(
       options.signal?.removeEventListener('abort', abort)
       resolve({ exitCode, stdout, stderr, termination })
     }
+    let killTimer: ReturnType<typeof setTimeout> | undefined
     const stop = (reason: Exclude<ProbeTermination, 'completed'>) => {
       if (settled) return
       termination = reason
       child.kill('SIGTERM')
+      killTimer = setTimeout(() => child.kill('SIGKILL'), 1_000)
     }
     const abort = () => stop('cancelled')
-    const timer =
-      options.timeoutMs === undefined
-        ? undefined
-        : setTimeout(() => stop('timed-out'), options.timeoutMs)
+    const timer = setTimeout(() => stop('timed-out'), options.timeoutMs ?? 30_000)
 
     if (options.signal?.aborted) abort()
     else options.signal?.addEventListener('abort', abort, { once: true })
     child.on('error', reject)
-    child.on('close', finish)
+    child.on('close', code => {
+      if (killTimer !== undefined) clearTimeout(killTimer)
+      finish(code)
+    })
   })
 }
 
@@ -130,10 +135,24 @@ async function readOutputFiles(
       for (const [name, bytes] of await readOutputFiles(root, path, state)) files.set(name, bytes)
     } else if (entry.isFile()) {
       const metadata = await stat(path)
-      state.bytes += metadata.size
-      if (metadata.size > 1024 * 1024 || state.bytes > 2 * 1024 * 1024)
+      const name = relative(root, path)
+      const readableBytes = Math.min(metadata.size, 1024 * 1024)
+      state.bytes += readableBytes
+      if ((metadata.size > 1024 * 1024 && name !== 'response.txt') || state.bytes > 2 * 1024 * 1024)
         throw new Error('Reviewer output exceeds byte bound')
-      files.set(relative(root, path), await readFile(path))
+      const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
+      try {
+        const bytes = Buffer.alloc(readableBytes)
+        let offset = 0
+        while (offset < bytes.byteLength) {
+          const result = await handle.read(bytes, offset, bytes.byteLength - offset, offset)
+          if (result.bytesRead === 0) break
+          offset += result.bytesRead
+        }
+        files.set(name, bytes.subarray(0, offset))
+      } finally {
+        await handle.close()
+      }
     } else throw new Error('Reviewer output contains an unsupported entry')
   }
   return files
@@ -211,7 +230,19 @@ export async function runIsolationProbe(
   for (const auth of plan.auth) {
     dockerArgs.push('--mount', dockerMount(auth.hostPath, auth.containerPath, true))
   }
-  dockerArgs.push(options.imageDigest, options.scenario ?? 'success', plan.provider)
+  dockerArgs.push(
+    options.imageDigest,
+    options.scenario ?? 'success',
+    plan.provider,
+    ...(options.reviewer === undefined
+      ? []
+      : [
+          options.reviewer.model,
+          options.reviewer.effort,
+          options.reviewer.promptVersion,
+          options.expectedBundleSha256 ?? '',
+        ]),
+  )
 
   let result: CommandResult | undefined
   let observation: ContainerObservation | undefined

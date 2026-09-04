@@ -51,8 +51,8 @@ export function sealReviewerRawAttempt(value: ReviewerRawAttemptSnapshot): Revie
       value.providerCliVersion !== null)
   )
     throw new TypeError('unavailable reviewer attempt contains unobserved execution facts')
-  if (!unavailable && value.providerCliVersion === null)
-    throw new TypeError('executed reviewer attempt requires an observed provider version')
+  if (value.termination === 'completed' && value.providerCliVersion === null)
+    throw new TypeError('completed reviewer attempt requires an observed provider version')
   const capability = Object.freeze({}) as ReviewerRawAttempt
   attempts.set(capability, snapshot(value))
   return capability

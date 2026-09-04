@@ -1,8 +1,9 @@
 import { constants } from 'node:fs'
-import { open } from 'node:fs/promises'
+import { chmod, mkdtemp, open, rm } from 'node:fs/promises'
 import { platform, arch } from 'node:os'
 
 import type { RecordId } from '@factory/contract'
+import { canonicalJson } from '@factory/contract'
 
 import { sealReviewerRawAttempt, type ReviewerRawAttempt } from './attempt'
 import { readVerifiedReviewBundle, type ReviewerChoice, type VerifiedReviewBundle } from './bundle'
@@ -12,9 +13,9 @@ import { runIsolationProbe } from './probe'
 export type ReviewerExecutionInput = {
   reviewId: RecordId
   imageDigest: string
-  outputHostPath: string
+  /** Git-common private runtime root selected by the coordinator. */
+  runtimeRoot: string
   auth: readonly Omit<ReadonlyAuthMount, 'mode'>[]
-  providerCliVersion: string
   timeoutMs: number
   signal?: AbortSignal
   now?: () => Date
@@ -63,13 +64,15 @@ export interface ReviewerExecutor {
 export const dockerReviewerExecutor: ReviewerExecutor = {
   async run(bundle, choice, input) {
     const before = await readVerifiedReviewBundle(bundle)
-    if (choice.settings.provider !== before.manifest.plan.policies.reviewer.provider) {
+    if (canonicalJson(choice.settings) !== canonicalJson(before.manifest.plan.policies.reviewer)) {
       throw new TypeError('reviewer choice differs from the verified plan')
     }
+    const outputHostPath = await mkdtemp(`${input.runtimeRoot}/review-output-`)
+    await chmod(outputHostPath, 0o777)
     const plan = planReviewerIsolation({
       provider: choice.settings.provider,
       bundleHostPath: before.path,
-      outputHostPath: input.outputHostPath,
+      outputHostPath,
       auth: input.auth,
     })
     if (!plan.ok) throw new Error(`reviewer isolation refused: ${plan.reason}`)
@@ -78,11 +81,17 @@ export const dockerReviewerExecutor: ReviewerExecutor = {
     try {
       const report = await runIsolationProbe(plan.plan, {
         imageDigest: input.imageDigest,
+        expectedBundleSha256: before.sha256,
+        reviewer: {
+          model: choice.settings.model,
+          effort: choice.settings.effort,
+          promptVersion: before.manifest.plan.policies.promptVersion,
+        },
         scenario: 'review',
         timeoutMs: input.timeoutMs,
         ...(input.signal === undefined ? {} : { signal: input.signal }),
       })
-      const response = await readResponsePrefix(`${input.outputHostPath}/response.txt`)
+      const response = await readResponsePrefix(`${outputHostPath}/response.txt`)
       await readVerifiedReviewBundle(bundle)
       return sealReviewerRawAttempt({
         reviewId: input.reviewId,
@@ -99,7 +108,7 @@ export const dockerReviewerExecutor: ReviewerExecutor = {
         outputTruncated: response.truncated,
         reviewer: choice,
         imageDigest: input.imageDigest,
-        providerCliVersion: report.observation?.providerVersion ?? input.providerCliVersion,
+        providerCliVersion: report.observation?.providerVersion ?? null,
         hostPlatform: `${platform()}/${arch()}`,
         startedAt,
         completedAt: now().toISOString(),
@@ -120,6 +129,8 @@ export const dockerReviewerExecutor: ReviewerExecutor = {
         startedAt,
         completedAt: now().toISOString(),
       })
+    } finally {
+      await rm(outputHostPath, { recursive: true, force: true })
     }
   },
 }

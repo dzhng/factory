@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -40,10 +40,7 @@ async function main() {
     const context = resolve(import.meta.dir, '../docker/reviewer-isolation')
     await command(['docker', 'build', '--quiet', '--tag', image, context])
     const imageDigest = await command(['docker', 'image', 'inspect', '--format', '{{.Id}}', image])
-    const output = join(root, 'output')
     const authRoot = join(root, 'auth')
-    await mkdir(output)
-    await chmod(output, 0o777)
     await mkdir(authRoot)
     const auth = join(authRoot, 'credentials.json')
     await writeFile(auth, 'dedicated-fake-credential\n', { mode: 0o444 })
@@ -53,9 +50,8 @@ async function main() {
       {
         reviewId: 'review_00000000000000000000000009',
         imageDigest,
-        outputHostPath: output,
+        runtimeRoot: root,
         auth: [{ hostPath: auth, containerPath: '/auth/codex/credentials.json' }],
-        providerCliVersion: 'fake-provider/1',
         timeoutMs: 5_000,
       },
     )
@@ -84,7 +80,9 @@ async function main() {
       accepted.disposition !== 'complete' ||
       manifest?.bundleSha256 !== report.bundles.complete
     ) {
-      throw new Error('fake review execution did not satisfy the production contract')
+      throw new Error(
+        `fake review execution did not satisfy the production contract: ${JSON.stringify({ observation, accepted, manifest })}`,
+      )
     }
     process.stdout.write(
       `${JSON.stringify({ schemaVersion: 1, imageDigest, termination: observation.termination, disposition: accepted.disposition, bundleSha256: manifest.bundleSha256 })}\n`,
