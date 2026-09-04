@@ -12,6 +12,7 @@ const authPath =
     : provider === 'claude'
       ? '/auth/claude/.credentials.json'
       : '/auth/fake/credentials.json'
+let providerVersion = 'fake-provider/1'
 
 if (scenario === 'hang') {
   await new Promise(() => undefined)
@@ -105,10 +106,51 @@ if (scenario === 'review') {
   }
   if (!process.argv[4] || !process.argv[5] || !process.argv[6])
     throw new Error('reviewer model, effort, and prompt version are required')
-  await writeFile(
-    '/out/response.txt',
-    `${JSON.stringify({ kind: 'summary', summary: 'Deterministic fake review completed', evidence: [{ object: bundle.inventory[0] }] })}\n`,
+  const invocation = JSON.parse(Buffer.from(process.argv[8] ?? '', 'base64').toString()) as {
+    executable: string
+    argv: string[]
+    cwd: string
+    environment: Record<string, string>
+    prompt: string
+    response: { kind: 'file'; path: string } | { kind: 'stdout' }
+    versionArgv: string[]
+  }
+  if (
+    invocation.executable !== provider ||
+    invocation.cwd !== '/review-input' ||
+    invocation.prompt.length === 0 ||
+    (invocation.response.kind === 'file' && invocation.response.path !== '/out/response.txt')
   )
+    throw new Error('review adapter invocation is outside the container runner contract')
+  const versionProcess = Bun.spawn([invocation.executable, ...invocation.versionArgv], {
+    cwd: invocation.cwd,
+    env: invocation.environment,
+    stdout: 'pipe',
+    stderr: 'pipe',
+  })
+  const [versionExit, versionStdout] = await Promise.all([
+    versionProcess.exited,
+    new Response(versionProcess.stdout).text(),
+  ])
+  if (versionExit !== 0) throw new Error('review provider version command failed')
+  providerVersion = versionStdout.trim()
+  const reviewProcess = Bun.spawn([invocation.executable, ...invocation.argv], {
+    cwd: invocation.cwd,
+    env: invocation.environment,
+    stdin: new Blob([invocation.prompt]),
+    stdout: 'pipe',
+    stderr: 'pipe',
+  })
+  const [reviewExit, reviewStdout, reviewStderr] = await Promise.all([
+    reviewProcess.exited,
+    new Response(reviewProcess.stdout).arrayBuffer(),
+    new Response(reviewProcess.stderr).arrayBuffer(),
+  ])
+  if (reviewStdout.byteLength + reviewStderr.byteLength > 1024 * 1024)
+    throw new Error('review provider command output exceeded its bound')
+  if (reviewExit !== 0) throw new Error('review provider command failed')
+  if (invocation.response.kind === 'stdout')
+    await writeFile('/out/response.txt', new Uint8Array(reviewStdout))
 } else {
   await writeFile('/out/result.txt', 'fake-review-complete\n')
 }
@@ -116,7 +158,7 @@ const routeTable = await readFile('/proc/net/route', 'utf8').catch(() => '')
 
 console.log(
   JSON.stringify({
-    providerVersion: 'fake-provider/1',
+    providerVersion,
     uid: process.getuid?.() ?? -1,
     bundleReadable: await canRead('/bundle/input.json'),
     bundleWriteBlocked: await writeIsBlocked('/bundle/input.json'),

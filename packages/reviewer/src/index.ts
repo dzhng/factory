@@ -2,6 +2,7 @@ import { realpath } from 'node:fs/promises'
 import { isAbsolute, normalize, posix, sep } from 'node:path'
 
 export {
+  ReviewerCleanupUnprovenError,
   runIsolationProbe,
   type ContainerObservation,
   type IsolationProbeOptions,

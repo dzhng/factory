@@ -210,6 +210,47 @@ async function main(): Promise<void> {
     await command(['docker', 'build', '--quiet', '--tag', image, context])
     const imageDigest = await command(['docker', 'image', 'inspect', '--format', '{{.Id}}', image])
 
+    const collisionOutput = join(root, 'output-foreign-collision')
+    await mkdir(collisionOutput)
+    await chmod(collisionOutput, 0o777)
+    const collisionPlan = planReviewerIsolation({
+      provider: 'fake',
+      bundleHostPath: join(root, 'bundle'),
+      outputHostPath: collisionOutput,
+      auth: [],
+    })
+    if (!collisionPlan.ok) throw new Error(collisionPlan.detail)
+    const collisionName = 'factory-reviewer-foreign-collision'
+    await command([
+      'docker',
+      'create',
+      '--name',
+      collisionName,
+      '--label',
+      'factory.review-attempt=foreign-owner',
+      imageDigest,
+    ])
+    try {
+      await runIsolationProbe(collisionPlan.plan, {
+        imageDigest,
+        containerIdentity: { name: collisionName, label: 'factory-owner' },
+      })
+      throw new Error('foreign reviewer container name collision was accepted')
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.includes('Docker refused reviewer container'))
+        throw error
+    }
+    const survivingLabel = await command([
+      'docker',
+      'inspect',
+      '--format',
+      '{{ index .Config.Labels "factory.review-attempt" }}',
+      collisionName,
+    ])
+    if (survivingLabel !== 'foreign-owner')
+      throw new Error('Factory removed or replaced a foreign collision container')
+    await command(['docker', 'rm', '--force', collisionName])
+
     const success = await probe('fake', imageDigest, root, 'success', 'completed', secret)
     assertSuccessful(success)
     const timeout = await probe('fake', imageDigest, root, 'hang', 'timed-out', secret)

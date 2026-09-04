@@ -5,10 +5,11 @@ import { platform, arch } from 'node:os'
 import type { RecordId } from '@factory/contract'
 import { canonicalJson } from '@factory/contract'
 
+import { reviewerAdapter } from './adapter'
 import { sealReviewerRawAttempt, type ReviewerRawAttempt } from './attempt'
 import { readVerifiedReviewBundle, type ReviewerChoice, type VerifiedReviewBundle } from './bundle'
 import { planReviewerIsolation, type ReadonlyAuthMount } from './index'
-import { runIsolationProbe } from './probe'
+import { ReviewerCleanupUnprovenError, runIsolationProbe } from './probe'
 
 export type ReviewerExecutionInput = {
   reviewId: RecordId
@@ -118,6 +119,7 @@ export const dockerReviewerExecutor: ReviewerExecutor = {
           effort: choice.settings.effort,
           promptVersion: before.manifest.plan.policies.promptVersion,
         },
+        invocation: reviewerAdapter(choice.settings),
         containerIdentity: input.containerIdentity,
         scenario: 'review',
         timeoutMs: remaining(),
@@ -147,6 +149,7 @@ export const dockerReviewerExecutor: ReviewerExecutor = {
         completedAt: now().toISOString(),
       })
     } catch (error) {
+      if (error instanceof ReviewerCleanupUnprovenError) throw error
       await readVerifiedReviewBundle(bundle)
       return sealReviewerRawAttempt({
         reviewId: input.reviewId,

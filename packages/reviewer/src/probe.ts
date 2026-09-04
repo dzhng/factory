@@ -4,9 +4,17 @@ import { constants } from 'node:fs'
 import { open, readdir, stat } from 'node:fs/promises'
 import { join, relative } from 'node:path'
 
+import type { ReviewerAdapterInvocation } from './adapter.js'
 import { resolveReviewerIsolation, type MountPlan, type ReviewerProvider } from './index.js'
 
 export type ProbeTermination = 'completed' | 'timed-out' | 'cancelled'
+
+export class ReviewerCleanupUnprovenError extends Error {
+  constructor(options?: ErrorOptions) {
+    super('Factory could not prove reviewer container cleanup', options)
+    this.name = 'ReviewerCleanupUnprovenError'
+  }
+}
 
 export type ContainerObservation = {
   providerVersion: string
@@ -51,6 +59,7 @@ export type IsolationProbeOptions = {
   /** Exact verified bundle bytes copied into the private in-container snapshot. */
   bundleBytes?: number
   reviewer?: { model: string; effort: string; promptVersion: string }
+  invocation?: ReviewerAdapterInvocation
   containerIdentity?: { name: string; label: string }
   scenario?: 'success' | 'hang' | 'descendant' | 'review'
   timeoutMs?: number
@@ -252,7 +261,11 @@ export async function runIsolationProbe(
   if (!bundle.isDirectory() || !output.isDirectory() || auth.some(entry => !entry.isFile())) {
     throw new Error('Reviewer mounts require bundle/output directories and auth files')
   }
-  const containerName = options.containerIdentity?.name ?? `factory-isolation-${randomUUID()}`
+  const containerIdentity = options.containerIdentity ?? {
+    name: `factory-isolation-${randomUUID()}`,
+    label: randomUUID(),
+  }
+  const containerName = containerIdentity.name
   const reviewSnapshotBytes = snapshotTmpfsBytes(options.bundleBytes)
   const observedImage = await runCommand(
     'docker',
@@ -266,9 +279,8 @@ export async function runIsolationProbe(
     'create',
     '--name',
     containerName,
-    ...(options.containerIdentity === undefined
-      ? []
-      : ['--label', `factory.review-attempt=${options.containerIdentity.label}`]),
+    '--label',
+    `factory.review-attempt=${containerIdentity.label}`,
     '--network',
     'bridge',
     '--read-only',
@@ -301,6 +313,7 @@ export async function runIsolationProbe(
           options.reviewer.effort,
           options.reviewer.promptVersion,
           options.expectedBundleSha256 ?? '',
+          Buffer.from(JSON.stringify(options.invocation ?? null)).toString('base64'),
         ]),
   )
 
@@ -308,16 +321,16 @@ export async function runIsolationProbe(
   let observation: ContainerObservation | undefined
   let inspectedMounts: IsolationReport['mounts'] = []
   let containerPolicy: IsolationReport['containerPolicy'] | undefined
-  let creationAttempted = false
+  let creationSucceeded = false
   let capturedLogs = ''
   let probeFailure: unknown
   let removalFailure: Error | undefined
   try {
-    creationAttempted = true
     const created = await runCommand('docker', dockerArgs, commandOptions())
     if (created.exitCode !== 0) {
       throw new Error(`Docker refused reviewer container: ${created.stderr.trim()}`)
     }
+    creationSucceeded = true
     const inspected = await runCommand('docker', ['inspect', containerName], commandOptions())
     if (inspected.exitCode !== 0) {
       throw new Error('Docker could not inspect the reviewer container')
@@ -338,10 +351,7 @@ export async function runIsolationProbe(
     if (container === undefined) {
       throw new Error('Docker returned no reviewer container inspection')
     }
-    if (
-      options.containerIdentity !== undefined &&
-      container.Config.Labels?.['factory.review-attempt'] !== options.containerIdentity.label
-    )
+    if (container.Config.Labels?.['factory.review-attempt'] !== containerIdentity.label)
       throw new Error('Docker reviewer container has the wrong Factory ownership label')
     inspectedMounts = container.Mounts.map(
       ({ Destination, RW }): IsolationReport['mounts'][number] => ({
@@ -430,24 +440,14 @@ export async function runIsolationProbe(
   } catch (error) {
     probeFailure = error
   } finally {
-    if (creationAttempted) {
-      const removed = await runCommand('docker', ['rm', '--force', containerName], {
-        timeoutMs: 5_000,
+    if (creationSucceeded)
+      await cleanupOwnedReviewerContainer(containerIdentity, 5_000).catch(error => {
+        removalFailure = error instanceof Error ? error : new Error('reviewer cleanup failed')
       })
-      if (removed.exitCode !== 0 && !removed.stderr.toLowerCase().includes('no such container'))
-        removalFailure = new Error(
-          `Docker could not remove reviewer container: ${removed.stderr.trim()}`,
-        )
-    }
   }
 
-  if (removalFailure !== undefined && probeFailure !== undefined) {
-    throw new AggregateError(
-      [probeFailure, removalFailure],
-      'Reviewer probe and cleanup both failed',
-    )
-  }
-  if (removalFailure !== undefined) throw removalFailure
+  if (removalFailure !== undefined)
+    throw new ReviewerCleanupUnprovenError({ cause: removalFailure })
   if (probeFailure !== undefined) throw probeFailure
 
   if (result === undefined) throw new Error('Docker probe did not start')
@@ -456,7 +456,7 @@ export async function runIsolationProbe(
   }
   const inspect = await runCommand('docker', ['inspect', containerName], { timeoutMs: 5_000 })
   if (inspect.exitCode === 0 || !inspect.stderr.toLowerCase().includes('no such object')) {
-    throw new Error('Docker could not prove the reviewer container was removed')
+    throw new ReviewerCleanupUnprovenError()
   }
   const outputFiles = await readOutputFiles(
     plan.output.hostPath,

@@ -328,3 +328,24 @@ export async function acceptPartialCoverage(
   }
   return (await store.createCoverageAction(semantic)).path
 }
+
+/** Explicitly accept every exact blocking gap recorded by one partial review. */
+export async function acceptPartialCoverageByReviewId(
+  store: RepositoryStore,
+  reviewId: RecordId,
+): Promise<ReturnType<typeof makeOwnedPath>> {
+  const records = await store.readRecords()
+  const matches = records.records.filter(
+    record =>
+      record.path.endsWith(`/${reviewId}/manifest.json`) &&
+      typeof record.value === 'object' &&
+      record.value !== null &&
+      !Array.isArray(record.value),
+  )
+  if (matches.length !== 1) throw new TypeError('coverage acceptance names no unique review')
+  const review = matches[0]!.value as unknown as ReviewManifest
+  if (review.disposition !== 'partial')
+    throw new TypeError('coverage acceptance requires a partial review')
+  const exact = exactCoverageAction(review)
+  return await acceptPartialCoverage(store, { ...exact, subject: review.subject })
+}

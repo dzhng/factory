@@ -42,6 +42,7 @@ import {
   type JsonValue,
   type RepositoryConfig,
   type RepositoryId,
+  type RecordId,
   type OwnedPath,
   type ReviewLedger,
   type ReviewManifest,
@@ -52,7 +53,7 @@ import {
   withAdvisoryFileLock,
   type RepositoryStore,
 } from '@factory/repository'
-import { acceptReview, validateReview } from '@factory/review'
+import { acceptPartialCoverageByReviewId, acceptReview, validateReview } from '@factory/review'
 import {
   bindReviewPolicies,
   buildBundle,
@@ -1069,10 +1070,11 @@ type ReviewCliOptions = {
   pullRequest?: number
   sessionKey?: string
   failOn?: 'low' | 'medium' | 'high' | 'critical'
+  acceptPartial?: RecordId
 }
 
 function parseReviewOptions(args: readonly string[]): ReviewCliOptions {
-  const valueFlags = new Set(['--pr', '--session', '--fail-on'])
+  const valueFlags = new Set(['--pr', '--session', '--fail-on', '--accept-partial'])
   const booleanFlags = new Set(['--full', '--force'])
   const seen = new Set<string>()
   const values = new Map<string, string>()
@@ -1101,11 +1103,17 @@ function parseReviewOptions(args: readonly string[]): ReviewCliOptions {
   const failOn = values.get('--fail-on')
   if (failOn !== undefined && !['low', 'medium', 'high', 'critical'].includes(failOn))
     throw new TypeError('--fail-on must be low, medium, high, or critical')
+  const acceptPartial = values.get('--accept-partial')
+  if (acceptPartial !== undefined && !/^review_[0-9A-HJKMNP-TV-Z]{26}$/.test(acceptPartial))
+    throw new TypeError('--accept-partial must name a review ID')
+  if (acceptPartial !== undefined && seen.size !== 1)
+    throw new TypeError('--accept-partial cannot be combined with review execution options')
   return {
     mode: seen.has('--force') ? 'force' : seen.has('--full') ? 'full' : 'incremental',
     ...(pullRequestText === undefined ? {} : { pullRequest: Number(pullRequestText) }),
     ...(sessionKey === undefined ? {} : { sessionKey }),
     ...(failOn === undefined ? {} : { failOn: failOn as ReviewCliOptions['failOn'] & string }),
+    ...(acceptPartial === undefined ? {} : { acceptPartial: acceptPartial as RecordId }),
   }
 }
 
@@ -1116,6 +1124,12 @@ async function reviewCommand(
   output: Output,
 ): Promise<number> {
   const options = parseReviewOptions(args)
+  if (options.acceptPartial !== undefined) {
+    const store = await openRepositoryStore(repositoryRoot)
+    const path = await acceptPartialCoverageByReviewId(store, options.acceptPartial)
+    output.stdout(canonicalJson({ schemaVersion: 1, status: 'accepted-partial', path }))
+    return 0
+  }
   if (environment.FACTORY_REVIEW_TEST_MODE !== '1')
     throw new Error(
       'factory review execution is unavailable until current-subject observation and packaged reviewer authority are configured',

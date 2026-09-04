@@ -1,6 +1,7 @@
 export { parseSemanticOutput, type ParsedSemanticOutput } from './output.js'
 export {
   acceptPartialCoverage,
+  acceptPartialCoverageByReviewId,
   acceptReview,
   validateReview,
   type AcceptedReview,

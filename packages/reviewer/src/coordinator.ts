@@ -123,6 +123,22 @@ async function cleanupStartedArtifacts(
   }
 }
 
+async function cleanupStateTemps(attemptRoot: string): Promise<void> {
+  for (const entry of await readdir(attemptRoot, { withFileTypes: true })) {
+    if (
+      !/^state\.json\.[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.tmp$/.test(
+        entry.name,
+      )
+    )
+      continue
+    const path = join(attemptRoot, entry.name)
+    const info = await lstat(path)
+    if (info.isSymbolicLink() || !info.isFile())
+      throw new Error('review runtime contains an unsafe state temporary')
+    await unlink(path)
+  }
+}
+
 async function atomicState(path: string, value: AttemptState): Promise<void> {
   const temporary = `${path}.${randomUUID()}.tmp`
   const bytes = Buffer.from(canonicalJson(value))
@@ -286,6 +302,7 @@ export class ReviewAttemptCoordinator {
       join(attemptRoot, 'attempt.lock'),
       24 * 60 * 60 * 1_000,
       async () => {
+        await cleanupStateTemps(attemptRoot)
         const state = await readState(statePath)
         if (state !== undefined) {
           if (state.schemaVersion !== 1 || state.key !== key)
@@ -344,6 +361,7 @@ export class ReviewAttemptCoordinator {
       join(attemptRoot, 'attempt.lock'),
       24 * 60 * 60 * 1_000,
       async () => {
+        await cleanupStateTemps(attemptRoot)
         const state = await readState(statePath)
         if (state === undefined) throw new Error('review attempt finalization state is absent')
         if (state.key !== key || state.reviewId !== reviewId)
@@ -382,6 +400,7 @@ export class ReviewAttemptCoordinator {
         join(attemptRoot, 'attempt.lock'),
         24 * 60 * 60 * 1_000,
         async () => {
+          await cleanupStateTemps(attemptRoot)
           state = await readState(statePath)
           if (state === undefined || state.phase === 'finalized') return
           if (state.phase !== 'completed' || state.reviewId !== review.reviewId)
