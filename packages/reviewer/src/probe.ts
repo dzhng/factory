@@ -46,7 +46,7 @@ export type IsolationReport = {
 export type IsolationProbeOptions = {
   /** Exact immutable image identity; mutable tags are refused. */
   imageDigest: string
-  scenario?: 'success' | 'hang' | 'descendant'
+  scenario?: 'success' | 'hang' | 'descendant' | 'review'
   timeoutMs?: number
   signal?: AbortSignal
   /** Ephemeral test-only sentinels that must not appear in logs or recursive output. */
@@ -71,11 +71,24 @@ async function runCommand(
     let stderr = ''
     let termination: ProbeTermination = 'completed'
     let settled = false
+    let outputBytes = 0
 
     child.stdout.setEncoding('utf8')
     child.stderr.setEncoding('utf8')
-    child.stdout.on('data', (chunk: string) => (stdout += chunk))
-    child.stderr.on('data', (chunk: string) => (stderr += chunk))
+    const append = (target: 'stdout' | 'stderr', chunk: string) => {
+      if (settled) return
+      outputBytes += Buffer.byteLength(chunk)
+      if (outputBytes > 1024 * 1024) {
+        settled = true
+        child.kill('SIGKILL')
+        reject(new Error('Docker command output exceeds byte bound'))
+        return
+      }
+      if (target === 'stdout') stdout += chunk
+      else stderr += chunk
+    }
+    child.stdout.on('data', (chunk: string) => append('stdout', chunk))
+    child.stderr.on('data', (chunk: string) => append('stderr', chunk))
 
     const finish = (exitCode: number | null) => {
       if (settled) return
@@ -102,16 +115,26 @@ async function runCommand(
   })
 }
 
-async function readOutputFiles(root: string, current = root): Promise<Map<string, Buffer>> {
+async function readOutputFiles(
+  root: string,
+  current = root,
+  state = { entries: 0, bytes: 0 },
+): Promise<Map<string, Buffer>> {
   const files = new Map<string, Buffer>()
   const entries = await readdir(current, { withFileTypes: true })
   for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+    state.entries += 1
+    if (state.entries > 32) throw new Error('Reviewer output exceeds entry bound')
     const path = join(current, entry.name)
     if (entry.isDirectory()) {
-      for (const [name, bytes] of await readOutputFiles(root, path)) files.set(name, bytes)
+      for (const [name, bytes] of await readOutputFiles(root, path, state)) files.set(name, bytes)
     } else if (entry.isFile()) {
+      const metadata = await stat(path)
+      state.bytes += metadata.size
+      if (metadata.size > 1024 * 1024 || state.bytes > 2 * 1024 * 1024)
+        throw new Error('Reviewer output exceeds byte bound')
       files.set(relative(root, path), await readFile(path))
-    }
+    } else throw new Error('Reviewer output contains an unsupported entry')
   }
   return files
 }

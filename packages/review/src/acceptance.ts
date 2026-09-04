@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 import {
   canonicalJson,
   makeOwnedPath,
@@ -7,11 +9,12 @@ import {
   type ReviewFailureReason,
   type ReviewLedger,
   type ReviewManifest,
+  type Sha256,
 } from '@factory/contract'
 import type { RepositoryStore } from '@factory/repository'
 import {
   readVerifiedReviewBundle,
-  type ReviewerChoice,
+  type ReviewerRawAttempt,
   type VerifiedReviewBundle,
 } from '@factory/reviewer'
 
@@ -25,18 +28,8 @@ export type AttemptTermination =
   | 'authentication-unavailable'
   | 'docker-unavailable'
 
-export type RawAttempt = {
-  reviewId: RecordId
-  response: Uint8Array
+export type RawAttempt = Omit<ReviewerRawAttempt, 'termination'> & {
   termination: AttemptTermination
-  exitCode: number | null
-  outputTruncated: boolean
-  reviewer: ReviewerChoice
-  imageDigest: string
-  providerCliVersion: string
-  hostPlatform: string
-  startedAt: string
-  completedAt: string
 }
 
 export type AcceptedReview = {
@@ -44,6 +37,13 @@ export type AcceptedReview = {
   disposition: ReviewManifest['disposition']
   path: ReturnType<typeof makeOwnedPath>
   executionFailed: boolean
+}
+
+export type PartialCoverageAcceptance = Omit<
+  CoverageAction,
+  'schemaVersion' | 'actionId' | 'createdAt'
+> & {
+  subject: ReviewManifest['subject']
 }
 
 declare const validatedAttemptBrand: unique symbol
@@ -128,7 +128,9 @@ export async function validateReview(
   )
   const subjectAttempt = {
     ...verified.manifest.plan.subjectAttempt,
-    ...(disposition === 'partial' ? { effect: 'reviewed-partial' as const } : {}),
+    ...(verified.manifest.plan.subjectReview !== 'none' && outputIncomplete
+      ? { effect: 'reviewed-partial' as const }
+      : {}),
   }
   const manifest: ReviewManifest = {
     schemaVersion: 1,
@@ -179,7 +181,7 @@ export async function validateReview(
   validatedAttempts.set(capability, {
     manifest,
     ...(ledger === undefined ? {} : { ledger }),
-    response: attempt.response.slice(),
+    response: parsed.response,
     executionFailed,
     rootSegments,
   })
@@ -215,10 +217,99 @@ export async function acceptReview(
   }
 }
 
+function exactCoverageAction(
+  review: ReviewManifest,
+): Omit<CoverageAction, 'schemaVersion' | 'actionId' | 'createdAt'> {
+  const acceptedTriggerIds = review.evidenceSelections
+    .filter(
+      selection =>
+        selection.kind === 'opaque-problem' && selection.coverageEffect === 'eligible-gap',
+    )
+    .map(selection => selection.triggerId)
+    .sort()
+  const acceptedProblemIds = review.inputProblems.map(problem => problem.problemId).sort()
+  const acceptedLimitations = [
+    ...new Set([
+      ...review.limitations.map(limitation => limitation.code),
+      ...review.evidenceSelections
+        .filter(selection => selection.coverageEffect === 'eligible-gap')
+        .flatMap(selection => selection.limitations.map(limitation => limitation.code)),
+      ...review.inputProblems.map(problem => problem.limitation.code),
+    ]),
+  ].sort()
+  return {
+    reviewId: review.reviewId,
+    acceptedLimitations,
+    acceptedTriggerIds,
+    acceptedProblemIds,
+    acceptedSubject: {
+      fingerprint: review.subjectAttempt.fingerprint,
+      coverageId: review.subjectAttempt.coverageId,
+      limitations: [
+        ...new Set(review.subjectAttempt.limitations.map(limitation => limitation.code)),
+      ].sort(),
+    },
+    settledWatermarks: Object.fromEntries(
+      Object.entries(review.coverageTargetWatermarks).sort(([left], [right]) =>
+        left.localeCompare(right),
+      ),
+    ),
+  }
+}
+
+function coverageActionId(value: unknown): RecordId {
+  const digest = createHash('sha256').update(canonicalJson(value)).digest('hex').slice(0, 26)
+  return `action_${digest.toUpperCase()}` as RecordId
+}
+
 export async function acceptPartialCoverage(
   store: RepositoryStore,
-  action: CoverageAction,
+  request: PartialCoverageAcceptance,
 ): Promise<ReturnType<typeof makeOwnedPath>> {
+  const records = await store.readRecords()
+  const matches = records.records.filter(
+    record =>
+      record.path.endsWith(`/${request.reviewId}/manifest.json`) &&
+      typeof record.value === 'object' &&
+      record.value !== null &&
+      !Array.isArray(record.value),
+  )
+  if (matches.length !== 1) throw new TypeError('coverage acceptance names no unique review')
+  const review = matches[0]!.value as unknown as ReviewManifest
+  if (review.disposition !== 'partial')
+    throw new TypeError('coverage acceptance requires a partial review')
+  if (canonicalJson(review.subject) !== canonicalJson(request.subject))
+    throw new TypeError('coverage acceptance names the wrong subject')
+  const expected = exactCoverageAction(review)
+  const supplied = {
+    reviewId: request.reviewId,
+    acceptedLimitations: [...new Set(request.acceptedLimitations)].sort(),
+    acceptedTriggerIds: [...new Set(request.acceptedTriggerIds)].sort(),
+    acceptedProblemIds: [...new Set(request.acceptedProblemIds)].sort() as Sha256[],
+    ...(request.acceptedSubject === undefined
+      ? {}
+      : {
+          acceptedSubject: {
+            ...request.acceptedSubject,
+            limitations: [...new Set(request.acceptedSubject.limitations)].sort(),
+          },
+        }),
+    settledWatermarks: Object.fromEntries(
+      Object.entries(request.settledWatermarks).sort(([left], [right]) =>
+        left.localeCompare(right),
+      ),
+    ),
+  }
+  if (canonicalJson(expected) !== canonicalJson(supplied)) {
+    throw new TypeError('coverage acceptance must acknowledge the exact partial review gaps')
+  }
+  const createdAt = review.completedAt
+  const action: CoverageAction = {
+    schemaVersion: 1,
+    actionId: coverageActionId({ ...expected, createdAt }),
+    ...expected,
+    createdAt,
+  }
   const path = makeOwnedPath('reviews', ['coverage-actions', `${action.actionId}.json`])
   await store.createImmutable(path, new TextEncoder().encode(canonicalJson(action)))
   return path

@@ -10,6 +10,8 @@ import {
 export type ParsedSemanticOutput = {
   entries: readonly ReviewLedgerEntry[]
   incomplete: boolean
+  /** Exact bounded, valid UTF-8 provider bytes authorized for immutable publication. */
+  response: Uint8Array
 }
 
 const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
@@ -114,14 +116,54 @@ export function parseSemanticOutput(
 ): ParsedSemanticOutput {
   const bounded = raw.subarray(0, 1024 * 1024)
   let incomplete = raw.byteLength > bounded.byteLength
+  let validBytes = bounded.byteLength
+  for (let index = 0; index < bounded.byteLength; ) {
+    const first = bounded[index]!
+    let width = 1
+    if (first <= 0x7f) width = 1
+    else if (first >= 0xc2 && first <= 0xdf) width = 2
+    else if (first >= 0xe0 && first <= 0xef) width = 3
+    else if (first >= 0xf0 && first <= 0xf4) width = 4
+    else {
+      validBytes = index
+      incomplete = true
+      break
+    }
+    if (index + width > bounded.byteLength) {
+      validBytes = index
+      incomplete = true
+      break
+    }
+    if (width > 1) {
+      const second = bounded[index + 1]!
+      const continuation = (byte: number) => byte >= 0x80 && byte <= 0xbf
+      const validSecond =
+        continuation(second) &&
+        !(first === 0xe0 && second < 0xa0) &&
+        !(first === 0xed && second > 0x9f) &&
+        !(first === 0xf0 && second < 0x90) &&
+        !(first === 0xf4 && second > 0x8f)
+      if (
+        !validSecond ||
+        (width >= 3 && !continuation(bounded[index + 2]!)) ||
+        (width === 4 && !continuation(bounded[index + 3]!))
+      ) {
+        validBytes = index
+        incomplete = true
+        break
+      }
+    }
+    index += width
+  }
+  const response = bounded.subarray(0, validBytes).slice()
   const lineBytes: Uint8Array[] = []
   let start = 0
-  for (let index = 0; index < bounded.byteLength; index += 1) {
-    if (bounded[index] !== 0x0a) continue
-    lineBytes.push(bounded.subarray(start, index))
+  for (let index = 0; index < response.byteLength; index += 1) {
+    if (response[index] !== 0x0a) continue
+    lineBytes.push(response.subarray(start, index))
     start = index + 1
   }
-  if (start < bounded.byteLength) lineBytes.push(bounded.subarray(start))
+  if (start < response.byteLength) lineBytes.push(response.subarray(start))
   const entries: ReviewLedgerEntry[] = []
   const identities = new Set<string>()
   let ledgerBytes = 0
@@ -156,5 +198,5 @@ export function parseSemanticOutput(
     ledgerBytes += encodedBytes
   }
   entries.sort((left, right) => left.entryId.localeCompare(right.entryId))
-  return { entries, incomplete }
+  return { entries, incomplete, response }
 }

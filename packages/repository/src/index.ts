@@ -523,7 +523,8 @@ export class RepositoryStore {
     records: readonly ImmutableGroupRecord[],
     commitPath: OwnedPath,
   ): Promise<RecordRef> {
-    if (records.length === 0) throw new TypeError('immutable group must not be empty')
+    const snapshots = records.map(record => ({ path: record.path, bytes: record.bytes.slice() }))
+    if (snapshots.length === 0) throw new TypeError('immutable group must not be empty')
     const triggerCommit = /^review-triggers\/[^/]+\.json$/.test(commitPath)
     const reviewCommit =
       /^reviews\/workspace\/[^/]+\/manifest\.json$/.test(commitPath) ||
@@ -532,7 +533,7 @@ export class RepositoryStore {
       throw new TypeError('immutable group commit point must be a trigger or review manifest')
     }
     const paths = new Set<string>()
-    for (const record of records) {
+    for (const record of snapshots) {
       if (record.bytes.byteLength > 4 * 1024 * 1024)
         throw new TypeError('immutable structured record exceeds its read bound')
       if (record.path === makeOwnedPath('manifest') || record.path === makeOwnedPath('config')) {
@@ -547,7 +548,7 @@ export class RepositoryStore {
     if (!paths.has(commitPath)) throw new TypeError('immutable group commit path is absent')
     if (reviewCommit) {
       const root = `${dirname(commitPath)}/`
-      const manifest = records.find(record => record.path === commitPath)!
+      const manifest = snapshots.find(record => record.path === commitPath)!
       const value = JSON.parse(decodeUtf8(manifest.bytes)) as { disposition: string }
       const responsePath = `${root}response.txt`
       const ledgerPath = `${root}ledger.json`
@@ -556,7 +557,7 @@ export class RepositoryStore {
           ? [commitPath, responsePath]
           : [commitPath, responsePath, ledgerPath]
       if (
-        records.some(record => !record.path.startsWith(root)) ||
+        snapshots.some(record => !record.path.startsWith(root)) ||
         canonicalJson([...paths].sort()) !== canonicalJson(expectedPaths.sort())
       ) {
         throw new TypeError(
@@ -565,8 +566,8 @@ export class RepositoryStore {
       }
     }
     const ordered = [
-      ...records.filter(record => record.path !== commitPath),
-      records.find(record => record.path === commitPath)!,
+      ...snapshots.filter(record => record.path !== commitPath),
+      snapshots.find(record => record.path === commitPath)!,
     ]
     await this.withMutationLock(async () => {
       for (const record of ordered) {

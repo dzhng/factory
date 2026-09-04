@@ -54,7 +54,15 @@ for (const path of forbiddenPaths) {
 }
 
 await readFile(authPath)
-await writeFile('/out/result.txt', 'fake-review-complete\n')
+if (scenario === 'review') {
+  const bundle = JSON.parse(await readFile('/bundle/bundle.json', 'utf8'))
+  await writeFile(
+    '/out/response.txt',
+    `${JSON.stringify({ kind: 'summary', summary: 'Deterministic fake review completed', evidence: [{ object: bundle.inventory[0] }] })}\n`,
+  )
+} else {
+  await writeFile('/out/result.txt', 'fake-review-complete\n')
+}
 const routeTable = await readFile('/proc/net/route', 'utf8').catch(() => '')
 
 console.log(
@@ -65,7 +73,7 @@ console.log(
     bundleWriteBlocked: await writeIsBlocked('/bundle/input.json'),
     authReadable: await canRead(authPath),
     authWriteBlocked: await writeIsBlocked(authPath),
-    outputWritable: await canRead('/out/result.txt'),
+    outputWritable: await canRead(scenario === 'review' ? '/out/response.txt' : '/out/result.txt'),
     forbiddenPathsAbsent,
     networkRoutePresent: routeTable.includes('eth0'),
   }),

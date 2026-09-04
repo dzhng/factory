@@ -5,6 +5,7 @@ export {
   validateReview,
   type AcceptedReview,
   type AttemptTermination,
+  type PartialCoverageAcceptance,
   type RawAttempt,
   type ValidatedAttempt,
 } from './acceptance.js'

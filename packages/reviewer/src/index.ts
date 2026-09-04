@@ -18,6 +18,13 @@ export {
   type ReviewerDefaults,
   type VerifiedReviewBundle,
 } from './bundle.js'
+export {
+  dockerReviewerExecutor,
+  type ReviewerExecutionInput,
+  type ReviewerExecutionTermination,
+  type ReviewerExecutor,
+  type ReviewerRawAttempt,
+} from './execution.js'
 
 export type ReviewerProvider = 'codex' | 'claude' | 'fake'
 

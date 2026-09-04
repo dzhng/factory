@@ -103,6 +103,7 @@
         "@factory/domain": "workspace:*",
         "@factory/github": "workspace:*",
         "@factory/repository": "workspace:*",
+        "@factory/review": "workspace:*",
         "@factory/review-plan": "workspace:*",
         "@factory/reviewer": "workspace:*",
       },
