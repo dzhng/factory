@@ -1,6 +1,6 @@
 # Factory v1 specification
 
-Status: **in implementation; Slices 01–03 are complete**
+Status: **in implementation; Slices 01–05 are complete**
 
 ## Next Agent Prompt
 
@@ -8,25 +8,31 @@ Status: **in implementation; Slices 01–03 are complete**
 > workspace is bootstrapped; Slice 01's provider/reference oracle is implemented
 > at `ec8dae8`, and Slice 02's provider-independent reviewer-isolation oracle is
 > implemented at `b669b63`. Slice 03's public contract and sole repository
-> writer are implemented at `82856b7`. Begin Slices 04 and 05: build the durable
-> runtime-journal crash oracle and safe Git-observation oracle against the frozen
-> contract. Read `AGENTS.md`, `SECURITY.md`, this README, `choices.md`,
-> `format.md`, and both slice files in full. Current evidence gaps: Docker
-> registry DNS prevented the pinned current-client refresh; no dedicated
-> provider test credentials exist; native `linux/amd64` isolation was not run;
-> the repository workbench used locally available Bun 1.3.11 rather than pinned
-> 1.3.14; and its browser screenshot critique was blocked by local-file browser
-> policy. These are explicit unavailable authorities, not passes. Real Codex
+> writer are implemented at `82856b7`. Slice 04's durable Git-common runtime
+> journal and Slice 05's safe Git observation plus exact confined reconstruction
+> are implemented through milestone `e4a92a5`. Begin
+> Slice 06: connect provider hooks through the journal, Git observer, and sole
+> repository writer into immutable per-Stop Turns. Read `AGENTS.md`,
+> `SECURITY.md`, this README, `choices.md`, `format.md`, and Slice 06 in full.
+> Current evidence gaps: Docker registry DNS prevented the pinned current-client
+> refresh; no dedicated provider test credentials exist; native `linux/amd64`
+> isolation was not run; Docker repository/journal/Git evidence used locally
+> available Bun 1.3.11 rather than pinned 1.3.14; exact Node 22.13 journal
+> packaging is unavailable although Node 24 passes; Slice 03 browser screenshot
+> critique was blocked by local-file policy; and deterministic libc `readdir`
+> error injection plus macOS/musl/Node reconstruction gates remain Slice 12
+> authority. These are explicit unavailable authorities, not passes. Real Codex
 > and Claude execution is a Slice 09 release gate through the packaged
-> production path; never borrow a developer login. Changed gates: all three
-> deterministic labs pass, runtime record validation covers every public v1
-> family, the repository suite passes 13 Docker tests, and the combined
-> workspace passes build, formatting, lint, types, and 36 tests. Global TODOs:
-> rerun current-client authority when the registry is reachable; choose the
-> journal engine only from Slice 04 crash/latency evidence; define verified
-> code-state continuity before enabling it; choose the release channel before
-> Slice 12. After every pass, update this prompt with the completed commit,
-> exact next pickup, blockers, and changed gates.
+> production path; never borrow a developer login. Changed gates: all five
+> runnable labs pass; SQLite was selected from the measured crash candidates;
+> runtime record validation covers every public v1 family plus the public code
+> manifest; the journal passes 31 Docker tests, repository storage 13, and Git
+> observation/reconstruction 35; the combined workspace passes build,
+> formatting, lint, types, and 103 tests. Global TODOs: rerun current-client
+> authority when the registry is reachable; define verified code-state
+> continuity before enabling it; choose the release channel before Slice 12.
+> After every pass, update this prompt with the completed commit, exact next
+> pickup, blockers, and changed gates.
 
 This specification defines Factory's first release: a local CLI that captures
 coding-harness Sessions, stores portable evidence with the repository, reviews
