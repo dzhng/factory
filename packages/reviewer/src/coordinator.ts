@@ -57,10 +57,17 @@ type AttemptState =
       reviewId: RecordId
       phase: 'finalized'
       containerIdentity: { name: string; label: string }
+      outcome: {
+        disposition: 'complete' | 'partial' | 'failed'
+        executionFailed: boolean
+      }
     }
 
 export class ReviewAttemptAlreadyFinalizedError extends Error {
-  constructor(readonly reviewId: RecordId) {
+  constructor(
+    readonly reviewId: RecordId,
+    readonly outcome: { disposition: 'complete' | 'partial' | 'failed'; executionFailed: boolean },
+  ) {
     super(`Review attempt is already finalized: ${reviewId}`)
     this.name = 'ReviewAttemptAlreadyFinalizedError'
   }
@@ -70,6 +77,7 @@ function attemptKey(
   verified: Awaited<ReturnType<typeof readVerifiedReviewBundle>>,
   choice: ReviewerChoice,
   imageDigest: string,
+  retryGeneration?: RecordId,
 ): string {
   return createHash('sha256')
     .update(
@@ -81,22 +89,7 @@ function attemptKey(
         promptVersion: verified.manifest.plan.policies.promptVersion,
         policyVersion: verified.manifest.plan.policies.policyVersion,
         formatVersion: verified.manifest.plan.policies.formatVersion,
-      }),
-    )
-    .digest('hex')
-}
-
-function acceptedAttemptKey(review: ReviewManifest): string {
-  return createHash('sha256')
-    .update(
-      canonicalJson({
-        bundleSha256: review.bundleSha256,
-        reviewer: review.reviewer,
-        imageDigest: review.containerImageDigest,
-        analyzerVersion: review.analyzerVersion,
-        promptVersion: review.promptVersion,
-        policyVersion: review.policyVersion,
-        formatVersion: review.formatVersion,
+        ...(retryGeneration === undefined ? {} : { retryGeneration }),
       }),
     )
     .digest('hex')
@@ -142,6 +135,7 @@ async function cleanupStateTemps(attemptRoot: string): Promise<void> {
 async function atomicState(path: string, value: AttemptState): Promise<void> {
   const temporary = `${path}.${randomUUID()}.tmp`
   const bytes = Buffer.from(canonicalJson(value))
+  if (bytes.byteLength > MAX_STATE_BYTES) throw new Error('review attempt state exceeds byte bound')
   let handle
   try {
     handle = await open(temporary, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600)
@@ -222,8 +216,17 @@ function isAttemptState(value: unknown): value is AttemptState {
     Object.keys(identity).sort().join(',') !== 'label,name'
   )
     return false
-  if (state.phase === 'started' || state.phase === 'finalized')
-    return Object.keys(state).length === 5
+  if (state.phase === 'started') return Object.keys(state).length === 5
+  if (state.phase === 'finalized') {
+    const outcome = state.outcome as Record<string, unknown> | undefined
+    return (
+      Object.keys(state).length === 6 &&
+      outcome !== undefined &&
+      ['complete', 'partial', 'failed'].includes(String(outcome.disposition)) &&
+      typeof outcome.executionFailed === 'boolean' &&
+      Object.keys(outcome).sort().join(',') === 'disposition,executionFailed'
+    )
+  }
   if (state.phase !== 'completed' || state.attempt === null || typeof state.attempt !== 'object')
     return false
   const attemptKeys = Object.keys(state.attempt as Record<string, unknown>).sort()
@@ -280,7 +283,42 @@ export class ReviewAttemptCoordinator {
     await privateDirectory(authorityRoot)
     const root = join(await realpath(authorityRoot), 'review-attempts-v1')
     await privateDirectory(root)
-    return new ReviewAttemptCoordinator(root, options.onBoundary)
+    const coordinator = new ReviewAttemptCoordinator(root, options.onBoundary)
+    await coordinator.recoverStartedAttempts()
+    return coordinator
+  }
+
+  private async attemptRoots(): Promise<readonly { key: string; path: string }[]> {
+    const roots: { key: string; path: string }[] = []
+    let count = 0
+    for (const entry of await readdir(this.runtimeRoot, { withFileTypes: true })) {
+      count += 1
+      if (count > 10_000) throw new Error('review attempt inventory exceeds its bound')
+      if (!/^[0-9a-f]{64}$/.test(entry.name)) continue
+      const path = join(this.runtimeRoot, entry.name)
+      const info = await lstat(path)
+      if (info.isSymbolicLink() || !info.isDirectory())
+        throw new Error('review attempt root is not an ordinary directory')
+      roots.push({ key: entry.name, path })
+    }
+    return roots.sort((left, right) => left.key.localeCompare(right.key))
+  }
+
+  private async recoverStartedAttempts(): Promise<void> {
+    for (const root of await this.attemptRoots()) {
+      await withAdvisoryFileLock(
+        join(root.path, 'attempt.lock'),
+        24 * 60 * 60 * 1_000,
+        async () => {
+          await cleanupStateTemps(root.path)
+          const state = await readState(join(root.path, 'state.json'))
+          if (state === undefined) return
+          if (state.key !== root.key) throw new Error('review attempt root identity is corrupt')
+          if (state.phase === 'started')
+            await cleanupStartedArtifacts(root.path, state.containerIdentity, 30_000)
+        },
+      )
+    }
   }
 
   async run(
@@ -290,7 +328,7 @@ export class ReviewAttemptCoordinator {
     input: Omit<ReviewerExecutionInput, 'reviewId' | 'runtimeRoot' | 'containerIdentity'>,
   ): Promise<ReviewerRawAttempt> {
     const verified = await readVerifiedReviewBundle(bundle)
-    const key = attemptKey(verified, choice, input.imageDigest)
+    const key = attemptKey(verified, choice, input.imageDigest, input.retryGeneration)
     const attemptRoot = join(this.runtimeRoot, key)
     const containerIdentity = {
       name: `factory-review-${key.slice(0, 20)}`,
@@ -307,9 +345,20 @@ export class ReviewAttemptCoordinator {
         if (state !== undefined) {
           if (state.schemaVersion !== 1 || state.key !== key)
             throw new Error('review attempt state is corrupt')
-          if (state.phase === 'completed') return restored(state.attempt)
+          if (state.phase === 'completed') {
+            const attempt = restored(state.attempt)
+            const observed = readReviewerRawAttempt(attempt)
+            if (
+              observed.reviewId !== state.reviewId ||
+              observed.bundleSha256 !== verified.sha256 ||
+              canonicalJson(observed.reviewer.settings) !== canonicalJson(choice.settings) ||
+              observed.imageDigest !== input.imageDigest
+            )
+              throw new Error('durable review attempt facts differ from their identity')
+            return attempt
+          }
           if (state.phase === 'finalized')
-            throw new ReviewAttemptAlreadyFinalizedError(state.reviewId)
+            throw new ReviewAttemptAlreadyFinalizedError(state.reviewId, state.outcome)
           await cleanupStartedArtifacts(attemptRoot, state.containerIdentity, input.timeoutMs)
           return await this.executeStarted(
             state.reviewId,
@@ -352,9 +401,19 @@ export class ReviewAttemptCoordinator {
     bundle: VerifiedReviewBundle,
     choice: ReviewerChoice,
     imageDigest: string,
-    reviewId: RecordId,
+    accepted: {
+      reviewId: RecordId
+      disposition: 'complete' | 'partial' | 'failed'
+      executionFailed: boolean
+    },
+    retryGeneration?: RecordId,
   ): Promise<void> {
-    const key = attemptKey(await readVerifiedReviewBundle(bundle), choice, imageDigest)
+    const key = attemptKey(
+      await readVerifiedReviewBundle(bundle),
+      choice,
+      imageDigest,
+      retryGeneration,
+    )
     const attemptRoot = join(this.runtimeRoot, key)
     const statePath = join(attemptRoot, 'state.json')
     await withAdvisoryFileLock(
@@ -364,7 +423,7 @@ export class ReviewAttemptCoordinator {
         await cleanupStateTemps(attemptRoot)
         const state = await readState(statePath)
         if (state === undefined) throw new Error('review attempt finalization state is absent')
-        if (state.key !== key || state.reviewId !== reviewId)
+        if (state.key !== key || state.reviewId !== accepted.reviewId)
           throw new Error('review attempt finalization identity differs from durable state')
         if (state.phase === 'finalized') return
         if (state.phase !== 'completed')
@@ -372,9 +431,13 @@ export class ReviewAttemptCoordinator {
         await atomicState(statePath, {
           schemaVersion: 1,
           key,
-          reviewId,
+          reviewId: accepted.reviewId,
           phase: 'finalized',
           containerIdentity: state.containerIdentity,
+          outcome: {
+            disposition: accepted.disposition,
+            executionFailed: accepted.executionFailed,
+          },
         })
       },
     )
@@ -382,12 +445,15 @@ export class ReviewAttemptCoordinator {
 
   /** Reconcile acceptance that committed before a process died during finalization. */
   async reconcileAccepted(reviews: readonly ReviewManifest[]): Promise<void> {
-    for (const review of reviews) {
-      const key = acceptedAttemptKey(review)
-      const attemptRoot = join(this.runtimeRoot, key)
+    const byId = new Map(reviews.map(review => [review.reviewId, review]))
+    for (const root of await this.attemptRoots()) {
+      const key = root.key
+      const attemptRoot = root.path
       const statePath = join(attemptRoot, 'state.json')
       let state = await readState(statePath)
       if (state === undefined || state.phase === 'finalized' || state.phase === 'started') continue
+      const review = byId.get(state.reviewId)
+      if (review === undefined) continue
       const observed = readReviewerRawAttempt(restored(state.attempt))
       if (
         observed.reviewId !== review.reviewId ||
@@ -411,6 +477,12 @@ export class ReviewAttemptCoordinator {
             reviewId: review.reviewId,
             phase: 'finalized',
             containerIdentity: state.containerIdentity,
+            outcome: {
+              disposition: review.disposition,
+              executionFailed:
+                review.disposition === 'failed' ||
+                review.limitations.some(item => item.code === 'invalid-review-output'),
+            },
           })
         },
       )

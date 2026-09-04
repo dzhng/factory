@@ -63,6 +63,11 @@ selected response bytes may become plaintext repository evidence under
 Read-only mounting limits accidental mutation; it does not stop software in the
 container from reading a credential. The reviewer container and the selected
 provider CLI therefore form one trust domain for the duration of the review.
+For a private provider-owned file, the container runs as that file's validated
+non-root numeric owner UID with a fixed unprivileged group; Factory refuses
+root-owned or foreign-owned auth rather than copying the file or changing its
+permissions. Publicly readable test credentials may use the fixed unprivileged
+test identity.
 
 ## The reviewer container is isolated from the live checkout
 

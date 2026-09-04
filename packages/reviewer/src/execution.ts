@@ -21,6 +21,8 @@ export type ReviewerExecutionInput = {
   signal?: AbortSignal
   now?: () => Date
   containerIdentity: { name: string; label: string }
+  /** Latest accepted execution failure; advances a fresh retry beyond its tombstone. */
+  retryGeneration?: RecordId
 }
 
 async function readResponsePrefix(

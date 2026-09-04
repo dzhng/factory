@@ -1033,7 +1033,9 @@ async function dedicatedReviewerAuth(environment: NodeJS.ProcessEnv): Promise<{
       metadata.isSymbolicLink() ||
       !metadata.isFile() ||
       metadata.size > 1024 * 1024 ||
-      (metadata.mode & 0o004) === 0
+      metadata.uid === 0 ||
+      metadata.uid !== process.getuid?.() ||
+      (metadata.mode & 0o400) === 0
     )
       continue
     availability[provider] = true
@@ -1063,6 +1065,88 @@ function latestSubjectPath(
     .sort((left, right) => canonicalJson(right.value).localeCompare(canonicalJson(left.value)))
   if (candidates[0] === undefined) throw new Error('Factory has no captured review subject')
   return candidates[0].path
+}
+
+function committedReviewManifests(
+  records: Awaited<ReturnType<RepositoryStore['readRecords']>>['records'],
+): ReviewManifest[] {
+  return records
+    .filter(record => /^reviews\/.*\/manifest\.json$/.test(record.path))
+    .map(record => {
+      const review = record.value as unknown as ReviewManifest
+      const root = dirname(record.path)
+      const siblings = records
+        .filter(candidate => dirname(candidate.path) === root)
+        .map(candidate => candidate.path)
+        .sort()
+      const expected = [record.path, `${root}/response.txt`]
+      if (review.disposition !== 'failed') expected.push(`${root}/ledger.json`)
+      if (canonicalJson(siblings) !== canonicalJson(expected.sort()))
+        throw new Error('stored review does not have an exact committed record group')
+      return review
+    })
+}
+
+function reviewSubjectLineage(
+  review: ReviewManifest,
+  records: Awaited<ReturnType<RepositoryStore['readRecords']>>['records'],
+): string {
+  if (review.subject.kind === 'pull-request')
+    return canonicalJson({
+      kind: review.subject.kind,
+      repositoryKey: review.subject.repositoryKey,
+      number: review.subject.number,
+    })
+  const observationId = review.subject.repositoryObservationId
+  const observation = records.find(
+    record => record.path === `repository-observations/${observationId}.json`,
+  )?.value
+  if (
+    typeof observation !== 'object' ||
+    observation === null ||
+    Array.isArray(observation) ||
+    typeof observation.repositoryId !== 'string'
+  )
+    throw new Error('stored workspace review does not resolve to its subject lineage')
+  return canonicalJson({ kind: review.subject.kind, repositoryId: observation.repositoryId })
+}
+
+function subjectPathLineage(
+  path: OwnedPath,
+  records: Awaited<ReturnType<RepositoryStore['readRecords']>>['records'],
+): string {
+  const subject = records.find(record => record.path === path)?.value
+  if (typeof subject !== 'object' || subject === null || Array.isArray(subject))
+    throw new Error('selected review subject is absent')
+  if (path.startsWith('repository-observations/')) {
+    if (typeof subject.repositoryId !== 'string')
+      throw new Error('selected workspace subject has no repository lineage')
+    return canonicalJson({ kind: 'workspace', repositoryId: subject.repositoryId })
+  }
+  if (typeof subject.repositoryKey !== 'string' || typeof subject.number !== 'number')
+    throw new Error('selected pull-request subject has no repository lineage')
+  return canonicalJson({
+    kind: 'pull-request',
+    repositoryKey: subject.repositoryKey,
+    number: subject.number,
+  })
+}
+
+async function reviewFindingsEnforced(
+  store: RepositoryStore,
+  reviewId: RecordId,
+  failOn: ReviewCliOptions['failOn'],
+): Promise<boolean> {
+  if (failOn === undefined) return false
+  const match = (await store.readRecords()).records.find(record =>
+    record.path.endsWith(`/${reviewId}/ledger.json`),
+  )
+  if (match === undefined) return false
+  const ledger = match.value as unknown as ReviewLedger
+  const ranks = { low: 1, medium: 2, high: 3, critical: 4 } as const
+  return ledger.entries.some(
+    entry => entry.kind === 'finding' && ranks[entry.severity] >= ranks[failOn],
+  )
 }
 
 type ReviewCliOptions = {
@@ -1136,13 +1220,21 @@ async function reviewCommand(
     )
   const store = await openRepositoryStore(repositoryRoot)
   const stored = await store.readRecords()
-  const coordinator = await ReviewAttemptCoordinator.open({ repositoryRoot })
-  await coordinator.reconcileAccepted(
-    stored.records
-      .filter(record => /^reviews\/.*\/manifest\.json$/.test(record.path))
-      .map(record => record.value as unknown as ReviewManifest),
-  )
+  const committedReviews = committedReviewManifests(stored.records)
   const subjectPath = latestSubjectPath(stored.records, options.pullRequest)
+  const lineage = subjectPathLineage(subjectPath, stored.records)
+  const retryGeneration = committedReviews
+    .filter(
+      review =>
+        reviewSubjectLineage(review, stored.records) === lineage &&
+        (review.disposition === 'failed' ||
+          review.limitations.some(item => item.code === 'invalid-review-output')),
+    )
+    .map(review => review.reviewId)
+    .sort()
+    .at(-1)
+  const coordinator = await ReviewAttemptCoordinator.open({ repositoryRoot })
+  await coordinator.reconcileAccepted(committedReviews)
   const reader = await openReviewRepositoryReader(store.factoryRoot)
   const history = await loadReviewHistory(reader)
   const evidence = await loadReviewInputs(reader, {
@@ -1193,27 +1285,25 @@ async function reviewCommand(
           imageDigest,
           auth: mount === undefined ? [] : [mount],
           timeoutMs: 10 * 60 * 1000,
+          ...(retryGeneration === undefined ? {} : { retryGeneration }),
         },
       )
     } catch (error) {
       if (!(error instanceof ReviewAttemptAlreadyFinalizedError)) throw error
-      output.stdout(canonicalJson({ schemaVersion: 1, status: 'already-reviewed' }))
-      return 0
+      const enforced = await reviewFindingsEnforced(store, error.reviewId, options.failOn)
+      output.stdout(
+        canonicalJson({
+          schemaVersion: 1,
+          status: 'already-reviewed',
+          reviewId: error.reviewId,
+          ...error.outcome,
+        }),
+      )
+      return error.outcome.executionFailed || enforced ? 1 : 0
     }
     const accepted = await acceptReview(await validateReview(bundle, raw), store)
-    await coordinator.finalize(bundle, selected.choice, imageDigest, accepted.reviewId)
-    let enforced = false
-    const failOn = options.failOn
-    if (failOn !== undefined && accepted.disposition !== 'failed') {
-      const ledgerPath = accepted.path.replace(/manifest\.json$/, 'ledger.json') as OwnedPath
-      const ledger = JSON.parse(
-        textDecoder.decode(await store.readImmutable(ledgerPath)),
-      ) as ReviewLedger
-      const ranks = { low: 1, medium: 2, high: 3, critical: 4 } as const
-      enforced = ledger.entries.some(
-        entry => entry.kind === 'finding' && ranks[entry.severity] >= ranks[failOn],
-      )
-    }
+    await coordinator.finalize(bundle, selected.choice, imageDigest, accepted, retryGeneration)
+    const enforced = await reviewFindingsEnforced(store, accepted.reviewId, options.failOn)
     output.stdout(
       canonicalJson({ schemaVersion: 1, ...accepted, reviewer: selected.choice.settings }),
     )

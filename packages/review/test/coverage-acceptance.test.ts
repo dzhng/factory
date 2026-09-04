@@ -5,7 +5,11 @@ import { join } from 'node:path'
 import { canonicalJson, type CoverageAction, type ReviewManifest } from '@factory/contract'
 import type { RepositoryStore } from '@factory/repository'
 
-import { acceptPartialCoverage, type PartialCoverageAcceptance } from '../src'
+import {
+  acceptPartialCoverage,
+  acceptPartialCoverageByReviewId,
+  type PartialCoverageAcceptance,
+} from '../src'
 
 async function partialManifest(): Promise<ReviewManifest> {
   const root = join(import.meta.dir, '../../../specs/factory-v1/assets/review-plan')
@@ -106,6 +110,10 @@ describe('partial review coverage acceptance', () => {
     expect(first.readAction()).toEqual(second.readAction())
     expect(path).toEndWith(`${first.readAction()!.actionId}.json`)
     expect(first.readAction()!.createdAt).not.toBe(review.completedAt)
+
+    const direct = storeFor(review)
+    await acceptPartialCoverageByReviewId(direct.store, review.reviewId)
+    expect(direct.readAction()).toEqual(first.readAction())
   })
 
   test('rejects unknown, non-partial, wrong-subject, and incomplete acknowledgements', async () => {

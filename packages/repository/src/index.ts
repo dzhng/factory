@@ -602,6 +602,8 @@ export class RepositoryStore {
     const root = `${dirname(commitPath)}/`
     const paths = new Set<string>()
     for (const record of snapshots) {
+      if (record.bytes.byteLength > 4 * 1024 * 1024)
+        throw new TypeError('immutable structured record exceeds its read bound')
       if (!record.path.startsWith(root) || paths.has(record.path))
         throw new TypeError('review publication contains an invalid path set')
       paths.add(record.path)

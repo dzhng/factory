@@ -97,7 +97,7 @@ function assertSuccessful(report: IsolationReport): void {
     report.termination !== 'completed' ||
     report.exitCode !== 0 ||
     report.observation?.providerVersion !== 'fake-provider/1' ||
-    report.observation?.uid !== 65532 ||
+    report.observation?.uid !== Number(report.containerPolicy.user.split(':')[0]) ||
     report.observation.bundleReadable !== true ||
     report.observation.bundleWriteBlocked !== true ||
     report.observation.authReadable !== true ||
@@ -105,7 +105,7 @@ function assertSuccessful(report: IsolationReport): void {
     report.observation.outputWritable !== true ||
     report.observation.networkRoutePresent !== true ||
     report.containerPolicy.readonlyRootfs !== true ||
-    report.containerPolicy.user !== '65532:65532' ||
+    report.containerPolicy.user.startsWith('0:') ||
     !report.containerPolicy.capDrop.includes('ALL') ||
     !report.containerPolicy.securityOptions.some(option =>
       option.startsWith('no-new-privileges'),
@@ -253,6 +253,34 @@ async function main(): Promise<void> {
 
     const success = await probe('fake', imageDigest, root, 'success', 'completed', secret)
     assertSuccessful(success)
+    if ((process.getuid?.() ?? 0) > 0) {
+      const privateAuth = join(root, 'auth', 'private-credentials.json')
+      const privateOutput = join(root, 'output-private-auth')
+      await writeFile(privateAuth, `${secret}\n`, { mode: 0o600 })
+      await mkdir(privateOutput)
+      await chmod(privateOutput, 0o777)
+      const privatePlan = planReviewerIsolation({
+        provider: 'fake',
+        bundleHostPath: join(root, 'bundle'),
+        outputHostPath: privateOutput,
+        auth: [
+          {
+            hostPath: privateAuth,
+            containerPath: '/auth/fake/credentials.json',
+          },
+        ],
+      })
+      if (!privatePlan.ok) throw new Error(privatePlan.detail)
+      const privateReport = await runIsolationProbe(privatePlan.plan, {
+        imageDigest,
+        sensitiveValues: [secret],
+      })
+      if (
+        privateReport.observation?.uid !== process.getuid?.() ||
+        privateReport.containerPolicy.user.startsWith('0:')
+      )
+        throw new Error('private auth did not retain its validated non-root owner identity')
+    }
     const timeout = await probe('fake', imageDigest, root, 'hang', 'timed-out', secret)
     const cancellation = await probe('fake', imageDigest, root, 'hang', 'cancelled', secret)
     const descendantCleanup = await probe(

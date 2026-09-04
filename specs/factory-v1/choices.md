@@ -141,12 +141,16 @@ second normative schema; the master specification and format own mechanics.
 ### Give the container a small disposable filesystem, not a writable root
 
 - **When:** Slice 02 reviewer-isolation implementation.
-- **The choice:** The reviewer runs as numeric user `65532`, with all Linux
-  capabilities dropped, a read-only root filesystem, and a 16 MiB temporary
-  filesystem at `/tmp`. For example, a CLI may create a Unix socket or scratch
-  file in `/tmp`, but it cannot install files into its image or modify mounted
-  evidence. The alternative was a writable root filesystem whose mutations
-  would disappear later but could hide undeclared reviewer dependencies.
+- **The choice:** The reviewer runs as an explicitly observed unprivileged
+  numeric user, with all Linux capabilities dropped, a read-only root
+  filesystem, and a 16 MiB temporary filesystem at `/tmp`. Public test
+  credentials use user `65532`; a private provider-owned credential uses its
+  validated non-root owner UID and a fixed unprivileged group so the file can
+  stay mode `0600`. For
+  example, a CLI may create a Unix socket or scratch file in `/tmp`, but it
+  cannot install files into its image or modify mounted evidence. The
+  alternative was a writable root filesystem whose mutations would disappear
+  later but could hide undeclared reviewer dependencies.
 - **The gap:** The plan delegated the base image and disposable cache layout; it
   did not set the container user or initial scratch-space budget.
 - **The reach:** Slice 09 can depend on immutable image state and one bounded
@@ -910,13 +914,14 @@ second normative schema; the master specification and format own mechanics.
 ### Pin effective model and effort before planning
 
 - **When:** Slice 09 review identity contract.
-- **The choice:** Repository configuration may omit model and effort, but the
-  CLI supplies versioned Factory defaults and resolves one complete reviewer
-  identity before it freezes the review plan. For example, an automatic Codex
-  review records the exact Codex model and effort Factory requested; it never
-  writes a placeholder that means “whatever the provider chose today.” If the
-  installed client cannot force or report those settings, that reviewer is
-  unavailable rather than reproducible by guesswork.
+- **The choice:** Review execution requires one complete reviewer identity
+  before it freezes the review plan. The deterministic journey supplies exact
+  fixture settings; production execution stays disabled until versioned Factory
+  defaults are chosen. For example, a future automatic Codex review must record
+  the exact Codex model and effort Factory requested; it must never write a
+  placeholder that means “whatever the provider chose today.” If the installed
+  client cannot force or report those settings, that reviewer is unavailable
+  rather than reproducible by guesswork.
 - **The gap:** The spec required manifests to pin model and effort but the
   initial shared reviewer type made both optional and did not say when defaults
   became evidence.
@@ -943,4 +948,72 @@ second normative schema; the master specification and format own mechanics.
   preference is a one-constant policy change and must refresh the plan identity.
 - **Verdict:** Needs-user. Codex-first is the reversible provisional choice; a
   product-level preferred harness can replace it before release.
+- **Confidence:** Low.
+
+### Keep provider credentials host-owned without changing their private mode
+
+- **When:** Slice 09 reviewer authentication boundary.
+- **The choice:** Factory gives the reviewer container one dedicated, read-only
+  credential file. If it is mode `0600`, Factory validates that the invoking
+  non-root developer owns it and runs the container as that numeric owner UID
+  with a fixed unprivileged group. The file remains provider-owned and unchanged. Root-owned or
+  foreign-owned files are unavailable. The rejected alternative would copy the
+  secret into a temporary file, loosen permissions, pass token environment
+  variables, or bridge a host keyring.
+- **The gap:** The plan required read-only authentication and prohibited
+  developer credentials in tests, but it did not authorize secret staging or a
+  keyring bridge for production.
+- **The reach:** Ordinary private file credentials can cross Docker Desktop and
+  Linux bind mounts without a second secret copy. Keyring-only authentication
+  remains unavailable. Future work cannot make review “just work” by weakening
+  permissions or borrowing a broader host credential surface.
+- **Verdict:** Sound. Unavailability preserves the documented trust boundary;
+  a usable secret handoff is a security feature, not an implementation detail.
+- **Confidence:** High.
+
+### Keep one crash-recovery identity in Git-common runtime state
+
+- **When:** Slice 09 concurrent execution and acceptance recovery.
+- **The choice:** Every logical attempt is keyed by the verified bundle,
+  reviewer settings, image, and policy versions in the Git common directory,
+  which is private runtime storage shared by linked worktrees. The first caller
+  records a time-sortable review ID and deterministic container ownership before
+  Docker starts. Concurrent callers wait on that same attempt. After the review
+  becomes immutable history, Factory replaces the cached raw response with a
+  small finalized marker. For example, if one process accepts a review and a
+  stale second process arrives afterward, the marker prevents a second model
+  run without retaining the provider's response forever.
+- **The gap:** The plan required retries, crashes, and concurrent invocations to
+  converge, but it did not choose the durable single-flight key or what remains
+  after acceptance.
+- **The reach:** Linked worktrees cannot accidentally run the same logical
+  review twice, crash recovery can remove only the exact labeled container, and
+  portable `.factory` data stays free of locks and transient logs. Changing the
+  attempt identity changes retry semantics and must preserve the finalized
+  marker's no-rerun guarantee.
+- **Verdict:** Sound. It separates portable immutable truth from recoverable
+  machine-local coordination while bounding retained sensitive data.
+- **Confidence:** High.
+
+### Leave production review execution disabled until its authority is packaged
+
+- **When:** Slice 09 CLI journey integration.
+- **The choice:** The installed command validates review flags and supports the
+  zero-Docker partial-coverage acceptance path, but ordinary model execution
+  currently fails closed. A deterministic test-only journey supplies a pinned
+  fake image, explicit reviewer settings, and a frozen fixture subject. The
+  unbuilt production path must first capture the exact current workspace or PR,
+  ship a pinned reviewer image, and choose versioned product defaults; it must
+  not silently select the newest-looking stored observation or treat developer
+  environment variables as product configuration.
+- **The gap:** The slice specifies execution after a verified bundle, while the
+  packaging/default choice and fresh CLI subject-observation wiring belong to
+  adjacent product work and were not settled here.
+- **The reach:** This branch proves the execution and acceptance boundaries but
+  does not yet make `factory review` a usable production command. Enabling it
+  later requires deleting the test gate only after fresh subject capture and
+  packaged authority reach the same release-shaped journey.
+- **Verdict:** Needs-user. Keep the fail-closed gate as the reversible
+  provisional call; choose the shipped image, model defaults, and credential
+  handoff before enabling production execution.
 - **Confidence:** Low.

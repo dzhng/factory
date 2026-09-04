@@ -261,6 +261,11 @@ export async function runIsolationProbe(
   if (!bundle.isDirectory() || !output.isDirectory() || auth.some(entry => !entry.isFile())) {
     throw new Error('Reviewer mounts require bundle/output directories and auth files')
   }
+  if (auth.length > 1) throw new Error('Reviewer execution accepts one provider auth file')
+  const privateAuth = auth[0] !== undefined && (auth[0].mode & 0o004) === 0
+  if (privateAuth && auth[0]!.uid === 0)
+    throw new Error('Factory refuses root-owned private reviewer authentication')
+  const containerUser = privateAuth ? `${auth[0]!.uid}:65532` : '65532:65532'
   const containerIdentity = options.containerIdentity ?? {
     name: `factory-isolation-${randomUUID()}`,
     label: randomUUID(),
@@ -285,7 +290,7 @@ export async function runIsolationProbe(
     'bridge',
     '--read-only',
     '--user',
-    '65532:65532',
+    containerUser,
     '--cap-drop',
     'ALL',
     '--security-opt',
@@ -326,6 +331,22 @@ export async function runIsolationProbe(
   let probeFailure: unknown
   let removalFailure: Error | undefined
   try {
+    const currentAuth = await Promise.all(plan.auth.map(({ hostPath }) => stat(hostPath)))
+    if (
+      currentAuth.some((entry, index) => {
+        const before = auth[index]
+        return (
+          before === undefined ||
+          !entry.isFile() ||
+          entry.dev !== before.dev ||
+          entry.ino !== before.ino ||
+          entry.size !== before.size ||
+          entry.uid !== before.uid ||
+          entry.mode !== before.mode
+        )
+      })
+    )
+      throw new Error('Reviewer authentication changed before container creation')
     const created = await runCommand('docker', dockerArgs, commandOptions())
     if (created.exitCode !== 0) {
       throw new Error(`Docker refused reviewer container: ${created.stderr.trim()}`)
@@ -403,7 +424,7 @@ export async function runIsolationProbe(
     if (
       container.HostConfig.NetworkMode !== 'bridge' ||
       !containerPolicy.readonlyRootfs ||
-      containerPolicy.user !== '65532:65532' ||
+      containerPolicy.user !== containerUser ||
       !containerPolicy.capDrop.includes('ALL') ||
       !containerPolicy.securityOptions.some(option => option.startsWith('no-new-privileges')) ||
       canonicalTmpfs(container.HostConfig.Tmpfs?.['/review-input']) !==
