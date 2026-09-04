@@ -1,3 +1,4 @@
+import { Database } from 'bun:sqlite'
 import { createHash, randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
 import {
@@ -16,7 +17,6 @@ import {
 } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
-import { Database } from 'bun:sqlite'
 
 import {
   claudeCaptureAdapter,
@@ -44,6 +44,7 @@ import {
 import {
   initializeRepositoryStore,
   openRepositoryStore,
+  withAdvisoryFileLock,
   type RepositoryStore,
 } from '@factory/repository'
 import {
@@ -325,7 +326,11 @@ async function readHookState(environment: NodeJS.ProcessEnv): Promise<HookState 
   const bytes = await readFile(path)
   if (bytes.byteLength > 1024 * 1024) throw new Error('Factory hook state exceeds its size bound')
   const state = JSON.parse(textDecoder.decode(bytes)) as HookState
-  if (state.schemaVersion !== 1 || !isAbsolute(state.executable) || typeof state.providers !== 'object') {
+  if (
+    state.schemaVersion !== 1 ||
+    !isAbsolute(state.executable) ||
+    typeof state.providers !== 'object'
+  ) {
     throw new Error('Factory hook state is invalid')
   }
   for (const provider of ['codex', 'claude'] as const) {
@@ -478,32 +483,30 @@ function ownerKey(provider: CaptureProvider, sessionId: string, generation: numb
   return createHash('sha256').update(`${provider}\0${sessionId}\0${generation}`).digest('hex')
 }
 
-async function readOwnerState(
+function parseOwner(bytes: Uint8Array, key: string): SessionOwner {
+  if (bytes.byteLength > 16 * 1024) throw new Error('Session owner record exceeds its size bound')
+  const owner = JSON.parse(textDecoder.decode(bytes)) as SessionOwner
+  if (
+    (owner.provider !== 'codex' && owner.provider !== 'claude') ||
+    typeof owner.sessionId !== 'string' ||
+    !Number.isSafeInteger(owner.generation) ||
+    owner.generation < 0 ||
+    !isAbsolute(owner.repositoryRoot) ||
+    typeof owner.repositoryId !== 'string' ||
+    typeof owner.firstObservedAt !== 'string' ||
+    ownerKey(owner.provider, owner.sessionId, owner.generation) !== key
+  )
+    throw new Error('invalid Session owner record')
+  return owner
+}
+
+async function readOwner(
   environment: NodeJS.ProcessEnv,
-): Promise<Record<string, SessionOwner>> {
-  const root = join(stateRoot(environment), 'session-owners')
-  if ((await pathKind(root)) === 'missing') return {}
-  const owners: Record<string, SessionOwner> = {}
-  const names = (await readdir(root)).sort()
-  if (names.length > 100_000) throw new Error('Session owner state exceeds its record bound')
-  for (const name of names) {
-    if (!/^[0-9a-f]{64}\.json$/.test(name)) throw new Error('invalid Session owner record name')
-    const bytes = await readFile(join(root, name))
-    if (bytes.byteLength > 16 * 1024) throw new Error('Session owner record exceeds its size bound')
-    const owner = JSON.parse(textDecoder.decode(bytes)) as SessionOwner
-    if (
-      (owner.provider !== 'codex' && owner.provider !== 'claude') ||
-      typeof owner.sessionId !== 'string' ||
-      !Number.isSafeInteger(owner.generation) ||
-      owner.generation < 0 ||
-      !isAbsolute(owner.repositoryRoot) ||
-      typeof owner.repositoryId !== 'string' ||
-      typeof owner.firstObservedAt !== 'string' ||
-      ownerKey(owner.provider, owner.sessionId, owner.generation) !== name.slice(0, -5)
-    ) throw new Error('invalid Session owner record')
-    owners[name.slice(0, -5)] = owner
-  }
-  return owners
+  key: string,
+): Promise<SessionOwner | undefined> {
+  const path = join(stateRoot(environment), 'session-owners', `${key}.json`)
+  if ((await pathKind(path)) === 'missing') return undefined
+  return parseOwner(await readFile(path), key)
 }
 
 async function claimOwner(
@@ -533,7 +536,7 @@ async function claimOwner(
   } finally {
     await unlink(temporary).catch(() => undefined)
   }
-  return JSON.parse(await readFile(path, 'utf8')) as SessionOwner
+  return parseOwner(await readFile(path), key)
 }
 
 async function recoverRepository(
@@ -541,36 +544,41 @@ async function recoverRepository(
   store: RepositoryStore,
   journal: RuntimeJournal,
   environment: NodeJS.ProcessEnv,
-  resumeClaimed = false,
 ) {
-  const owners = await readOwnerState(environment)
-  for await (const work of journal.recover()) {
-    if (work.availability !== 'ready') continue
-    const owner = owners[ownerKey(work.stop.provider, work.stop.sessionId, work.stop.generation)]
-    if (owner === undefined || owner.repositoryRoot !== repositoryRoot) continue
-    let claim = work.claim
-    if (claim !== undefined && !resumeClaimed) continue
-    if (claim === undefined) {
-      const claimed = await journal.claimStop(work.stop)
-      if (claimed.status !== 'acquired') continue
-      claim = claimed.claim
+  const common = await run(
+    'git',
+    ['rev-parse', '--path-format=absolute', '--git-common-dir'],
+    repositoryRoot,
+    environment,
+  )
+  if (common.code !== 0) throw new Error('Factory cannot locate the Git-common capture fence')
+  const fencePath = join(common.stdout.trim(), 'factory-runtime', 'capture.lock')
+  await withAdvisoryFileLock(fencePath, 50, async () => {
+    for await (const work of journal.recover()) {
+      if (work.availability !== 'ready') continue
+      const owner = await readOwner(
+        environment,
+        ownerKey(work.stop.provider, work.stop.sessionId, work.stop.generation),
+      )
+      if (owner === undefined || owner.repositoryRoot !== repositoryRoot) continue
+      const claim = work.claim ?? (await journal.claimStop(work.stop)).claim
+      const providerHome =
+        owner.provider === 'codex'
+          ? (environment.CODEX_HOME ?? join(environment.HOME ?? homedir(), '.codex'))
+          : (environment.CLAUDE_CONFIG_DIR ?? join(environment.HOME ?? homedir(), '.claude'))
+      await materializeStop({
+        repositoryRoot: owner.repositoryRoot,
+        store,
+        journal,
+        claim,
+        sessionFirstObservedAt: owner.firstObservedAt,
+        providerHome,
+      })
     }
-    const providerHome =
-      owner.provider === 'codex'
-        ? (environment.CODEX_HOME ?? join(environment.HOME ?? homedir(), '.codex'))
-        : (environment.CLAUDE_CONFIG_DIR ?? join(environment.HOME ?? homedir(), '.claude'))
-    await materializeStop({
-      repositoryRoot: owner.repositoryRoot,
-      store,
-      journal,
-      claim,
-      sessionFirstObservedAt: owner.firstObservedAt,
-      providerHome,
-    })
-  }
-  for await (const lifecycle of journal.recoverLifecycle()) {
-    await materializeLifecycle(lifecycle, journal, store)
-  }
+    for await (const lifecycle of journal.recoverLifecycle()) {
+      await materializeLifecycle(lifecycle, journal, store)
+    }
+  })
 }
 
 async function capture(
@@ -586,7 +594,7 @@ async function capture(
     return 'failed'
   }
   const key = ownerKey(provider, envelope.nativeSessionId, envelope.generation)
-  const existingOwner = (await readOwnerState(environment))[key]
+  const existingOwner = await readOwner(environment, key)
   const currentRoot = await gitRoot(envelope.worktreePath ?? process.cwd(), environment)
   if (existingOwner === undefined && currentRoot === undefined) return 'ignored'
   if (existingOwner === undefined) {
@@ -663,15 +671,37 @@ async function doctor(
   const suggestion = await canonicalSuggestion(repositoryRoot, environment)
   let pendingStops: number | null = null
   let pendingLifecycle: number | null = null
-  const gitCommon = await run('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], repositoryRoot, environment)
-  const journalPath = gitCommon.code === 0
-    ? join(gitCommon.stdout.trim(), 'factory-runtime', 'journal-v1', 'journal.sqlite')
-    : undefined
+  const gitCommon = await run(
+    'git',
+    ['rev-parse', '--path-format=absolute', '--git-common-dir'],
+    repositoryRoot,
+    environment,
+  )
+  const journalPath =
+    gitCommon.code === 0
+      ? join(gitCommon.stdout.trim(), 'factory-runtime', 'journal-v1', 'journal.sqlite')
+      : undefined
   if (!repair && journalPath !== undefined && (await pathKind(journalPath)) === 'file') {
     const database = new Database(journalPath, { readonly: true })
     try {
-      pendingStops = Number((database.query(`SELECT COUNT(*) AS count FROM claims c LEFT JOIN completions d ON d.stop_key=c.stop_key WHERE d.stop_key IS NULL`).get() as { count: number }).count)
-      pendingLifecycle = Number((database.query(`SELECT COUNT(*) AS count FROM events e LEFT JOIN lifecycle_completions l ON l.event_key=e.event_key WHERE e.event_kind='session-end' AND l.event_key IS NULL`).get() as { count: number }).count)
+      pendingStops = Number(
+        (
+          database
+            .query(
+              `SELECT (SELECT COUNT(*) FROM events WHERE event_kind='stop') - (SELECT COUNT(*) FROM completions) AS count`,
+            )
+            .get() as { count: number }
+        ).count,
+      )
+      pendingLifecycle = Number(
+        (
+          database
+            .query(
+              `SELECT COUNT(*) AS count FROM events e LEFT JOIN lifecycle_completions l ON l.event_key=e.event_key WHERE e.event_kind='session-end' AND l.event_key IS NULL`,
+            )
+            .get() as { count: number }
+        ).count,
+      )
     } finally {
       database.close(false)
     }
@@ -693,22 +723,39 @@ async function doctor(
     try {
       pendingStops = (await Array.fromAsync(journal.recover())).length
       pendingLifecycle = (await Array.fromAsync(journal.recoverLifecycle())).length
-      await recoverRepository(repositoryRoot, store, journal, environment, true)
+      await recoverRepository(repositoryRoot, store, journal, environment)
     } finally {
       await journal.close()
     }
   }
   const records = await store.readRecords()
-  const hookState = await readHookState(environment).catch(error => ({ error: error instanceof Error ? error.message : String(error) }))
-  const hookTransactionPending = (await pathKind(join(configRoot(environment), 'hook-transaction.json'))) === 'file'
+  const hookState = await readHookState(environment).catch(error => ({
+    error: error instanceof Error ? error.message : String(error),
+  }))
+  const hookTransactionPending =
+    (await pathKind(join(configRoot(environment), 'hook-transaction.json'))) === 'file'
+  const diagnosticsRoot =
+    gitCommon.code === 0
+      ? join(gitCommon.stdout.trim(), 'factory-runtime', 'journal-v1', 'diagnostics')
+      : undefined
+  const captureDiagnostics =
+    diagnosticsRoot !== undefined && (await pathKind(diagnosticsRoot)) === 'directory'
+      ? (await readdir(diagnosticsRoot)).filter(name => /^[0-9a-f-]+\.txt$/.test(name)).sort()
+      : []
+  const projection = reduceRepository(records)
+  const issues = [
+    ...verification.issues,
+    ...projection.issues.map(detail => ({ code: 'incomplete-committed-graph', detail })),
+  ]
   return {
-    repository: verification.issues.length === 0 ? 'ok' : 'invalid',
-    issues: verification.issues as unknown as JsonValue,
+    repository: issues.length === 0 ? 'ok' : 'invalid',
+    issues: issues as unknown as JsonValue,
     pendingStops,
     pendingLifecycle,
-    projection: reduceRepository(records) as unknown as JsonValue,
+    projection: projection as unknown as JsonValue,
     hooks: (hookState ?? null) as unknown as JsonValue,
     hookTransactionPending,
+    captureDiagnostics: captureDiagnostics as unknown as JsonValue,
     canonicalBranch: config.canonicalBranch ?? null,
     observedDefaultBranch: suggestion?.branch ?? null,
     canonicalBranchDrift:
@@ -774,15 +821,15 @@ export async function runFactoryCli(
             ? undefined
             : await canonicalSuggestion(root, environment, change.canonicalBranch)
         await store.updateConfig({
-          ...(branch === undefined
-            ? {}
-            : { canonicalBranch: branch.branch }),
+          ...(branch === undefined ? {} : { canonicalBranch: branch.branch }),
           ...(change.automaticReview === undefined
             ? {}
             : { automaticReview: change.automaticReview }),
         })
         const next = await repositoryConfig(root)
-        output.stdout(`${join(root, '.factory', 'config.json')}\n${canonicalJson(resolveConfiguration({}, next, await globalConfig(environment)))}`)
+        output.stdout(
+          `${join(root, '.factory', 'config.json')}\n${canonicalJson(resolveConfiguration({}, next, await globalConfig(environment)))}`,
+        )
       }
       return 0
     }

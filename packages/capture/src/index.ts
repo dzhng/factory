@@ -181,7 +181,7 @@ function shellQuote(value: string): string {
 
 function hookGroup(provider: CaptureProvider, event: string, executable: string): JsonObject {
   const invocation = `${shellQuote(executable)} capture --provider ${provider}`
-  const script = `if [ -x ${shellQuote(executable)} ]; then ${invocation}; else printf '{}\\n'; fi`
+  const script = `if [ -x ${shellQuote(executable)} ] && response=$(${invocation} 2>/dev/null); then printf '%s\\n' "$response"; else printf '{}\\n'; fi`
   const command =
     provider === 'codex'
       ? {
@@ -344,7 +344,7 @@ export type TurnWritePlan = {
 }
 
 export type PlanRefusal = {
-  reason: 'repository-mismatch' | 'claim-events-mismatch' | 'empty-claim'
+  reason: 'repository-mismatch' | 'claim-events-mismatch' | 'empty-claim' | 'record-limit'
   detail: string
 }
 
@@ -514,6 +514,9 @@ export function planTurn(input: StopMaterializationInput): TurnWritePlan | PlanR
   ]
   const triggerPath = makeOwnedPath('review-triggers', [`${triggerId}.json`])
   records.push({ path: triggerPath, bytes: encoder.encode(canonicalJson(trigger)) })
+  if (records.some(record => record.bytes.byteLength > 4 * 1024 * 1024)) {
+    return { reason: 'record-limit', detail: 'planned structured record exceeds its read bound' }
+  }
   const turnPath = makeOwnedPath('sessions', [
     input.claim.stop.provider,
     sessionKey,
@@ -589,10 +592,9 @@ export function reduceRepository(records: RepositoryRecords): RepositoryProjecti
           return false
         }
         const segments = [session.provider, session.sessionKey, 'turns', turn.turnId]
-        const complete = (
+        const complete =
           paths.has(makeOwnedPath('sessions', [...segments, 'events.jsonl'])) &&
           paths.has(makeOwnedPath('sessions', [...segments, 'transcript.jsonl']))
-        )
         if (!complete) issues.push(`incomplete committed graph: ${trigger.triggerId}`)
         return complete
       })
@@ -816,6 +818,13 @@ export async function materializeStop(
     await options.journal.complete(options.claim, turn)
     return { status: 'materialized', turn }
   }
+  if (await hasFactoryConflict(options.repositoryRoot)) {
+    return {
+      status: 'deferred',
+      reason: 'factory-conflict',
+      detail: '.factory has unresolved Git conflicts',
+    }
+  }
   const existingTurn = await options.store.tryReadImmutable(turnPath)
   if (existingTurn !== undefined) {
     const turnManifest = JSON.parse(decoder.decode(existingTurn)) as TurnManifest
@@ -908,14 +917,8 @@ export async function materializeStop(
     await options.journal.complete(options.claim, turn)
     return { status: 'materialized', turn }
   }
-  if (await hasFactoryConflict(options.repositoryRoot)) {
-    return {
-      status: 'deferred',
-      reason: 'factory-conflict',
-      detail: '.factory has unresolved Git conflicts',
-    }
-  }
   const events: StopMaterializationEvent[] = []
+  const limitations: Limitation[] = []
   for (const item of claimed) {
     const raw = await options.store.putObject(
       (async function* () {
@@ -923,13 +926,7 @@ export async function materializeStop(
       })(),
       { mediaType: 'application/json', role: 'provider-hook' },
     )
-    let parsed: JsonValue | undefined
-    try {
-      parsed = JSON.parse(decoder.decode(item.raw)) as JsonValue
-    } catch {
-      parsed = undefined
-    }
-    events.push({ event: item.event, raw, ...(parsed === undefined ? {} : { parsed }) })
+    events.push({ event: item.event, raw })
   }
   const observationPath = makeOwnedPath('repository-observations', [
     `${identity.observationId}.json`,
@@ -937,7 +934,6 @@ export async function materializeStop(
   const existingObservation = await options.store.tryReadImmutable(observationPath)
   let observation: RepositoryObservation
   const codeObjects: ObjectRef[] = []
-  const limitations: Limitation[] = []
   if (
     claimed.some(
       item =>
@@ -1018,6 +1014,15 @@ export async function materializeStop(
             { mediaType: 'application/x-ndjson', role: 'provider-transcript-observation' },
           )
           transcript.push({ observedAt: options.claim.claimedAt, raw })
+          if (
+            typeof value.last_assistant_message === 'string' &&
+            !decoder.decode(result.bytes).includes(value.last_assistant_message)
+          ) {
+            limitations.push({
+              code: 'missing-transcript-range',
+              detail: 'provider transcript lags the Stop assistant message',
+            })
+          }
         }
         if (result.limitation !== undefined) limitations.push(result.limitation)
       } else {

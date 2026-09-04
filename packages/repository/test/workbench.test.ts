@@ -373,19 +373,29 @@ describe('sole repository writer', () => {
     expect((await store.verify()).issues).toEqual([])
   })
 
-  test('fails closed instead of stealing an apparently abandoned mutation lock', async () => {
+  test('releases mutation ownership when the locking process dies', async () => {
     const root = await fixtureRoot()
     const store = await initializeRepositoryStore(root, manifest, {}, { mutationLockTimeoutMs: 50 })
     const lock = join(store.stagingRoot, 'repository.lock')
-    await mkdir(lock)
-    await writeFile(join(lock, 'owner.json'), JSON.stringify({ pid: 2_147_483_647, token: 'dead' }))
-
-    await expect(store.updateConfig({ automaticReview: true })).rejects.toThrow(
-      'mutation lock is unavailable',
+    const worker = Bun.spawn(
+      [
+        'bun',
+        '-e',
+        `import { withAdvisoryFileLock } from '/workspace/packages/repository/src/confined-writer.ts'; await withAdvisoryFileLock(${JSON.stringify(lock)}, 1000, async () => { console.log('locked'); await new Promise(() => {}) })`,
+      ],
+      { stdout: 'pipe', stderr: 'pipe' },
     )
+    const reader = worker.stdout.getReader()
+    expect(new TextDecoder().decode((await reader.read()).value)).toContain('locked')
+    await expect(store.updateConfig({ automaticReview: true })).rejects.toThrow(
+      'advisory file lock is unavailable',
+    )
+    worker.kill(9)
+    await worker.exited
+    await store.updateConfig({ automaticReview: true })
     expect(
       JSON.parse(await readFile(join(root, '.factory', 'config.json'), 'utf8')),
-    ).not.toHaveProperty('automaticReview')
+    ).toHaveProperty('automaticReview', true)
   })
 
   test('publishes a deterministic immutable group with its commit record last', async () => {

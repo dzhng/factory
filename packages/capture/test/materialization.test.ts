@@ -137,5 +137,14 @@ describe('Stop materialization', () => {
     expect(new TextDecoder().decode(later.records[0]!.bytes)).toEqual(
       new TextDecoder().decode(first.records[0]!.bytes),
     )
+
+    expect(
+      planTurn({
+        ...input,
+        events: input.events.map((item, index) =>
+          index === 0 ? { ...item, parsed: 'x'.repeat(4 * 1024 * 1024) } : item,
+        ),
+      }),
+    ).toMatchObject({ reason: 'record-limit' })
   })
 })

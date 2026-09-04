@@ -29,6 +29,7 @@ async function createBackend() {
       readdir: { args: ['ptr'], returns: 'ptr' },
       closedir: { args: ['ptr'], returns: 'i32' },
       close: { args: ['i32'], returns: 'i32' },
+      flock: { args: ['i32', 'i32'], returns: 'i32' },
     },
   )
   const errnoBuffer =
@@ -73,6 +74,37 @@ async function loadBackend(): Promise<NativeBackend> {
       'snapshot reconstruction requires Bun with supported macOS libSystem or glibc-compatible Linux libc',
       { cause },
     )
+  }
+}
+
+/** OS-released exclusive lock: process death closes the descriptor and releases ownership. */
+export async function withAdvisoryFileLock<T>(
+  path: string,
+  timeoutMs: number,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const backend = await loadBackend()
+  const handle = await open(
+    path,
+    constants.O_CREAT | constants.O_RDWR | constants.O_NOFOLLOW,
+    0o600,
+  )
+  const deadline = Date.now() + timeoutMs
+  try {
+    const state = await handle.stat()
+    if (!state.isFile()) throw new Error('advisory lock is not an ordinary file')
+    await handle.chmod(0o600)
+    while (backend.library.symbols.flock(handle.fd, 2 | 4) !== 0) {
+      if (Date.now() >= deadline) throw new Error('advisory file lock is unavailable')
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
+    try {
+      return await operation()
+    } finally {
+      backend.library.symbols.flock(handle.fd, 8)
+    }
+  } finally {
+    await handle.close()
   }
 }
 
@@ -170,22 +202,36 @@ export async function readConfinedFile(
   if (path.length === 0) throw new Error('confined path is empty')
   path.forEach(confinedSegment)
   const backend = await loadBackend()
-  const root = await open(rootPath, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW)
+  const root = await open(
+    rootPath,
+    constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
+  )
   const opened: number[] = []
   try {
     let parent = root.fd
     for (const segment of path.slice(0, -1)) {
-      const descriptor = backend.library.symbols.openat(parent, backend.ptr(confinedSegment(segment)), constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW, 0)
+      const descriptor = backend.library.symbols.openat(
+        parent,
+        backend.ptr(confinedSegment(segment)),
+        constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
+        0,
+      )
       if (descriptor < 0) throw new Error('cannot open confined read directory')
       opened.push(descriptor)
       parent = descriptor
     }
-    const descriptor = backend.library.symbols.openat(parent, backend.ptr(confinedSegment(path.at(-1)!)), constants.O_RDONLY | constants.O_NOFOLLOW, 0)
+    const descriptor = backend.library.symbols.openat(
+      parent,
+      backend.ptr(confinedSegment(path.at(-1)!)),
+      constants.O_RDONLY | constants.O_NOFOLLOW,
+      0,
+    )
     if (descriptor < 0) throw new Error('cannot open confined read file')
     opened.push(descriptor)
     const before = descriptorIdentity(descriptor)
     if (before.kind !== 'file') throw new Error('confined read target is not an ordinary file')
-    if (before.size > BigInt(options.maximumBytes)) throw new Error('confined read exceeds its size bound')
+    if (before.size > BigInt(options.maximumBytes))
+      throw new Error('confined read exceeds its size bound')
     await options.afterOpen?.()
     const bytes = Buffer.alloc(Number(before.size))
     let offset = 0
@@ -194,7 +240,8 @@ export async function readConfinedFile(
       if (count === 0) throw new Error('confined read ended before the verified size')
       offset += count
     }
-    if (!sameNativeState(before, descriptorIdentity(descriptor))) throw new Error('confined read target changed while reading')
+    if (!sameNativeState(before, descriptorIdentity(descriptor)))
+      throw new Error('confined read target changed while reading')
     return bytes
   } finally {
     for (const descriptor of opened.reverse()) backend.library.symbols.close(descriptor)

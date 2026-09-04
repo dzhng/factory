@@ -9,14 +9,12 @@ import {
   readdir,
   realpath,
   rename,
-  rm,
   stat,
   unlink,
   writeFile,
 } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { pipeline } from 'node:stream/promises'
-import { setTimeout as delay } from 'node:timers/promises'
 
 import {
   assertNoMachinePaths,
@@ -35,7 +33,9 @@ import {
   type RepositoryManifest,
 } from '@factory/contract'
 
-export { readConfinedFile, type ConfinedReadOptions } from './confined-writer'
+import { withAdvisoryFileLock } from './confined-writer'
+
+export { readConfinedFile, withAdvisoryFileLock, type ConfinedReadOptions } from './confined-writer'
 
 export * from './git-observer'
 export { ReconstructionUnavailableError } from './confined-writer'
@@ -250,6 +250,24 @@ function validateStructuredRecord(path: OwnedPath, bytes: Uint8Array): void {
   validatePublicRecord(path, text)
 }
 
+async function syncFile(path: string): Promise<void> {
+  const handle = await open(path, constants.O_RDONLY)
+  try {
+    await handle.sync()
+  } finally {
+    await handle.close()
+  }
+}
+
+async function syncDirectory(path: string): Promise<void> {
+  const handle = await open(path, constants.O_RDONLY | constants.O_DIRECTORY)
+  try {
+    await handle.sync()
+  } finally {
+    await handle.close()
+  }
+}
+
 async function atomicCreate(
   path: string,
   ownedPath: OwnedPath,
@@ -259,6 +277,7 @@ async function atomicCreate(
   await ensureStagingRoot(stagingRoot)
   const temporary = join(stagingRoot, `create-${randomUUID()}`)
   await writeFile(temporary, bytes, { flag: 'wx' })
+  await syncFile(temporary)
   try {
     try {
       await link(temporary, path)
@@ -273,6 +292,7 @@ async function atomicCreate(
       const existing = await readFile(path)
       if (!existing.equals(bytes)) throw new ImmutableRecordConflictError(ownedPath)
     }
+    await syncDirectory(dirname(path))
   } finally {
     await unlink(temporary).catch(() => undefined)
   }
@@ -284,6 +304,7 @@ async function atomicReplace(path: string, bytes: Uint8Array, stagingRoot: strin
   await ensureStagingRoot(stagingRoot)
   const temporary = join(stagingRoot, `replace-${randomUUID()}`)
   await writeFile(temporary, bytes, { flag: 'wx' })
+  await syncFile(temporary)
   try {
     try {
       await rename(temporary, path)
@@ -293,6 +314,7 @@ async function atomicReplace(path: string, bytes: Uint8Array, stagingRoot: strin
       }
       throw error
     }
+    await syncDirectory(dirname(path))
   } finally {
     await unlink(temporary).catch(() => undefined)
   }
@@ -414,34 +436,14 @@ export class RepositoryStore {
 
   private async withMutationLock<T>(operation: () => Promise<T>): Promise<T> {
     await ensureStagingRoot(this.stagingRoot)
-    const lockPath = join(this.stagingRoot, 'repository.lock')
-    const ownerPath = join(lockPath, 'owner.json')
-    const token = randomUUID()
-    const deadline = Date.now() + this.mutationLockTimeoutMs
-    for (;;) {
-      try {
-        await mkdir(lockPath)
-        try {
-          await writeFile(ownerPath, JSON.stringify({ pid: process.pid, token }))
-        } catch (error) {
-          await rm(lockPath, { recursive: true, force: true })
-          throw error
-        }
-        break
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'EEXIST' || Date.now() >= deadline) {
-          throw new Error('Factory repository mutation lock is unavailable', { cause: error })
-        }
-        await delay(10)
-      }
-    }
-    try {
-      await this.assertCurrentManifest()
-      return await operation()
-    } finally {
-      const owner = await readFile(ownerPath, 'utf8').catch(() => '')
-      if (owner.includes(token)) await rm(lockPath, { recursive: true, force: true })
-    }
+    return await withAdvisoryFileLock(
+      join(this.stagingRoot, 'repository.lock'),
+      this.mutationLockTimeoutMs,
+      async () => {
+        await this.assertCurrentManifest()
+        return await operation()
+      },
+    )
   }
 
   async putObject(
@@ -522,6 +524,8 @@ export class RepositoryStore {
     }
     const paths = new Set<string>()
     for (const record of records) {
+      if (record.bytes.byteLength > 4 * 1024 * 1024)
+        throw new TypeError('immutable structured record exceeds its read bound')
       if (record.path === makeOwnedPath('manifest') || record.path === makeOwnedPath('config')) {
         throw new TypeError('manifest and config cannot belong to an immutable group')
       }
@@ -600,6 +604,8 @@ export class RepositoryStore {
     if (path.startsWith('objects/')) {
       throw new TypeError('objects use putObject so their identity is derived from exact bytes')
     }
+    if (bytes.byteLength > 4 * 1024 * 1024)
+      throw new TypeError('immutable structured record exceeds its read bound')
     validateStructuredRecord(path, bytes)
     await this.withMutationLock(async () => {
       const destination = await ensureOwnedParent(this.factoryRoot, path)

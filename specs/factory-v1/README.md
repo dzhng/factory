@@ -28,12 +28,12 @@ Status: **in implementation; Slices 01–06 are complete**
 > error injection plus macOS/musl/Node reconstruction gates remain Slice 12
 > authority. These are explicit unavailable authorities, not passes. Real Codex
 > and Claude execution is a Slice 09 release gate through the packaged
-> production path; never borrow a developer login. Changed gates: all five
+> production path; never borrow a developer login. Changed gates: all six
 > runnable labs pass; SQLite was selected from the measured crash candidates;
 > runtime record validation covers every public v1 family plus the public code
-> manifest; the journal passes 31 Docker tests, repository storage 13, and Git
-> observation/reconstruction 35; the combined workspace passes build,
-> formatting, lint, types, and 103 tests. Global TODOs: rerun current-client
+> manifest; the journal passes 32 Docker tests, repository storage 14, and Git
+> observation/reconstruction 36; the combined workspace passes build,
+> formatting, lint, types, and 122 tests. Global TODOs: rerun current-client
 > authority when the registry is reachable; define verified code-state
 > continuity before enabling it; choose the release channel before Slice 12.
 > After every pass, update this prompt with the completed commit, exact next

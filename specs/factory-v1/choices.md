@@ -708,3 +708,19 @@ second normative schema; the master specification and format own mechanics.
   transaction record tied to the expected provider path.
 - **Verdict:** Sound. Ownership is narrow without extending provider schemas.
 - **Confidence:** High.
+
+### Keep parsed hook payloads out of durable Turn envelopes
+
+- **When:** Slice 06 structured-record bound review.
+- **The choice:** `events.jsonl` inventories the durable raw hook objects and
+  their observation order, but does not duplicate provider JSON as parsed
+  convenience data. Exact provider bytes remain canonical in the object store.
+- **The gap:** One hook may be tens of MiB and one Turn may contain thousands of
+  hooks; duplicating parsed values could create a structured record that the
+  bounded repository reader must refuse.
+- **The reach:** Later analyzers parse selected bounded raw objects from the CAS.
+  They cannot treat a convenience projection as stronger evidence than the raw
+  provider input.
+- **Verdict:** Sound. It removes duplication and guarantees the public graph can
+  be rebuilt within its declared record limits.
+- **Confidence:** High.

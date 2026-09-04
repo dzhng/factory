@@ -1,7 +1,17 @@
 import { Database } from 'bun:sqlite'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
-import { chmod, cp, lstat, mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises'
+import {
+  chmod,
+  cp,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  unlink,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -104,13 +114,29 @@ async function replay(
   )) {
     value.cwd = fixture.repository
     if (value.transcript_path !== undefined) value.transcript_path = transcript
-    const result = await command(
-      fixture.factory,
-      ['capture', '--provider', provider],
-      fixture.repository,
-      fixture.env,
-      `${JSON.stringify(value)}\n`,
+    const config = JSON.parse(
+      await readFile(
+        join(fixture.home, provider === 'codex' ? '.codex/hooks.json' : '.claude/settings.json'),
+        'utf8',
+      ),
     )
+    const hook = config.hooks[value.hook_event_name].at(-1).hooks[0]
+    const result =
+      provider === 'codex'
+        ? await command(
+            '/bin/sh',
+            ['-c', hook.command],
+            fixture.repository,
+            fixture.env,
+            `${JSON.stringify(value)}\n`,
+          )
+        : await command(
+            hook.command,
+            hook.args,
+            fixture.repository,
+            fixture.env,
+            `${JSON.stringify(value)}\n`,
+          )
     expect(result).toMatchObject({ code: 0, stdout: '{}\n' })
   }
   return rows
@@ -178,14 +204,41 @@ describe('installed capture vertical', () => {
     ).toEqual(['claude', 'codex'])
     expect(report.projection.triggers).toBe(2)
     expect(report.projection.issues).toEqual([])
+    for (const session of report.projection.sessions) {
+      const turns = join(
+        value.repository,
+        '.factory',
+        'sessions',
+        session.provider,
+        session.sessionKey,
+        'turns',
+      )
+      const turnId = (await readdir(turns))[0]!
+      const manifest = JSON.parse(await readFile(join(turns, turnId, 'manifest.json'), 'utf8'))
+      expect(manifest.limitations).toContainEqual({
+        code: 'missing-transcript-range',
+        detail: 'provider transcript lags the Stop assistant message',
+      })
+    }
     expect(await git(value.repository, 'rev-parse', 'HEAD')).toBe(gitHeadBefore)
     expect(await git(value.repository, 'write-tree')).toBe(gitIndexBefore)
     const providers = await readdir(join(value.repository, '.factory', 'sessions'))
     expect(providers.sort()).toEqual(['claude', 'codex'])
     const factoryDigest = await treeDigest(join(value.repository, '.factory'))
+    const commonBeforeDoctor = await git(
+      value.repository,
+      'rev-parse',
+      '--path-format=absolute',
+      '--git-common-dir',
+    )
+    const runtimeRoot = join(commonBeforeDoctor, 'factory-runtime')
+    const runtimeDigest = await treeDigest(runtimeRoot)
+    const providerDigest = await treeDigest(value.home)
     const readOnlyDoctor = await command(value.factory, ['doctor'], value.repository, value.env)
     expect(readOnlyDoctor.code).toBe(0)
     expect(await treeDigest(join(value.repository, '.factory'))).toBe(factoryDigest)
+    expect(await treeDigest(runtimeRoot)).toBe(runtimeDigest)
+    expect(await treeDigest(value.home)).toBe(providerDigest)
     const common = await git(
       value.repository,
       'rev-parse',
@@ -208,9 +261,24 @@ describe('installed capture vertical', () => {
           recursive: true,
         },
       )
+      const evidenceReport = structuredClone(rebuilt)
+      if (evidenceReport.hooks !== null && evidenceReport.hooks.error === undefined) {
+        evidenceReport.hooks.executable = '<packaged-fixture>'
+        for (const provider of ['codex', 'claude']) {
+          if (evidenceReport.hooks.providers[provider] !== undefined) {
+            evidenceReport.hooks.providers[provider] = {
+              path:
+                provider === 'codex'
+                  ? '$CODEX_HOME/hooks.json'
+                  : '$CLAUDE_CONFIG_DIR/settings.json',
+              installedEvents: evidenceReport.hooks.providers[provider].fingerprints.length,
+            }
+          }
+        }
+      }
       await writeFile(
         join(process.env.FACTORY_EVIDENCE_ROOT, 'rebuild-report.json'),
-        `${JSON.stringify(rebuilt, null, 2)}\n`,
+        `${JSON.stringify(evidenceReport, null, 2)}\n`,
       )
     }
     expect((await command(value.factory, ['uninstall'], value.repository, value.env)).code).toBe(0)
@@ -412,6 +480,28 @@ describe('installed capture vertical', () => {
     expect(afterUninstall.hooks.Stop).toContainEqual(edited.hooks.Stop.at(-1))
   })
 
+  test('provider hook remains fail-open when its installed executable crashes', async () => {
+    const value = await createFixture()
+    const failing = join(value.root, 'bin', "factory failing 'quoted'")
+    await writeFile(failing, '#!/bin/sh\nprintf partial\nexit 9\n')
+    await chmod(failing, 0o755)
+    expect(
+      (
+        await command(
+          value.factory,
+          ['install', '--executable', failing],
+          value.repository,
+          value.env,
+        )
+      ).code,
+    ).toBe(0)
+    const hooks = JSON.parse(await readFile(join(value.home, '.codex', 'hooks.json'), 'utf8'))
+    const script = hooks.hooks.Stop[0].hooks[0].command
+    expect(
+      await command('/bin/sh', ['-c', script], value.repository, value.env, '{}\n'),
+    ).toMatchObject({ code: 0, stdout: '{}\n' })
+  })
+
   test('keeps forged or unavailable transcript input partial without leaking its path', async () => {
     const value = await createFixture()
     expect((await command(value.factory, ['init'], value.repository, value.env)).code).toBe(0)
@@ -497,6 +587,78 @@ describe('installed capture vertical', () => {
     expect(report.pendingStops).toBe(1)
     expect(report.projection.triggers).toBe(0)
     expect(await git(value.repository, 'ls-files', '-u', '--', '.factory')).toBe(indexBefore)
+    expect(
+      (
+        await command(
+          'git',
+          ['update-index', '--force-remove', '.factory/config.json'],
+          value.repository,
+          value.env,
+        )
+      ).code,
+    ).toBe(0)
+    expect(
+      await command(
+        value.factory,
+        ['capture', '--provider', 'codex'],
+        value.repository,
+        value.env,
+        `${JSON.stringify({ session_id: 'conflicted-factory', hook_event_name: 'SessionEnd', cwd: value.repository })}\n`,
+      ),
+    ).toMatchObject({ code: 0, stdout: '{}\n' })
+    const resumed = JSON.parse(
+      (await command(value.factory, ['doctor'], value.repository, value.env)).stdout,
+    )
+    expect(resumed.pendingStops).toBe(0)
+    expect(resumed.projection.triggers).toBe(1)
+  })
+
+  test('does not publish an interrupted Turn prefix while .factory is conflicted', async () => {
+    const value = await createFixture()
+    expect((await command(value.factory, ['init'], value.repository, value.env)).code).toBe(0)
+    const payload = {
+      session_id: 'prefix-conflict',
+      turn_id: 'prefix-stop',
+      hook_event_name: 'Stop',
+      cwd: value.repository,
+    }
+    await command(
+      value.factory,
+      ['capture', '--provider', 'codex'],
+      value.repository,
+      value.env,
+      `${JSON.stringify(payload)}\n`,
+    )
+    const triggerRoot = join(value.repository, '.factory', 'review-triggers')
+    await unlink(join(triggerRoot, (await readdir(triggerRoot))[0]!))
+    const common = await git(
+      value.repository,
+      'rev-parse',
+      '--path-format=absolute',
+      '--git-common-dir',
+    )
+    const database = new Database(join(common, 'factory-runtime', 'journal-v1', 'journal.sqlite'))
+    database.run('DELETE FROM completions')
+    database.close(false)
+    const blob = (
+      await command(
+        'git',
+        ['hash-object', '-w', '--stdin'],
+        value.repository,
+        value.env,
+        'conflict\n',
+      )
+    ).stdout.trim()
+    const conflict = `100644 ${blob} 1\t.factory/config.json\n100644 ${blob} 2\t.factory/config.json\n100644 ${blob} 3\t.factory/config.json\n`
+    await command('git', ['update-index', '--index-info'], value.repository, value.env, conflict)
+    await command(
+      value.factory,
+      ['capture', '--provider', 'codex'],
+      value.repository,
+      value.env,
+      `${JSON.stringify({ session_id: 'prefix-conflict', hook_event_name: 'SessionEnd', cwd: value.repository })}\n`,
+    )
+    expect(await readdir(triggerRoot)).toEqual([])
   })
 })
 
