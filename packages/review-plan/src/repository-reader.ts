@@ -60,6 +60,7 @@ export async function openReviewRepositoryReader(
     maximumDepth: 16,
     allowSymlinks: true,
     rootNames: ownedRoots,
+    includeSnapshotToken: true,
   } as const
   const tree = await inventoryConfinedTree(factoryRoot, inventoryBounds)
   const after = await lstat(factoryRoot, { bigint: true })

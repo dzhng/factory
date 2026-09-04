@@ -1036,29 +1036,79 @@ async function loadReviewInputsFromReader(
           ),
         )
       : []
+  const discoveredTriggers = await Promise.all(
+    candidateTriggerIds.map(async triggerId => {
+      try {
+        return {
+          triggerId,
+          trigger: (
+            await readRequiredRecord(
+              reader,
+              makeOwnedPath('review-triggers', [`${triggerId}.json`]),
+            )
+          ).value as ReviewTrigger,
+        }
+      } catch {
+        return { triggerId }
+      }
+    }),
+  )
+  const requestedTriggers = discoveredTriggers.filter(
+    item =>
+      item.trigger === undefined ||
+      request.sessionKey === undefined ||
+      item.trigger.sessionKey === request.sessionKey,
+  )
+  const sessionLimit = effectiveLimits(request.reviewLimits).maxSessions
+  const admittedSessionKeys = new Set(
+    [...new Set(requestedTriggers.flatMap(item => item.trigger?.sessionKey ?? []))]
+      .sort()
+      .slice(0, sessionLimit),
+  )
+  const candidateScope = (triggerId: RecordId): CandidateScopeProof =>
+    subject.kind === 'workspace'
+      ? { kind: 'workspace-store', repositoryId: subject.observation.repositoryId }
+      : history.reviews.some(
+            review =>
+              sameSubject(review, subject) &&
+              review.selections.some(selection => selection.triggerId === triggerId),
+          )
+        ? {
+            kind: 'prior-plan',
+            reviewId: history.reviews.find(
+              review =>
+                sameSubject(review, subject) &&
+                review.selections.some(selection => selection.triggerId === triggerId),
+            )!.reviewId,
+          }
+        : { kind: 'diagnostic-only' }
   const candidates: ReviewCandidate[] = await Promise.all(
-    candidateTriggerIds.map(triggerId =>
-      loadCandidateEvidence(reader, {
-        triggerId,
+    requestedTriggers.map(async item => {
+      if (item.trigger !== undefined && !admittedSessionKeys.has(item.trigger.sessionKey)) {
+        return {
+          kind: 'range',
+          triggerId: item.trigger.triggerId,
+          sessionKey: item.trigger.sessionKey,
+          turnId: item.trigger.turnId,
+          evidenceWatermark: item.trigger.evidenceWatermark,
+          scopeProof: candidateScope(item.triggerId),
+          availability: 'excluded',
+          limitations: [
+            {
+              code: 'excluded-by-limit',
+              detail: 'Session evidence deferred by the configured review acquisition limit',
+            },
+          ],
+        } satisfies CandidateProblem
+      }
+      return await loadCandidateEvidence(reader, {
+        triggerId: item.triggerId,
         scopeProof:
-          subject.kind === 'workspace'
-            ? { kind: 'workspace-store', repositoryId: subject.observation.repositoryId }
-            : history.reviews.some(
-                  review =>
-                    sameSubject(review, subject) &&
-                    review.selections.some(selection => selection.triggerId === triggerId),
-                )
-              ? {
-                  kind: 'prior-plan',
-                  reviewId: history.reviews.find(
-                    review =>
-                      sameSubject(review, subject) &&
-                      review.selections.some(selection => selection.triggerId === triggerId),
-                  )!.reviewId,
-                }
-              : { kind: 'diagnostic-only' },
-      }),
-    ),
+          item.trigger === undefined && request.sessionKey !== undefined
+            ? { kind: 'diagnostic-only' }
+            : candidateScope(item.triggerId),
+      })
+    }),
   )
   const associations: CompletedAssociationGroup[] = []
   if (subject.kind === 'pull-request') {
@@ -2670,6 +2720,21 @@ async function expandInventory(
   source: ReviewObjectSource,
 ): Promise<{ bytes: Map<string, Uint8Array>; refs: ObjectRef[] }> {
   const pending = [...plan.objectInventory]
+  const historyValidationRoots = new Set(
+    plan.historySources
+      .filter(source => source.kind === 'review-manifest')
+      .flatMap(source => {
+        const value = JSON.parse(
+          new TextDecoder('utf-8', { fatal: true }).decode(source.bytes),
+        ) as ReviewManifest
+        return value.codeManifest !== undefined &&
+          value.inputProblems.some(
+            problem => problem.kind === 'subject-object' && problem.field === 'limitation',
+          )
+          ? [canonicalJson(value.codeManifest)]
+          : []
+      }),
+  )
   const omitted = new Set(
     plan.inputProblems
       .filter(
@@ -2705,7 +2770,8 @@ async function expandInventory(
     }
     if (
       ref.mediaType === 'application/vnd.factory.code-manifest+json' &&
-      ref.role === 'workspace-code-manifest'
+      ref.role === 'workspace-code-manifest' &&
+      !historyValidationRoots.has(canonicalJson(ref))
     ) {
       const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
       if (canonicalJson(JSON.parse(text)) !== text)

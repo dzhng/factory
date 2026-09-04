@@ -310,6 +310,7 @@ export class ConfinedWriter {
       maximumDepth?: number
       afterEntryOpen?: (path: readonly Uint8Array[]) => Promise<void>
       rootNames?: readonly string[]
+      includeSnapshotToken?: boolean
     },
   ): Promise<readonly { kind: 'directory' | 'file' | 'symlink'; path: string }[]> {
     const backend = await loadBackend()
@@ -332,12 +333,15 @@ export class ConfinedWriter {
       return inventory.map(item => {
         const [kind, encodedPath] = item.split(':', 2)
         if (encodedPath === undefined) throw new Error('confined inventory entry is malformed')
-        return {
+        const entry: { kind: 'directory' | 'file' | 'symlink'; path: string } = {
           kind: kind === 'd' ? 'directory' : kind === 'f' ? 'file' : 'symlink',
           path: new TextDecoder('utf-8', { fatal: true }).decode(
             Buffer.from(encodedPath, 'base64'),
           ),
         }
+        return bounds.includeSnapshotToken
+          ? { ...entry, snapshotToken: item.slice(item.indexOf(':', 2) + 1) }
+          : entry
       })
     } finally {
       await root.close()
@@ -829,6 +833,7 @@ export async function inventoryConfinedTree(
     afterEntryOpen?: (path: readonly Uint8Array[]) => Promise<void>
     allowSymlinks?: boolean
     rootNames?: readonly string[]
+    includeSnapshotToken?: boolean
   },
 ) {
   const inventory = await ConfinedWriter.inspectTree(path, bounds)

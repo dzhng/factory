@@ -9,6 +9,7 @@ import {
   encodeGitPath,
   makeOwnedPath,
   newRecordId,
+  objectOwnedPath,
   reviewInputProblemId,
   reviewSubjectCoverageId,
   type ObjectRef,
@@ -182,6 +183,85 @@ describe('verified review bundles', () => {
     expect((await reader.read(triggerPath)).kind).toBe('readable')
   })
 
+  test('production loading enumerates triggers before Session filtering and bounds graph acquisition', async () => {
+    const value = fixture()
+    const candidate = value.input.candidates[0]!
+    if (!('trigger' in candidate) || value.input.subject.kind !== 'workspace')
+      throw new Error('expected readable workspace fixture')
+    const root = await mkdtemp(join(tmpdir(), 'factory-review-acquisition-'))
+    roots.push(root)
+    const put = async (path: string, bytes: Uint8Array) => {
+      const destination = join(root, path)
+      await mkdir(join(destination, '..'), { recursive: true })
+      await writeFile(destination, bytes)
+    }
+    const subjectPath = makeOwnedPath('repository-observations', [
+      `${value.input.subject.observation.observationId}.json`,
+    ])
+    const turnRoot = `sessions/codex/${candidate.identity.sessionKey}/turns/${candidate.turn.turnId}`
+    await put(subjectPath, new TextEncoder().encode(canonicalJson(value.input.subject.observation)))
+    await put(
+      makeOwnedPath('sessions', ['codex', candidate.identity.sessionKey, 'identity.json']),
+      new TextEncoder().encode(canonicalJson(candidate.identity)),
+    )
+    await put(`${turnRoot}/manifest.json`, new TextEncoder().encode(canonicalJson(candidate.turn)))
+    await put(
+      `${turnRoot}/events.jsonl`,
+      new TextEncoder().encode(candidate.events.map(canonicalJson).join('')),
+    )
+    await put(`${turnRoot}/transcript.jsonl`, new Uint8Array())
+    await put(
+      makeOwnedPath('review-triggers', [`${candidate.trigger.triggerId}.json`]),
+      new TextEncoder().encode(canonicalJson(candidate.trigger)),
+    )
+    const deferredTrigger: ReviewTrigger = {
+      ...candidate.trigger,
+      triggerId: newRecordId('trigger', 20, new Uint8Array(10)),
+      sessionKey: 'session-z',
+      turnId: newRecordId('turn', 20, new Uint8Array(10)),
+    }
+    await put(
+      makeOwnedPath('review-triggers', [`${deferredTrigger.triggerId}.json`]),
+      new TextEncoder().encode(canonicalJson(deferredTrigger)),
+    )
+    const opaqueId = newRecordId('trigger', 21, new Uint8Array(10))
+    await put(
+      makeOwnedPath('review-triggers', [`${opaqueId}.json`]),
+      new TextEncoder().encode('{}\n'),
+    )
+    for (const [hash, bytes] of value.objects) await put(objectOwnedPath(hash), bytes)
+    const reader = await openReviewRepositoryReader(root)
+    const history = await loadReviewHistory(reader)
+    const bounded = planLoadedReview(
+      await loadReviewInputs(reader, {
+        mode: 'incremental',
+        subjectPath,
+        history,
+        policies: value.input.policies,
+        reviewLimits: { maxSessions: 1 },
+      }),
+    )
+    expect(bounded.selections).toContainEqual(
+      expect.objectContaining({
+        triggerId: deferredTrigger.triggerId,
+        coverageEffect: 'deferred-by-limit',
+      }),
+    )
+    const named = planLoadedReview(
+      await loadReviewInputs(reader, {
+        mode: 'incremental',
+        subjectPath,
+        history,
+        policies: value.input.policies,
+        sessionKey: candidate.identity.sessionKey,
+      }),
+    )
+    expect(named.selections.find(selection => selection.triggerId === opaqueId)).toEqual(
+      expect.objectContaining({ coverageEffect: 'out-of-scope' }),
+    )
+    expect(named.limitations).toEqual([])
+  })
+
   test('history limitation problems must name an object owned by the exact code manifest', async () => {
     const value = fixture()
     if (value.input.subject.kind !== 'workspace') throw new Error('expected workspace fixture')
@@ -268,6 +348,83 @@ describe('verified review bundles', () => {
         coverageActionPaths: [],
       }),
     ).rejects.toThrow('not owned by its code manifest')
+
+    const originalCode = JSON.parse(
+      new TextDecoder().decode(
+        value.objects.get(value.input.subject.observation.codeManifest!.sha256),
+      ),
+    )
+    const historicalCodeBytes = new TextEncoder().encode(
+      canonicalJson({ ...originalCode, limitations: [limitation] }),
+    )
+    const historicalCode = object(
+      historicalCodeBytes,
+      'application/vnd.factory.code-manifest+json',
+      'workspace-code-manifest',
+    )
+    value.objects.set(historicalCode.sha256, historicalCodeBytes)
+    const historicalObservation = {
+      ...value.input.subject.observation,
+      observationId: newRecordId('observation', 3, new Uint8Array(10)),
+      codeManifest: historicalCode,
+      worktreeFingerprint: historicalCode.sha256,
+    }
+    const historicalPlan = planReview({
+      ...value.input,
+      subject: { kind: 'workspace', observation: historicalObservation },
+      candidates: [],
+    })
+    const historicalSubjectPath = makeOwnedPath('repository-observations', [
+      `${historicalObservation.observationId}.json`,
+    ])
+    const validManifest = {
+      ...manifest,
+      subject: {
+        kind: 'workspace' as const,
+        repositoryObservationId: historicalObservation.observationId,
+      },
+      subjectFingerprint: historicalPlan.subjectFingerprint,
+      codeManifest: historicalCode,
+      subjectAttempt: {
+        fingerprint: historicalPlan.subjectFingerprint,
+        coverageId: reviewSubjectCoverageId(historicalPlan.subjectFingerprint, [limitation]),
+        effect: 'reviewed-partial' as const,
+        limitations: [limitation],
+      },
+    }
+    records.set(manifestPath, new TextEncoder().encode(canonicalJson(validManifest)))
+    records.set(
+      historicalSubjectPath,
+      new TextEncoder().encode(canonicalJson(historicalObservation)),
+    )
+    const historicalReader: ReviewRepositoryReader = {
+      ...reader,
+      getObject: async reference => {
+        const bytes = value.objects.get(reference.sha256)
+        return bytes === undefined
+          ? { kind: 'missing', detail: reference.sha256 }
+          : { kind: 'readable', bytes }
+      },
+    }
+    const history = await loadReviewHistoryForTesting(historicalReader, {
+      reviews: [{ manifestPath }],
+      coverageActionPaths: [],
+    })
+    const loaded = await loadReviewInputsForTesting(historicalReader, {
+      mode: 'incremental',
+      subjectPath,
+      history,
+      policies: value.input.policies,
+    })
+    const plan = planLoadedReview(loaded)
+    const parent = await mkdtemp(join(tmpdir(), 'factory-review-history-limitation-'))
+    roots.push(parent)
+    const built = await buildBundle(
+      plan,
+      { getObject: async reference => value.objects.get(reference.sha256)! },
+      join(parent, 'bundle'),
+    )
+    expect((await verifyBundle(built.path, built.sha256)).valid).toBe(true)
   })
 
   test('plans and bundles from immutable loaded history without old subject object closure', async () => {
