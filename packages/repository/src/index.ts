@@ -54,6 +54,14 @@ export type RecordRef = {
 
 export type ImmutableGroupRecord = { path: OwnedPath; bytes: Uint8Array }
 
+export type ReviewPublicationAuthority = {
+  repositoryId?: string
+  subjectPath: OwnedPath
+  subjectRecord: string
+  records: readonly { path: OwnedPath; sha256: string }[]
+  inventory: readonly ObjectRef[]
+}
+
 export type RepositoryRecords = {
   records: readonly { path: OwnedPath; value: JsonValue | string }[]
 }
@@ -578,6 +586,59 @@ export class RepositoryStore {
     })
     const commit = ordered.at(-1)!
     return { path: commit.path, sha256: sha256(commit.bytes), bytes: commit.bytes.byteLength }
+  }
+
+  /** Verify a bundle's repository authority and publish its review under one mutation lock. */
+  async publishReview(
+    authority: ReviewPublicationAuthority,
+    records: readonly ImmutableGroupRecord[],
+    commitPath: OwnedPath,
+  ): Promise<RecordRef> {
+    const snapshots = records.map(record => ({ path: record.path, bytes: record.bytes.slice() }))
+    const reviewCommit =
+      /^reviews\/workspace\/[^/]+\/manifest\.json$/.test(commitPath) ||
+      /^reviews\/pull-requests\/github\/[^/]+\/[1-9]\d*\/[^/]+\/manifest\.json$/.test(commitPath)
+    if (!reviewCommit) throw new TypeError('review publication requires a review manifest')
+    const root = `${dirname(commitPath)}/`
+    const paths = new Set<string>()
+    for (const record of snapshots) {
+      if (!record.path.startsWith(root) || paths.has(record.path))
+        throw new TypeError('review publication contains an invalid path set')
+      paths.add(record.path)
+      validateStructuredRecord(record.path, record.bytes)
+    }
+    const manifest = snapshots.find(record => record.path === commitPath)
+    if (manifest === undefined) throw new TypeError('review publication manifest is absent')
+    const disposition = (JSON.parse(decodeUtf8(manifest.bytes)) as { disposition: string })
+      .disposition
+    const expected =
+      disposition === 'failed'
+        ? [commitPath, `${root}response.txt`]
+        : [commitPath, `${root}response.txt`, `${root}ledger.json`]
+    if (canonicalJson([...paths].sort()) !== canonicalJson(expected.sort()))
+      throw new TypeError('review publication has the wrong manifest/response/ledger shape')
+    const ordered = [...snapshots.filter(record => record.path !== commitPath), manifest]
+    await this.withMutationLock(async () => {
+      if (
+        authority.repositoryId !== undefined &&
+        authority.repositoryId !== this.manifest.repositoryId
+      )
+        throw new TypeError('review bundle belongs to a different repository')
+      for (const record of authority.records) await this.readImmutable(record.path, record.sha256)
+      const subjectBytes = await this.readImmutable(authority.subjectPath)
+      if (decodeUtf8(subjectBytes) !== authority.subjectRecord)
+        throw new TypeError('review subject differs from the target repository')
+      for (const object of authority.inventory) await this.getObject(object)
+      for (const record of ordered) {
+        const destination = await ensureOwnedParent(this.factoryRoot, record.path)
+        await atomicCreate(destination, record.path, record.bytes, this.stagingRoot)
+      }
+    })
+    return {
+      path: manifest.path,
+      sha256: sha256(manifest.bytes),
+      bytes: manifest.bytes.byteLength,
+    }
   }
 
   /** Rebuild input: validated owned records, with CAS bytes intentionally excluded. */

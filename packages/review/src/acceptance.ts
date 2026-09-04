@@ -202,13 +202,6 @@ export async function acceptReview(
 ): Promise<AcceptedReview> {
   const state = validatedAttempts.get(attempt)
   if (state === undefined) throw new TypeError('review attempt was not validated')
-  if (state.repositoryId !== undefined && state.repositoryId !== store.manifest.repositoryId)
-    throw new TypeError('review bundle belongs to a different repository')
-  for (const record of state.records) await store.readImmutable(record.path, record.sha256)
-  const subjectBytes = await store.readImmutable(state.subjectPath)
-  if (new TextDecoder('utf-8', { fatal: true }).decode(subjectBytes) !== state.subjectRecord)
-    throw new TypeError('review subject differs from the target repository')
-  for (const object of state.inventory) await store.getObject(object)
   const responsePath = makeOwnedPath('reviews', [...state.rootSegments, 'response.txt'])
   const manifestPath = makeOwnedPath('reviews', [...state.rootSegments, 'manifest.json'])
   const records = [
@@ -223,7 +216,17 @@ export async function acceptReview(
         ]),
     { path: manifestPath, bytes: new TextEncoder().encode(canonicalJson(state.manifest)) },
   ]
-  await store.publishImmutableGroup(records, manifestPath)
+  await store.publishReview(
+    {
+      ...(state.repositoryId === undefined ? {} : { repositoryId: state.repositoryId }),
+      subjectPath: state.subjectPath,
+      subjectRecord: state.subjectRecord,
+      records: state.records,
+      inventory: state.inventory,
+    },
+    records,
+    manifestPath,
+  )
   return {
     reviewId: state.manifest.reviewId,
     disposition: state.manifest.disposition,

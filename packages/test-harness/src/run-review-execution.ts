@@ -73,6 +73,14 @@ async function main() {
         manifest = JSON.parse(new TextDecoder().decode(value.bytes)) as ReviewManifest
         return { path: value.path, sha256: '', bytes: value.bytes.byteLength }
       },
+      async publishReview(
+        _authority: unknown,
+        records: readonly { path: string; bytes: Uint8Array }[],
+      ) {
+        const value = records.find(record => record.path.endsWith('manifest.json'))!
+        manifest = JSON.parse(new TextDecoder().decode(value.bytes)) as ReviewManifest
+        return { path: value.path, sha256: '', bytes: value.bytes.byteLength }
+      },
     } as unknown as RepositoryStore
     const accepted = await acceptReview(validated, store)
     if (

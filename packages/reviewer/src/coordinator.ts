@@ -1,9 +1,9 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
-import { chmod, mkdir, open, realpath, rename, unlink } from 'node:fs/promises'
+import { chmod, lstat, mkdir, open, readdir, realpath, rename, rm, unlink } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 
-import { canonicalJson, newRecordId, type RecordId } from '@factory/contract'
+import { canonicalJson, newRecordId, type RecordId, type ReviewManifest } from '@factory/contract'
 import { withAdvisoryFileLock } from '@factory/repository'
 import { locateGitCommonRuntime } from '@factory/runtime-journal'
 
@@ -15,6 +15,7 @@ import {
 } from './attempt'
 import { readVerifiedReviewBundle, type ReviewerChoice, type VerifiedReviewBundle } from './bundle'
 import type { ReviewerExecutionInput, ReviewerExecutor } from './execution'
+import { cleanupOwnedReviewerContainer } from './probe'
 
 export type ReviewAttemptBoundary = 'identity-persisted' | 'attempt-persisted'
 
@@ -50,6 +51,20 @@ type AttemptState =
       containerIdentity: { name: string; label: string }
       attempt: PersistedSnapshot
     }
+  | {
+      schemaVersion: 1
+      key: string
+      reviewId: RecordId
+      phase: 'finalized'
+      containerIdentity: { name: string; label: string }
+    }
+
+export class ReviewAttemptAlreadyFinalizedError extends Error {
+  constructor(readonly reviewId: RecordId) {
+    super(`Review attempt is already finalized: ${reviewId}`)
+    this.name = 'ReviewAttemptAlreadyFinalizedError'
+  }
+}
 
 function attemptKey(
   verified: Awaited<ReturnType<typeof readVerifiedReviewBundle>>,
@@ -71,9 +86,41 @@ function attemptKey(
     .digest('hex')
 }
 
+function acceptedAttemptKey(review: ReviewManifest): string {
+  return createHash('sha256')
+    .update(
+      canonicalJson({
+        bundleSha256: review.bundleSha256,
+        reviewer: review.reviewer,
+        imageDigest: review.containerImageDigest,
+        analyzerVersion: review.analyzerVersion,
+        promptVersion: review.promptVersion,
+        policyVersion: review.policyVersion,
+        formatVersion: review.formatVersion,
+      }),
+    )
+    .digest('hex')
+}
+
 async function privateDirectory(path: string): Promise<void> {
   await mkdir(path, { recursive: true, mode: 0o700 })
   await chmod(path, 0o700)
+}
+
+async function cleanupStartedArtifacts(
+  attemptRoot: string,
+  containerIdentity: { name: string; label: string },
+  timeoutMs: number,
+): Promise<void> {
+  await cleanupOwnedReviewerContainer(containerIdentity, timeoutMs)
+  for (const entry of await readdir(attemptRoot, { withFileTypes: true })) {
+    if (!entry.name.startsWith('review-output-')) continue
+    const path = join(attemptRoot, entry.name)
+    const info = await lstat(path)
+    if (info.isSymbolicLink() || !info.isDirectory())
+      throw new Error('review runtime contains an unsafe output artifact')
+    await rm(path, { recursive: true })
+  }
 }
 
 async function atomicState(path: string, value: AttemptState): Promise<void> {
@@ -159,7 +206,8 @@ function isAttemptState(value: unknown): value is AttemptState {
     Object.keys(identity).sort().join(',') !== 'label,name'
   )
     return false
-  if (state.phase === 'started') return Object.keys(state).length === 5
+  if (state.phase === 'started' || state.phase === 'finalized')
+    return Object.keys(state).length === 5
   if (state.phase !== 'completed' || state.attempt === null || typeof state.attempt !== 'object')
     return false
   const attemptKeys = Object.keys(state.attempt as Record<string, unknown>).sort()
@@ -243,6 +291,9 @@ export class ReviewAttemptCoordinator {
           if (state.schemaVersion !== 1 || state.key !== key)
             throw new Error('review attempt state is corrupt')
           if (state.phase === 'completed') return restored(state.attempt)
+          if (state.phase === 'finalized')
+            throw new ReviewAttemptAlreadyFinalizedError(state.reviewId)
+          await cleanupStartedArtifacts(attemptRoot, state.containerIdentity, input.timeoutMs)
           return await this.executeStarted(
             state.reviewId,
             key,
@@ -294,18 +345,57 @@ export class ReviewAttemptCoordinator {
       24 * 60 * 60 * 1_000,
       async () => {
         const state = await readState(statePath)
-        if (state === undefined) return
-        if (state.key !== key || state.reviewId !== reviewId || state.phase !== 'completed')
+        if (state === undefined) throw new Error('review attempt finalization state is absent')
+        if (state.key !== key || state.reviewId !== reviewId)
           throw new Error('review attempt finalization identity differs from durable state')
-        await unlink(statePath)
-        const directory = await open(attemptRoot, constants.O_RDONLY)
-        try {
-          await directory.sync()
-        } finally {
-          await directory.close()
-        }
+        if (state.phase === 'finalized') return
+        if (state.phase !== 'completed')
+          throw new Error('review attempt is not complete enough to finalize')
+        await atomicState(statePath, {
+          schemaVersion: 1,
+          key,
+          reviewId,
+          phase: 'finalized',
+          containerIdentity: state.containerIdentity,
+        })
       },
     )
+  }
+
+  /** Reconcile acceptance that committed before a process died during finalization. */
+  async reconcileAccepted(reviews: readonly ReviewManifest[]): Promise<void> {
+    for (const review of reviews) {
+      const key = acceptedAttemptKey(review)
+      const attemptRoot = join(this.runtimeRoot, key)
+      const statePath = join(attemptRoot, 'state.json')
+      let state = await readState(statePath)
+      if (state === undefined || state.phase === 'finalized' || state.phase === 'started') continue
+      const observed = readReviewerRawAttempt(restored(state.attempt))
+      if (
+        observed.reviewId !== review.reviewId ||
+        observed.bundleSha256 !== review.bundleSha256 ||
+        canonicalJson(observed.reviewer.settings) !== canonicalJson(review.reviewer) ||
+        observed.imageDigest !== review.containerImageDigest
+      )
+        throw new Error('accepted review differs from its durable attempt state')
+      await withAdvisoryFileLock(
+        join(attemptRoot, 'attempt.lock'),
+        24 * 60 * 60 * 1_000,
+        async () => {
+          state = await readState(statePath)
+          if (state === undefined || state.phase === 'finalized') return
+          if (state.phase !== 'completed' || state.reviewId !== review.reviewId)
+            throw new Error('review attempt changed during acceptance reconciliation')
+          await atomicState(statePath, {
+            schemaVersion: 1,
+            key,
+            reviewId: review.reviewId,
+            phase: 'finalized',
+            containerIdentity: state.containerIdentity,
+          })
+        },
+      )
+    }
   }
 
   private async executeStarted(

@@ -6,7 +6,12 @@ import { dirname } from 'node:path'
 
 const scenario = process.argv[2] ?? 'success'
 const provider = process.argv[3] ?? 'fake'
-const authPath = provider === 'codex' ? '/auth/codex/auth.json' : '/auth/claude/.credentials.json'
+const authPath =
+  provider === 'codex'
+    ? '/auth/codex/auth.json'
+    : provider === 'claude'
+      ? '/auth/claude/.credentials.json'
+      : '/auth/fake/credentials.json'
 
 if (scenario === 'hang') {
   await new Promise(() => undefined)

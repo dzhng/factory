@@ -1,7 +1,6 @@
 import { constants } from 'node:fs'
-import { chmod, lstat, mkdtemp, open, readdir, rm } from 'node:fs/promises'
+import { chmod, mkdtemp, open, rm } from 'node:fs/promises'
 import { platform, arch } from 'node:os'
-import { join } from 'node:path'
 
 import type { RecordId } from '@factory/contract'
 import { canonicalJson } from '@factory/contract'
@@ -9,7 +8,7 @@ import { canonicalJson } from '@factory/contract'
 import { sealReviewerRawAttempt, type ReviewerRawAttempt } from './attempt'
 import { readVerifiedReviewBundle, type ReviewerChoice, type VerifiedReviewBundle } from './bundle'
 import { planReviewerIsolation, type ReadonlyAuthMount } from './index'
-import { cleanupOwnedReviewerContainer, runIsolationProbe } from './probe'
+import { runIsolationProbe } from './probe'
 
 export type ReviewerExecutionInput = {
   reviewId: RecordId
@@ -95,17 +94,10 @@ export const dockerReviewerExecutor: ReviewerExecutor = {
     }
     const now = input.now ?? (() => new Date())
     const startedAt = now().toISOString()
+    const deadline = Date.now() + input.timeoutMs
+    const remaining = () => Math.max(1, deadline - Date.now())
     let outputHostPath: string | undefined
     try {
-      await cleanupOwnedReviewerContainer(input.containerIdentity, input.timeoutMs)
-      for (const entry of await readdir(input.runtimeRoot, { withFileTypes: true })) {
-        if (!entry.name.startsWith('review-output-')) continue
-        const path = join(input.runtimeRoot, entry.name)
-        const info = await lstat(path)
-        if (info.isSymbolicLink() || !info.isDirectory())
-          throw new Error('review runtime contains an unsafe output artifact')
-        await rm(path, { recursive: true })
-      }
       outputHostPath = await mkdtemp(`${input.runtimeRoot}/review-output-`)
       await chmod(outputHostPath, 0o777)
       const plan = planReviewerIsolation({
@@ -128,7 +120,7 @@ export const dockerReviewerExecutor: ReviewerExecutor = {
         },
         containerIdentity: input.containerIdentity,
         scenario: 'review',
-        timeoutMs: input.timeoutMs,
+        timeoutMs: remaining(),
         ...(input.signal === undefined ? {} : { signal: input.signal }),
       })
       const response = await readResponsePrefix(`${outputHostPath}/response.txt`)

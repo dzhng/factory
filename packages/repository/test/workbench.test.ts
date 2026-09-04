@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
+import { createHash } from 'node:crypto'
 import { lstat, mkdir, mkdtemp, readFile, rm, symlink, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -540,5 +541,57 @@ describe('sole repository writer', () => {
     await expect(
       store.publishImmutableGroup(conflicting, complete.manifestPath),
     ).rejects.toBeInstanceOf(ImmutableRecordConflictError)
+  })
+
+  test('verifies review repository authority atomically before publication', async () => {
+    const root = await fixtureRoot()
+    const store = await initializeRepositoryStore(root, manifest, {})
+    const subjectPath = makeOwnedPath('review-triggers', [`${recordId('trigger')}.json`])
+    const subjectBytes = new TextEncoder().encode(canonicalJson(trigger))
+    const subjectSha256 = createHash('sha256').update(subjectBytes).digest('hex')
+    await store.publishImmutableGroup([{ path: subjectPath, bytes: subjectBytes }], subjectPath)
+    const review = reviewRecords(recordId('review'))
+    const authority = {
+      repositoryId: manifest.repositoryId,
+      subjectPath,
+      subjectRecord: canonicalJson(trigger),
+      records: [{ path: subjectPath, sha256: subjectSha256 }],
+      inventory: [],
+    }
+
+    await expect(
+      store.publishReview(
+        { ...authority, records: [{ path: subjectPath, sha256: 'f'.repeat(64) }] },
+        review.records,
+        review.manifestPath,
+      ),
+    ).rejects.toThrow('failed verification')
+    await expect(
+      store.publishReview(
+        { ...authority, subjectRecord: canonicalJson({ ...trigger, evidenceWatermark: 99 }) },
+        review.records,
+        review.manifestPath,
+      ),
+    ).rejects.toThrow('subject differs')
+    await expect(
+      store.publishReview(
+        {
+          ...authority,
+          inventory: [
+            {
+              algorithm: 'sha256',
+              sha256: 'e'.repeat(64),
+              bytes: 1,
+              mediaType: 'text/plain',
+              role: 'missing-test-object',
+            },
+          ],
+        },
+        review.records,
+        review.manifestPath,
+      ),
+    ).rejects.toThrow()
+    await store.publishReview(authority, review.records, review.manifestPath)
+    expect(await store.readImmutable(review.manifestPath)).toEqual(review.records.at(-1)!.bytes)
   })
 })

@@ -45,7 +45,7 @@ async function authorizedStore(
   methods: Record<string, unknown>,
 ): Promise<RepositoryStore> {
   const verified = await readVerifiedReviewBundle(bundle)
-  return {
+  const store = {
     manifest: { repositoryId: verified.authority.repositoryId ?? 'repo_review_lab' },
     async readImmutable() {
       return new TextEncoder().encode(canonicalJson(verified.authority.subjectRecord))
@@ -54,7 +54,25 @@ async function authorizedStore(
       return new Uint8Array()
     },
     ...methods,
-  } as unknown as RepositoryStore
+  } as Record<string, unknown> & { manifest: { repositoryId: string } }
+  store.publishReview = async (
+    authority: { repositoryId?: string },
+    records: readonly { path: string; bytes: Uint8Array }[],
+    commitPath: string,
+  ) => {
+    if (
+      authority.repositoryId !== undefined &&
+      authority.repositoryId !== store.manifest.repositoryId
+    )
+      throw new TypeError('review bundle belongs to a different repository')
+    return await (
+      methods.publishImmutableGroup as (
+        records: readonly { path: string; bytes: Uint8Array }[],
+        commitPath: string,
+      ) => Promise<unknown>
+    )(records, commitPath)
+  }
+  return store as unknown as RepositoryStore
 }
 
 describe('immutable review acceptance', () => {

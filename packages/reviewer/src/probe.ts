@@ -113,6 +113,21 @@ async function runCommand(
     let termination: ProbeTermination = 'completed'
     let settled = false
     let outputBytes = 0
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let killTimer: ReturnType<typeof setTimeout> | undefined
+
+    const cleanup = () => {
+      if (timer !== undefined) clearTimeout(timer)
+      if (killTimer !== undefined) clearTimeout(killTimer)
+      options.signal?.removeEventListener('abort', abort)
+    }
+    const fail = (error: Error) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      child.kill('SIGKILL')
+      reject(error)
+    }
 
     child.stdout.setEncoding('utf8')
     child.stderr.setEncoding('utf8')
@@ -120,9 +135,7 @@ async function runCommand(
       if (settled) return
       outputBytes += Buffer.byteLength(chunk)
       if (outputBytes > 1024 * 1024) {
-        settled = true
-        child.kill('SIGKILL')
-        reject(new Error('Docker command output exceeds byte bound'))
+        fail(new Error('Docker command output exceeds byte bound'))
         return
       }
       if (target === 'stdout') stdout += chunk
@@ -134,11 +147,9 @@ async function runCommand(
     const finish = (exitCode: number | null) => {
       if (settled) return
       settled = true
-      if (timer !== undefined) clearTimeout(timer)
-      options.signal?.removeEventListener('abort', abort)
+      cleanup()
       resolve({ exitCode, stdout, stderr, termination })
     }
-    let killTimer: ReturnType<typeof setTimeout> | undefined
     const stop = (reason: Exclude<ProbeTermination, 'completed'>) => {
       if (settled) return
       termination = reason
@@ -146,13 +157,12 @@ async function runCommand(
       killTimer = setTimeout(() => child.kill('SIGKILL'), 1_000)
     }
     const abort = () => stop('cancelled')
-    const timer = setTimeout(() => stop('timed-out'), options.timeoutMs ?? 30_000)
+    timer = setTimeout(() => stop('timed-out'), options.timeoutMs ?? 30_000)
 
     if (options.signal?.aborted) abort()
     else options.signal?.addEventListener('abort', abort, { once: true })
-    child.on('error', reject)
+    child.on('error', error => fail(error))
     child.on('close', code => {
-      if (killTimer !== undefined) clearTimeout(killTimer)
       finish(code)
     })
   })
@@ -228,6 +238,11 @@ export async function runIsolationProbe(
     throw new Error(`Reviewer mount plan refused (${resolved.reason}): ${resolved.detail}`)
   }
   plan = resolved.plan
+  const deadline = Date.now() + (options.timeoutMs ?? 30_000)
+  const commandOptions = () => ({
+    timeoutMs: Math.max(1, deadline - Date.now()),
+    ...(options.signal !== undefined ? { signal: options.signal } : {}),
+  })
 
   const [bundle, output, ...auth] = await Promise.all([
     stat(plan.bundle.hostPath),
@@ -239,13 +254,11 @@ export async function runIsolationProbe(
   }
   const containerName = options.containerIdentity?.name ?? `factory-isolation-${randomUUID()}`
   const reviewSnapshotBytes = snapshotTmpfsBytes(options.bundleBytes)
-  const observedImage = await runCommand('docker', [
-    'image',
-    'inspect',
-    '--format',
-    '{{.Id}}',
-    options.imageDigest,
-  ])
+  const observedImage = await runCommand(
+    'docker',
+    ['image', 'inspect', '--format', '{{.Id}}', options.imageDigest],
+    commandOptions(),
+  )
   if (observedImage.exitCode !== 0 || observedImage.stdout.trim() !== options.imageDigest) {
     throw new Error('Docker could not verify the requested reviewer image ID')
   }
@@ -301,11 +314,11 @@ export async function runIsolationProbe(
   let removalFailure: Error | undefined
   try {
     creationAttempted = true
-    const created = await runCommand('docker', dockerArgs)
+    const created = await runCommand('docker', dockerArgs, commandOptions())
     if (created.exitCode !== 0) {
       throw new Error(`Docker refused reviewer container: ${created.stderr.trim()}`)
     }
-    const inspected = await runCommand('docker', ['inspect', containerName])
+    const inspected = await runCommand('docker', ['inspect', containerName], commandOptions())
     if (inspected.exitCode !== 0) {
       throw new Error('Docker could not inspect the reviewer container')
     }
@@ -390,24 +403,23 @@ export async function runIsolationProbe(
     ) {
       throw new Error('Docker reviewer container did not satisfy the required security policy')
     }
-    const started = await runCommand('docker', ['start', containerName])
+    const started = await runCommand('docker', ['start', containerName], commandOptions())
     if (started.exitCode !== 0) {
       throw new Error(`Docker could not start reviewer container: ${started.stderr.trim()}`)
     }
     const waited = await runCommand('docker', ['wait', containerName], {
-      timeoutMs: options.timeoutMs,
-      signal: options.signal,
+      ...commandOptions(),
     })
     const containerExitCode =
       waited.termination === 'completed' ? Number.parseInt(waited.stdout.trim(), 10) : null
     result = { ...waited, exitCode: containerExitCode }
     if (waited.termination !== 'completed') {
-      const killed = await runCommand('docker', ['kill', containerName])
+      const killed = await runCommand('docker', ['kill', containerName], { timeoutMs: 5_000 })
       if (killed.exitCode !== 0) {
         throw new Error(`Docker could not stop reviewer container: ${killed.stderr.trim()}`)
       }
     }
-    const logs = await runCommand('docker', ['logs', containerName])
+    const logs = await runCommand('docker', ['logs', containerName], { timeoutMs: 5_000 })
     if (logs.exitCode !== 0) {
       throw new Error(`Docker could not read reviewer logs: ${logs.stderr.trim()}`)
     }
@@ -419,7 +431,9 @@ export async function runIsolationProbe(
     probeFailure = error
   } finally {
     if (creationAttempted) {
-      const removed = await runCommand('docker', ['rm', '--force', containerName])
+      const removed = await runCommand('docker', ['rm', '--force', containerName], {
+        timeoutMs: 5_000,
+      })
       if (removed.exitCode !== 0 && !removed.stderr.toLowerCase().includes('no such container'))
         removalFailure = new Error(
           `Docker could not remove reviewer container: ${removed.stderr.trim()}`,
@@ -440,7 +454,7 @@ export async function runIsolationProbe(
   if (containerPolicy === undefined) {
     throw new Error('Docker probe policy was not observed')
   }
-  const inspect = await runCommand('docker', ['inspect', containerName])
+  const inspect = await runCommand('docker', ['inspect', containerName], { timeoutMs: 5_000 })
   if (inspect.exitCode === 0 || !inspect.stderr.toLowerCase().includes('no such object')) {
     throw new Error('Docker could not prove the reviewer container was removed')
   }

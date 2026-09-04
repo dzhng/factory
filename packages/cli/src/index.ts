@@ -44,6 +44,7 @@ import {
   type RepositoryId,
   type OwnedPath,
   type ReviewLedger,
+  type ReviewManifest,
 } from '@factory/contract'
 import {
   initializeRepositoryStore,
@@ -63,6 +64,7 @@ import {
 } from '@factory/review-plan'
 import {
   REVIEW_PROMPT_VERSION,
+  ReviewAttemptAlreadyFinalizedError,
   ReviewAttemptCoordinator,
   dockerReviewerExecutor,
   openVerifiedReviewBundle,
@@ -1119,7 +1121,14 @@ async function reviewCommand(
       'factory review execution is unavailable until current-subject observation and packaged reviewer authority are configured',
     )
   const store = await openRepositoryStore(repositoryRoot)
-  const subjectPath = latestSubjectPath((await store.readRecords()).records, options.pullRequest)
+  const stored = await store.readRecords()
+  const coordinator = await ReviewAttemptCoordinator.open({ repositoryRoot })
+  await coordinator.reconcileAccepted(
+    stored.records
+      .filter(record => /^reviews\/.*\/manifest\.json$/.test(record.path))
+      .map(record => record.value as unknown as ReviewManifest),
+  )
+  const subjectPath = latestSubjectPath(stored.records, options.pullRequest)
   const reader = await openReviewRepositoryReader(store.factoryRoot)
   const history = await loadReviewHistory(reader)
   const evidence = await loadReviewInputs(reader, {
@@ -1155,22 +1164,28 @@ async function reviewCommand(
   const imageDigest = environment.FACTORY_REVIEWER_IMAGE_DIGEST
   if (!imageDigest || !/^sha256:[0-9a-f]{64}$/.test(imageDigest))
     throw new Error('FACTORY_REVIEWER_IMAGE_DIGEST must pin an immutable reviewer image')
-  const coordinator = await ReviewAttemptCoordinator.open({ repositoryRoot })
   const bundleParent = await mkdtemp(join(coordinator.runtimeRoot, 'review-bundle-'))
   try {
     const built = await buildBundle(plan, store, join(bundleParent, 'bundle'))
     const bundle = await openVerifiedReviewBundle(built.path, built.sha256)
     const mount = auth.mounts[selected.choice.settings.provider]
-    const raw = await coordinator.run(
-      bundle,
-      selected.choice,
-      selected.kind === 'selected' ? dockerReviewerExecutor : unavailableReviewerExecutor(),
-      {
-        imageDigest,
-        auth: mount === undefined ? [] : [mount],
-        timeoutMs: 10 * 60 * 1000,
-      },
-    )
+    let raw
+    try {
+      raw = await coordinator.run(
+        bundle,
+        selected.choice,
+        selected.kind === 'selected' ? dockerReviewerExecutor : unavailableReviewerExecutor(),
+        {
+          imageDigest,
+          auth: mount === undefined ? [] : [mount],
+          timeoutMs: 10 * 60 * 1000,
+        },
+      )
+    } catch (error) {
+      if (!(error instanceof ReviewAttemptAlreadyFinalizedError)) throw error
+      output.stdout(canonicalJson({ schemaVersion: 1, status: 'already-reviewed' }))
+      return 0
+    }
     const accepted = await acceptReview(await validateReview(bundle, raw), store)
     await coordinator.finalize(bundle, selected.choice, imageDigest, accepted.reviewId)
     let enforced = false

@@ -5,7 +5,7 @@ import { join } from 'node:path'
 
 import { openVerifiedReviewBundle, readReviewerRawAttempt } from '../src'
 import { sealReviewerRawAttempt } from '../src/attempt'
-import { ReviewAttemptCoordinator } from '../src/coordinator'
+import { ReviewAttemptAlreadyFinalizedError, ReviewAttemptCoordinator } from '../src/coordinator'
 
 async function fixture() {
   const root = join(import.meta.dir, '../../../specs/factory-v1/assets/review-plan')
@@ -66,5 +66,9 @@ describe('review attempt coordinator', () => {
       input.imageDigest,
       readReviewerRawAttempt(first).reviewId,
     )
+    await expect(coordinator.run(bundle, choice, executor, input)).rejects.toBeInstanceOf(
+      ReviewAttemptAlreadyFinalizedError,
+    )
+    expect(executions).toBe(1)
   })
 })

@@ -31,6 +31,7 @@ export {
   type ReviewerRawAttemptSnapshot,
 } from './attempt.js'
 export {
+  ReviewAttemptAlreadyFinalizedError,
   ReviewAttemptCoordinator,
   type ReviewAttemptBoundary,
   type ReviewAttemptCoordinatorOptions,
