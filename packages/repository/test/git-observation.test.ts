@@ -18,7 +18,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { canonicalJson, decodeGitPath } from '../../contract/src/index'
-import { GitObserver } from '../src/git-observer'
+import { GitObserver, reconstructCodeManifest } from '../src/git-observer'
 import { MemoryGitObjectStore } from './git-object-store'
 
 if (process.env.FACTORY_DOCKER_TEST !== '1') {
@@ -124,6 +124,12 @@ describe.serial('safe Git observation', () => {
     roots.push(destination)
     await observer.reconstruct(manifest, destination)
 
+    const portableDestination = await mkdtemp(join(tmpdir(), 'factory-portable-reconstruction-'))
+    roots.push(portableDestination)
+    await reconstructCodeManifest(manifest, portableDestination, reference =>
+      objects.get(reference),
+    )
+
     expect(await readFile(join(destination, 'tracked.bin'))).toEqual(Buffer.from([0, 255, 10]))
     expect(await readFile(join(destination, 'untracked.txt'), 'utf8')).toBe('untracked\n')
     expect((await lstat(join(destination, 'run.sh'))).mode & 0o111).not.toBe(0)
@@ -132,6 +138,10 @@ describe.serial('safe Git observation', () => {
     expect((await lstat(join(destination, 'tracked.bin'))).mode & 0o777).toBe(0o644)
     expect(await fixtureSentinel(root, fixturePaths)).toBe(before)
     await expect(lstat(join(destination, '.git'))).rejects.toThrow()
+    expect(await readFile(join(portableDestination, 'tracked.bin'))).toEqual(
+      Buffer.from([0, 255, 10]),
+    )
+    await expect(lstat(join(portableDestination, '.git'))).rejects.toThrow()
     expect(
       manifest.entries.map(entry => Buffer.from(decodeGitPath(entry.path)).toString()),
     ).toEqual(['other-exec-2.txt', 'other-exec.txt', 'run.sh', 'tracked.bin', 'untracked.txt'])

@@ -402,6 +402,20 @@ describe('verified review bundles', () => {
     const falseNoop = structuredClone(original)
     falseNoop.plan.status = 'already-reviewed'
     expect((await verifyTamper(falseNoop)).valid).toBe(false)
+    const wrongSubjectReview = structuredClone(original)
+    wrongSubjectReview.plan.subjectReview = 'full-current-pr-diff'
+    expect((await verifyTamper(wrongSubjectReview)).valid).toBe(false)
+    const wrongReplay = structuredClone(original)
+    wrongReplay.plan.replayCoveredEvidence = true
+    expect((await verifyTamper(wrongReplay)).valid).toBe(false)
+    const wrongRange = structuredClone(original)
+    wrongRange.plan.sessions[0].toInclusive += 1
+    expect((await verifyTamper(wrongRange)).valid).toBe(false)
+    const duplicateRangeTrigger = structuredClone(original)
+    duplicateRangeTrigger.plan.sessions[0].triggerIds.push(
+      duplicateRangeTrigger.plan.sessions[0].triggerIds[0],
+    )
+    expect((await verifyTamper(duplicateRangeTrigger)).valid).toBe(false)
     await verifyTamper(original)
     expect((await verifyBundle(destination, built.sha256)).valid).toBe(true)
   })

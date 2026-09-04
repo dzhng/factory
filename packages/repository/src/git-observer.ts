@@ -110,6 +110,98 @@ export async function loadCodeManifestObject(
   return parseCodeManifest(value)
 }
 
+export type CodeReconstructionOptions = {
+  maxFileBytes?: number
+  maxTotalBytes?: number
+  /** Test seam used to swap a destination after its directory descriptor is bound. */
+  beforeWrite?: () => Promise<void>
+}
+
+/** Reconstruct verified CAS-backed code without consulting a live checkout or Git metadata. */
+export async function reconstructCodeManifest(
+  manifest: CodeManifest,
+  destination: string,
+  readVerifiedObject: (reference: ObjectRef) => Promise<Uint8Array>,
+  options: CodeReconstructionOptions = {},
+): Promise<void> {
+  parseCodeManifest(manifest)
+  const plan = manifest.entries.map(entry => {
+    const path = Buffer.from(decodeGitPath(entry.path))
+    validateRelativePath(path)
+    if (entry.kind === 'gitlink')
+      throw new Error('submodule content is unavailable for reconstruction')
+    if (entry.object === undefined) throw new Error('code manifest entry has no object')
+    return {
+      kind: entry.kind,
+      mode: entry.mode,
+      object: { ...entry.object },
+      path: splitByte(path, 47).map(segment => Buffer.from(segment)),
+      pathBytes: path,
+    }
+  })
+  const destinationState = await lstat(destination, { bigint: true })
+  if (destinationState.isSymbolicLink())
+    throw new Error('reconstruction destination cannot be a symbolic link')
+  const root = await realpath(destination)
+  const resolvedState = await lstat(root, { bigint: true })
+  if (!resolvedState.isDirectory() || !sameMetadata(destinationState, resolvedState)) {
+    throw new Error('reconstruction destination changed while resolving')
+  }
+  const maxFileBytes = options.maxFileBytes ?? DEFAULT_MAX_FILE_BYTES
+  const maxTotalBytes = options.maxTotalBytes ?? DEFAULT_MAX_OBSERVATION_BYTES
+  let inventoryBytes = 0
+  const links = new Map<string, Buffer | undefined>()
+  const linkTargets = new Map<string, Uint8Array>()
+  for (const entry of plan) {
+    inventoryBytes += entry.object.bytes
+    if (entry.object.bytes > maxFileBytes || inventoryBytes > maxTotalBytes) {
+      throw new Error('code manifest exceeds reconstruction limits')
+    }
+    if (entry.kind === 'symlink') {
+      const target = Buffer.from(await readVerifiedObject(entry.object))
+      const key = pathKey(entry.pathBytes)
+      links.set(key, resolveLink(entry.pathBytes, target))
+      linkTargets.set(key, target)
+    }
+  }
+  for (const key of links.keys()) {
+    const issue = linkGraphIssue(key, links)
+    if (issue !== undefined) throw new Error(`${issue} symlink cannot be reconstructed: ${key}`)
+  }
+  const writer = await ConfinedWriter.open(root, resolvedState)
+  try {
+    await options.beforeWrite?.()
+    await writer.assertEmpty()
+    for (const entry of plan) {
+      if (entry.kind === 'symlink') continue
+      await writer.writeFile(
+        entry.path,
+        await readVerifiedObject(entry.object),
+        entry.mode === '100755' ? 0o755 : 0o644,
+      )
+    }
+    for (const entry of plan) {
+      if (entry.kind !== 'symlink') continue
+      await writer.symlink(entry.path, linkTargets.get(pathKey(entry.pathBytes))!)
+    }
+    await writer.assertExact(
+      plan.map(entry => ({
+        path: entry.path,
+        kind: entry.kind === 'symlink' ? 'symlink' : 'file',
+        mode: entry.mode === '100755' ? 0o755 : 0o644,
+        bytes: entry.object.bytes,
+        sha256: entry.object.sha256,
+      })),
+    )
+    const finalState = await lstat(destination, { bigint: true })
+    if (!finalState.isDirectory() || !sameFileIdentity(resolvedState, finalState)) {
+      throw new Error('reconstruction destination changed while writing')
+    }
+  } finally {
+    await writer.close()
+  }
+}
+
 class GitOutputLimitError extends Error {
   constructor(readonly maximumBytes: number) {
     super(`Git output exceeds ${maximumBytes} bytes`)
@@ -1045,21 +1137,6 @@ export class GitObserver {
   }
 
   async reconstruct(manifest: CodeManifest, destination: string): Promise<void> {
-    parseCodeManifest(manifest)
-    const plan = manifest.entries.map(entry => {
-      const path = Buffer.from(decodeGitPath(entry.path))
-      validateRelativePath(path)
-      if (entry.kind === 'gitlink')
-        throw new Error('submodule content is unavailable for reconstruction')
-      if (entry.object === undefined) throw new Error('code manifest entry has no object')
-      return {
-        kind: entry.kind,
-        mode: entry.mode,
-        object: { ...entry.object },
-        path: splitByte(path, 47).map(segment => Buffer.from(segment)),
-        pathBytes: path,
-      }
-    })
     const destinationState = await lstat(destination, { bigint: true })
     if (destinationState.isSymbolicLink())
       throw new Error('reconstruction destination cannot be a symbolic link')
@@ -1079,57 +1156,16 @@ export class GitObserver {
     if (isAtOrWithin(gitDirectory, root) || isAtOrWithin(commonDirectory, root)) {
       throw new Error('reconstruction destination cannot enter Git metadata')
     }
-    let inventoryBytes = 0
-    const links = new Map<string, Buffer | undefined>()
-    const linkTargets = new Map<string, Uint8Array>()
-    for (const entry of plan) {
-      inventoryBytes += entry.object.bytes
-      if (entry.object.bytes > this.maxFileBytes || inventoryBytes > this.maxObservationBytes) {
-        throw new Error('code manifest exceeds reconstruction limits')
-      }
-      if (entry.kind === 'symlink') {
-        const target = Buffer.from(await this.readVerifiedObject(entry.object))
-        const key = pathKey(entry.pathBytes)
-        links.set(key, resolveLink(entry.pathBytes, target))
-        linkTargets.set(key, target)
-      }
-    }
-    for (const key of links.keys()) {
-      const issue = linkGraphIssue(key, links)
-      if (issue !== undefined) throw new Error(`${issue} symlink cannot be reconstructed: ${key}`)
-    }
-    const writer = await ConfinedWriter.open(root, resolvedState)
-    try {
-      await this.options.beforeReconstructionWrite?.()
-      await writer.assertEmpty()
-      for (const entry of plan) {
-        if (entry.kind === 'symlink') continue
-        await writer.writeFile(
-          entry.path,
-          await this.readVerifiedObject(entry.object),
-          entry.mode === '100755' ? 0o755 : 0o644,
-        )
-      }
-      for (const entry of plan) {
-        if (entry.kind !== 'symlink') continue
-        await writer.symlink(entry.path, linkTargets.get(pathKey(entry.pathBytes))!)
-      }
-      await writer.assertExact(
-        plan.map(entry => ({
-          path: entry.path,
-          kind: entry.kind === 'symlink' ? 'symlink' : 'file',
-          mode: entry.mode === '100755' ? 0o755 : 0o644,
-          bytes: entry.object.bytes,
-          sha256: entry.object.sha256,
-        })),
-      )
-      const finalState = await lstat(destination, { bigint: true })
-      if (!finalState.isDirectory() || !sameFileIdentity(resolvedState, finalState)) {
-        throw new Error('reconstruction destination changed while writing')
-      }
-    } finally {
-      await writer.close()
-    }
+    await reconstructCodeManifest(
+      manifest,
+      destination,
+      async reference => await this.readVerifiedObject(reference),
+      {
+        maxFileBytes: this.maxFileBytes,
+        maxTotalBytes: this.maxObservationBytes,
+        beforeWrite: this.options.beforeReconstructionWrite,
+      },
+    )
   }
 
   async loadCodeManifest(ref: ObjectRef): Promise<CodeManifest> {

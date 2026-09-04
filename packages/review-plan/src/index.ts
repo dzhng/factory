@@ -1786,11 +1786,13 @@ function planVerifiedReview(input: ReviewInputs): ReviewPlan {
             if (provenance.length === 0) return {}
             return {
               association: {
-                proofs: provenance.map(item => ({
-                  batchId: item.batchId,
-                  evidenceId: item.evidenceId,
-                  authority: item.kind,
-                })),
+                proofs: provenance
+                  .map(item => ({
+                    batchId: item.batchId,
+                    evidenceId: item.evidenceId,
+                    authority: item.kind,
+                  }))
+                  .sort(compareCanonical),
               },
             }
           })()
@@ -2115,6 +2117,26 @@ export function validateReviewPlanRecord(plan: ReviewPlanRecord): void {
   ) {
     throw new TypeError('review plan has an invalid discriminator')
   }
+  const fullReviewReasons = [
+    'initial-review',
+    'explicit-full',
+    'explicit-force',
+    'subject-changed',
+    'limitations-changed',
+    'policy-changed',
+  ]
+  if (
+    (plan.fullReviewReason !== undefined && !fullReviewReasons.includes(plan.fullReviewReason)) ||
+    (plan.fullReviewReason !== undefined && plan.subjectReview === 'none') ||
+    (plan.subject.kind === 'workspace' && plan.subjectReview === 'full-current-pr-diff') ||
+    (plan.subject.kind === 'pull-request' && plan.subjectReview === 'full-current-code') ||
+    (plan.replayCoveredEvidence &&
+      !['explicit-full', 'explicit-force'].includes(plan.fullReviewReason ?? '')) ||
+    (!plan.replayCoveredEvidence &&
+      ['explicit-full', 'explicit-force'].includes(plan.fullReviewReason ?? ''))
+  ) {
+    throw new TypeError('review plan full-review state is contradictory')
+  }
   const reviewId = 'review_00000000000000000000000000' as RecordId
   const reviewPath =
     plan.subject.kind === 'workspace'
@@ -2185,6 +2207,43 @@ export function validateReviewPlanRecord(plan: ReviewPlanRecord): void {
     .sort((left, right) => left.sessionKey.localeCompare(right.sessionKey))
   if (canonicalJson(canonicalSessions) !== canonicalJson(plan.sessions)) {
     throw new TypeError('review plan Session ranges are not canonical and unique')
+  }
+  const selectedRanges = plan.selections.filter(
+    (selection): selection is ReviewEvidenceSelection & { kind: 'range' } =>
+      selection.kind === 'range' &&
+      selection.selectedForReview &&
+      ['eligible-included', 'eligible-gap'].includes(selection.coverageEffect),
+  )
+  const expectedSessions = [...new Set(selectedRanges.map(selection => selection.sessionKey))]
+    .sort()
+    .map(sessionKey => {
+      const values = selectedRanges.filter(selection => selection.sessionKey === sessionKey)
+      return {
+        sessionKey,
+        toInclusive: Math.max(...values.map(selection => selection.evidenceWatermark)),
+        triggerIds: values.map(selection => selection.triggerId).sort(),
+      }
+    })
+  const actualSessions = plan.sessions.map(session => ({
+    sessionKey: session.sessionKey,
+    toInclusive: session.toInclusive,
+    triggerIds: session.triggerIds,
+  }))
+  if (
+    plan.sessions.some(
+      session =>
+        Object.keys(session).sort().join(',') !==
+          'fromExclusive,sessionKey,toInclusive,triggerIds' ||
+        typeof session.sessionKey !== 'string' ||
+        session.sessionKey.length === 0 ||
+        !Number.isSafeInteger(session.fromExclusive) ||
+        session.fromExclusive < 0 ||
+        !Number.isSafeInteger(session.toInclusive) ||
+        session.toInclusive <= session.fromExclusive,
+    ) ||
+    canonicalJson(actualSessions) !== canonicalJson(expectedSessions)
+  ) {
+    throw new TypeError('review plan Session ranges differ from selected evidence')
   }
   const hasSelected = plan.selections.some(selection => selection.selectedForReview)
   const hasGap = plan.selections.some(selection => selection.coverageEffect === 'eligible-gap')
