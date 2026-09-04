@@ -112,6 +112,50 @@ branch/detached state, HEAD, index identity, changed paths, worktree fingerprint
 code manifest, patches, limitations, and start/end state used to detect races.
 Operational absolute paths are never stored here.
 
+The `codeManifest` object is canonical JSON with schema version `1`, a
+byte-sorted `entries` array, and an explicit `limitations` array. Each entry
+uses the encoded Git path authority and records one Git-compatible mode:
+ordinary file (`100644`), executable file (`100755`), symbolic link (`120000`),
+or submodule pointer (`160000`). Files, symbolic-link payloads, and LFS pointer
+files reference their exact bytes in the CAS. Submodules record only their Git
+object identity. Factory never fetches submodule or LFS content implicitly.
+
+Consumers load a code manifest through its object reference, not from an
+already-parsed object supplied by an untrusted caller. Loading verifies the
+reference role and media type, exact object digest and length, fatal UTF-8,
+canonical original JSON bytes, and the runtime schema before reconstruction.
+
+Workspace observations include tracked paths and non-ignored untracked paths,
+except the complete `.factory` namespace. `.factory` evidence is inventoried by
+the review bundle rather than recursively becoming code; this exclusion also
+applies to foreign `.factory/skills` content. Ignored paths outside `.factory`
+are excluded and reported as a limitation. Sparse tracked paths that are absent
+from the worktree, unsupported filesystem entries, unsafe or
+cyclic links, files over the measured limit, and any read race remain explicit
+limitations; omission never means the missing bytes were observed. A
+reconstruction starts in an empty directory outside the subject worktree's Git
+metadata directory and its common Git directory, preserves path bytes and
+supported modes, and refuses a manifest whose links could escape or cycle.
+Materialization resolves every component relative to already-open directory
+descriptors with no-follow semantics; path renames and symlink swaps cannot
+redirect a write outside the bound destination inode. Descriptor-relative
+inventories immediately before and after materialization require paths, entry
+kinds, full file permission modes, lengths, content digests, symlink targets,
+and writer-created filesystem identities to equal the manifest exactly. Final
+hashing streams within the manifest's per-file and aggregate byte bounds. A
+failed destination is disposable and may contain a partial manifest or a
+concurrent foreign replacement. Factory never removes entries during failure
+handling because POSIX has no portable identity-conditional unlink; the caller
+must discard the entire destination without consuming it as a snapshot.
+
+Observation never asks Git to compare live worktree content, because even
+status-shaped commands can execute configured clean filters. Changed paths are
+derived from byte-read files, index object identities, and the HEAD tree. Git
+stdout and stderr are bounded, commands have a deadline, and retained file
+bytes have per-file and aggregate bounds. Start/end sentinels domain-separate
+refs, branch, local config, raw index, and byte-preserving worktree state;
+readable paths are also checked individually against their post-capture state.
+
 ## Pull requests and associations
 
 ```text
@@ -206,6 +250,18 @@ The Git common directory contains `factory-runtime`, including the transactional
 journal, write locks, derived indexes, materialization staging directories,
 Docker state, and update cache. Linked worktrees receive separately keyed
 operational state inside that runtime root while sharing repository identity.
+
+Capture ordering is common to all linked worktrees. The runtime journal may
+retain per-worktree routing paths, but it does not split authority into separate
+worktree journals. A durable Stop claim freezes its exact Session generation,
+event identities, and sequence cutoff until a verified immutable Turn completes
+it; claims are fences, not expiring leases.
+
+Creating a claim grants one materializer execution authority. Concurrent
+callers observe the durable claim without receiving that authority; crash
+recovery explicitly resumes its frozen input. Completion is accepted only
+through a repository capability that verifies the owned Turn path and exact
+immutable bytes.
 
 Runtime data may contain absolute paths needed to return to a worktree. It is
 non-portable and non-authoritative. Factory must remain able to rebuild every
