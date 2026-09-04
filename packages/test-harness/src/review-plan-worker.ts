@@ -111,7 +111,7 @@ class FixtureStore implements ReviewRepositoryReader {
 }
 
 const policies = {
-  reviewer: { provider: 'codex' as const },
+  reviewer: { provider: 'codex' as const, model: 'gpt-test', effort: 'high' },
   analyzerVersion: 'analyzer-v1',
   promptVersion: 'prompt-v1',
   policyVersion: 'policy-v1',

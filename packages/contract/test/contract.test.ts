@@ -384,7 +384,7 @@ describe('public repository contract', () => {
           triggerIds: [recordId('trigger')],
           associationBatchIds: [],
           limitations: [],
-          reviewer: { provider: 'codex' },
+          reviewer: { provider: 'codex', model: 'gpt-test', effort: 'high' },
           analyzerVersion: '0.1.0',
           promptVersion: '1',
           policyVersion: '1',
@@ -400,7 +400,19 @@ describe('public repository contract', () => {
       ],
       [
         makeOwnedPath('reviews', ['workspace', recordId('review'), 'ledger.json']),
-        { schemaVersion: 1, reviewId: recordId('review'), entries: [] },
+        {
+          schemaVersion: 1,
+          reviewId: recordId('review'),
+          entries: [
+            {
+              entryId: recordId('entry'),
+              kind: 'finding',
+              severity: 'high',
+              summary: 'A validated finding',
+              evidence: [{ object }],
+            },
+          ],
+        },
       ],
       [makeOwnedPath('reviews', ['workspace', recordId('review'), 'response.txt']), 'response\n'],
       [
@@ -1077,7 +1089,7 @@ describe('public repository contract', () => {
           triggerIds: [],
           associationBatchIds: [],
           limitations: [],
-          reviewer: { provider: 'codex' },
+          reviewer: { provider: 'codex', model: 'gpt-test', effort: 'high' },
           analyzerVersion: '1',
           promptVersion: '1',
           policyVersion: '1',

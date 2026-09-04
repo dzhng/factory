@@ -524,8 +524,12 @@ export class RepositoryStore {
     commitPath: OwnedPath,
   ): Promise<RecordRef> {
     if (records.length === 0) throw new TypeError('immutable group must not be empty')
-    if (!commitPath.startsWith('review-triggers/') || !commitPath.endsWith('.json')) {
-      throw new TypeError('immutable group commit point must be a review trigger')
+    const triggerCommit = /^review-triggers\/[^/]+\.json$/.test(commitPath)
+    const reviewCommit =
+      /^reviews\/workspace\/[^/]+\/manifest\.json$/.test(commitPath) ||
+      /^reviews\/pull-requests\/github\/[^/]+\/[1-9]\d*\/[^/]+\/manifest\.json$/.test(commitPath)
+    if (!triggerCommit && !reviewCommit) {
+      throw new TypeError('immutable group commit point must be a trigger or review manifest')
     }
     const paths = new Set<string>()
     for (const record of records) {
@@ -541,6 +545,25 @@ export class RepositoryStore {
       validateStructuredRecord(record.path, record.bytes)
     }
     if (!paths.has(commitPath)) throw new TypeError('immutable group commit path is absent')
+    if (reviewCommit) {
+      const root = `${dirname(commitPath)}/`
+      const manifest = records.find(record => record.path === commitPath)!
+      const value = JSON.parse(decodeUtf8(manifest.bytes)) as { disposition: string }
+      const responsePath = `${root}response.txt`
+      const ledgerPath = `${root}ledger.json`
+      const expectedPaths =
+        value.disposition === 'failed'
+          ? [commitPath, responsePath]
+          : [commitPath, responsePath, ledgerPath]
+      if (
+        records.some(record => !record.path.startsWith(root)) ||
+        canonicalJson([...paths].sort()) !== canonicalJson(expectedPaths.sort())
+      ) {
+        throw new TypeError(
+          'review group must contain only its exact manifest, response, and ledger',
+        )
+      }
+    }
     const ordered = [
       ...records.filter(record => record.path !== commitPath),
       records.find(record => record.path === commitPath)!,

@@ -3,9 +3,64 @@ import { mkdir, mkdtemp, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { planReviewerIsolation, resolveReviewerIsolation } from '../src/index'
+import { planReviewerIsolation, resolveReviewerIsolation, selectReviewer } from '../src/index'
 
 describe('reviewer isolation plan', () => {
+  const defaults = {
+    codex: { model: 'gpt-test', effort: 'high' },
+    claude: { model: 'claude-test', effort: 'high' },
+  } as const
+
+  test('selects exactly one cross-harness reviewer from the newest covered Stop', () => {
+    expect(selectReviewer('auto', 'codex', { codex: true, claude: true }, defaults)).toEqual({
+      kind: 'selected',
+      choice: {
+        settings: { provider: 'claude', model: 'claude-test', effort: 'high' },
+        authoringProvider: 'codex',
+      },
+    })
+    expect(selectReviewer('auto', 'codex', { codex: true, claude: false }, defaults)).toEqual({
+      kind: 'selected',
+      choice: {
+        settings: { provider: 'codex', model: 'gpt-test', effort: 'high' },
+        authoringProvider: 'codex',
+      },
+    })
+  })
+
+  test('never falls back from an explicit unavailable provider', () => {
+    expect(
+      selectReviewer(
+        { provider: 'claude', model: 'opus' },
+        'codex',
+        { codex: true, claude: false },
+        defaults,
+      ),
+    ).toEqual({
+      kind: 'unavailable',
+      choice: {
+        settings: { provider: 'claude', model: 'opus', effort: 'high' },
+        authoringProvider: 'codex',
+      },
+      reason: 'authentication-unavailable',
+    })
+  })
+
+  test('pins an intended reviewer when authentication is unavailable', () => {
+    expect(selectReviewer('auto', 'claude', { codex: false, claude: false }, defaults)).toEqual({
+      kind: 'unavailable',
+      choice: {
+        settings: { provider: 'codex', model: 'gpt-test', effort: 'high' },
+        authoringProvider: 'claude',
+      },
+      reason: 'authentication-unavailable',
+    })
+    expect(selectReviewer('auto', undefined, { codex: false, claude: true }, defaults)).toEqual({
+      kind: 'selected',
+      choice: { settings: { provider: 'claude', model: 'claude-test', effort: 'high' } },
+    })
+  })
+
   test('allows only the bundle, output, and selected provider auth', () => {
     expect(
       planReviewerIsolation({

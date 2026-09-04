@@ -132,6 +132,7 @@ function exactBlockingCodes(
         )
         .filter(selection => selection.coverageEffect === 'eligible-gap')
         .flatMap(selection => selection.limitations.map(limitation => limitation.code)),
+      ...(review.limitations ?? []).map(limitation => limitation.code),
       ...review.inputProblems
         .filter(problem => acceptedProblemIds.includes(problem.problemId))
         .map(problem => problem.limitation.code),
@@ -174,7 +175,10 @@ export function foldCoverage(
         effect:
           review.subjectAttempt.effect === 'settled' ||
           (review.subjectAttempt.effect === 'current-included' &&
-            review.subjectAttempt.limitations.length === 0)
+            review.subjectAttempt.limitations.length === 0 &&
+            !(review.limitations ?? []).some(
+              limitation => limitation.code === 'invalid-review-output',
+            ))
             ? 'settled'
             : review.subjectAttempt.effect,
       }

@@ -293,7 +293,7 @@ export function validateReviewPlanRecord(plan: ReviewPlanRecord): void {
     policyVersion: plan.policies.policyVersion,
     formatVersion: plan.policies.formatVersion,
     bundleSha256: '0'.repeat(64),
-    containerImageDigest: 'validation-only',
+    containerImageDigest: `sha256:${'0'.repeat(64)}`,
     providerCliVersion: 'validation-only',
     hostPlatform: 'validation-only',
     startedAt: '2000-01-01T00:00:00Z',
@@ -516,8 +516,18 @@ function compactPlan(plan: ReviewPlan): ReviewPlanRecord {
 }
 
 export type BundleVerification =
-  | { valid: true; sha256: string; manifest: ReviewBundleManifest }
+  | {
+      valid: true
+      sha256: string
+      manifest: ReviewBundleManifest
+      acceptance: ReviewAcceptanceProjection
+    }
   | { valid: false; reason: string }
+
+export type ReviewAcceptanceProjection = Pick<
+  ReviewManifest,
+  'subject' | 'head' | 'codeManifest' | 'patches'
+>
 
 export interface ReviewObjectSource {
   getObject(ref: ObjectRef): Promise<Uint8Array>
@@ -1023,6 +1033,40 @@ export async function verifyBundle(
             kind: 'pull-request',
             observation: recordValues.get(subjectPath)![0] as AvailablePullRequestObservation,
           }
+    const acceptance: ReviewAcceptanceProjection =
+      bundledSubject.kind === 'workspace'
+        ? {
+            subject: {
+              kind: 'workspace',
+              repositoryObservationId: bundledSubject.observation.observationId,
+            },
+            ...(bundledSubject.observation.git.head === undefined
+              ? {}
+              : { head: bundledSubject.observation.git.head }),
+            ...(bundledSubject.observation.codeManifest === undefined
+              ? {}
+              : { codeManifest: bundledSubject.observation.codeManifest }),
+            patches: [
+              bundledSubject.observation.stagedPatch,
+              bundledSubject.observation.unstagedPatch,
+            ].filter((item): item is ObjectRef => item !== undefined),
+          }
+        : {
+            subject: {
+              kind: 'pull-request',
+              provider: 'github',
+              repositoryKey: bundledSubject.observation.repositoryKey,
+              number: bundledSubject.observation.number,
+              observationId: bundledSubject.observation.observationId,
+            },
+            ...(bundledSubject.observation.head.sha === undefined
+              ? {}
+              : { head: bundledSubject.observation.head.sha }),
+            ...(bundledSubject.observation.codeManifest === undefined
+              ? {}
+              : { codeManifest: bundledSubject.observation.codeManifest }),
+            patches: [bundledSubject.observation.diff],
+          }
     const bundledCodeManifest =
       bundledSubject.observation.codeManifest === undefined ||
       !manifest.inventory.some(
@@ -1336,7 +1380,7 @@ export async function verifyBundle(
       canonicalJson(manifest.inventory)
     )
       throw new Error('bundle object inventory differs from the exact semantic closure')
-    return { valid: true, sha256: digest, manifest }
+    return { valid: true, sha256: digest, manifest, acceptance }
   } catch (error) {
     return { valid: false, reason: error instanceof Error ? error.message : String(error) }
   }

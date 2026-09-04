@@ -354,6 +354,7 @@ export async function loadReviewHistoryFromRequest(
       coverageTargetWatermarks: manifest.coverageTargetWatermarks,
       selections: manifest.evidenceSelections,
       inputProblems: manifest.inputProblems,
+      limitations: manifest.limitations,
       triggerIds: manifest.triggerIds,
       disposition: manifest.disposition,
       policies: {

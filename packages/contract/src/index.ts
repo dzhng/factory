@@ -70,6 +70,7 @@ export type LimitationCode =
   | 'unverified-object'
   | 'excluded-by-limit'
   | 'corrupt-input'
+  | 'invalid-review-output'
 
 export type Limitation = {
   code: LimitationCode
@@ -89,6 +90,13 @@ export type ReviewerSettings = {
   provider: 'codex' | 'claude'
   model?: string
   effort?: string
+}
+
+/** Exact effective reviewer identity pinned by plans and immutable reviews. */
+export type ResolvedReviewerSettings = {
+  provider: 'codex' | 'claude'
+  model: string
+  effort: string
 }
 
 /** Repository policy may defer reviewer resolution until a review is created. */
@@ -475,7 +483,7 @@ export type ReviewManifest = {
   associationBatchIds: readonly RecordId[]
   priorLedger?: ObjectRef
   limitations: readonly Limitation[]
-  reviewer: ReviewerSettings
+  reviewer: ResolvedReviewerSettings
   analyzerVersion: string
   promptVersion: string
   policyVersion: string
@@ -487,19 +495,33 @@ export type ReviewManifest = {
   startedAt: string
   completedAt: string
   disposition: 'complete' | 'partial' | 'failed'
-  failureReason?: string
+  failureReason?: ReviewFailureReason
 }
+
+export type ReviewFailureReason =
+  | 'authentication-unavailable'
+  | 'docker-unavailable'
+  | 'reviewer-timeout'
+  | 'reviewer-cancelled'
+  | 'reviewer-crashed'
+  | 'invalid-review-output'
+  | 'reviewer-output-empty'
 
 export type ReviewLedger = {
   schemaVersion: 1
   reviewId: RecordId
-  entries: readonly {
-    entryId: RecordId
-    kind: 'decision' | 'finding' | 'summary'
-    summary: string
-    evidence: readonly { object: ObjectRef; locator?: string }[]
-  }[]
+  entries: readonly ReviewLedgerEntry[]
 }
+
+type ReviewLedgerEntryBase = {
+  entryId: RecordId
+  summary: string
+  evidence: readonly { object: ObjectRef; locator?: string }[]
+}
+
+export type ReviewLedgerEntry =
+  | (ReviewLedgerEntryBase & { kind: 'finding'; severity: 'low' | 'medium' | 'high' | 'critical' })
+  | (ReviewLedgerEntryBase & { kind: 'decision' | 'summary' })
 
 export type CoverageAction = {
   schemaVersion: 1
@@ -1206,6 +1228,7 @@ const LIMITATION_CODES = new Set<LimitationCode>([
   'unverified-object',
   'excluded-by-limit',
   'corrupt-input',
+  'invalid-review-output',
 ])
 
 function assertString(value: unknown, label: string): asserts value is string {
@@ -1404,13 +1427,13 @@ export function parseCodeManifest(value: unknown): CodeManifest {
   return value as CodeManifest
 }
 
-function assertReviewer(value: unknown, label: string): asserts value is ReviewerSettings {
+function assertReviewer(value: unknown, label: string): asserts value is ResolvedReviewerSettings {
   assertRecord(value, label)
   assertExactKeys(value, ['provider', 'model', 'effort'], label)
-  requireFields(value, ['provider'], label)
+  requireFields(value, ['provider', 'model', 'effort'], label)
   assertEnum(value.provider, ['codex', 'claude'], `${label}.provider`)
-  if ('model' in value) assertString(value.model, `${label}.model`)
-  if ('effort' in value) assertString(value.effort, `${label}.effort`)
+  assertString(value.model, `${label}.model`)
+  assertString(value.effort, `${label}.effort`)
 }
 
 function assertOptionalString(value: Record<string, unknown>, key: string, label: string): void {
@@ -2142,6 +2165,15 @@ function validateRecordShape(
       assertOptionalString(value, 'head', 'review')
       assertOptionalObjectRef(value, 'codeManifest', 'review')
       assertObjectRefs(value.patches, 'review.patches')
+      if (
+        canonicalJson(
+          [...value.patches].sort((left, right) =>
+            canonicalJson(left).localeCompare(canonicalJson(right)),
+          ),
+        ) !== canonicalJson(value.patches) ||
+        new Set(value.patches.map(item => canonicalJson(item))).size !== value.patches.length
+      )
+        throw new TypeError('review.patches must be canonical and unique')
       assertWatermarks(value.sessionWatermarks, 'review.sessionWatermarks')
       assertWatermarks(value.coverageTargetWatermarks, 'review.coverageTargetWatermarks')
       assertSha256(value.subjectFingerprint, 'review.subjectFingerprint')
@@ -2483,6 +2515,16 @@ function validateRecordShape(
       assertRecordIdArray(value.associationBatchIds, 'review.associationBatchIds')
       assertOptionalObjectRef(value, 'priorLedger', 'review')
       assertLimitations(value.limitations, 'review.limitations')
+      if (
+        canonicalJson(
+          [...value.limitations].sort((left, right) =>
+            canonicalJson(left).localeCompare(canonicalJson(right)),
+          ),
+        ) !== canonicalJson(value.limitations) ||
+        new Set(value.limitations.map(item => canonicalJson(item))).size !==
+          value.limitations.length
+      )
+        throw new TypeError('review.limitations must be canonical and unique')
       assertReviewer(value.reviewer, 'review.reviewer')
       for (const key of [
         'analyzerVersion',
@@ -2495,10 +2537,27 @@ function validateRecordShape(
         assertString(value[key], `review.${key}`)
       if (value.formatVersion !== 1) throw new TypeError('review.formatVersion must be 1')
       assertSha256(value.bundleSha256, 'review.bundleSha256')
+      if (!/^sha256:[0-9a-f]{64}$/.test(value.containerImageDigest as string))
+        throw new TypeError('review.containerImageDigest must be an immutable SHA-256 image ID')
       assertTimestamp(value.startedAt, 'review.startedAt')
       assertTimestamp(value.completedAt, 'review.completedAt')
+      if ((value.completedAt as string).localeCompare(value.startedAt as string) < 0)
+        throw new TypeError('review.completedAt must not precede review.startedAt')
       assertEnum(value.disposition, ['complete', 'partial', 'failed'], 'review.disposition')
-      assertOptionalString(value, 'failureReason', 'review')
+      if ('failureReason' in value)
+        assertEnum(
+          value.failureReason,
+          [
+            'authentication-unavailable',
+            'docker-unavailable',
+            'reviewer-timeout',
+            'reviewer-cancelled',
+            'reviewer-crashed',
+            'invalid-review-output',
+            'reviewer-output-empty',
+          ],
+          'review.failureReason',
+        )
       if (value.disposition === 'failed') {
         if (!('failureReason' in value))
           throw new TypeError('failed review requires a failureReason')
@@ -2532,10 +2591,20 @@ function validateRecordShape(
       value.entries.forEach((entry, index) => {
         const label = `ledger.entries[${index}]`
         assertRecord(entry, label)
-        assertExactKeys(entry, ['entryId', 'kind', 'summary', 'evidence'], label)
+        assertExactKeys(
+          entry,
+          entry.kind === 'finding'
+            ? ['entryId', 'kind', 'severity', 'summary', 'evidence']
+            : ['entryId', 'kind', 'summary', 'evidence'],
+          label,
+        )
         requireFields(entry, ['entryId', 'kind', 'summary', 'evidence'], label)
         assertRecordId(entry.entryId, `${label}.entryId`)
         assertEnum(entry.kind, ['decision', 'finding', 'summary'], `${label}.kind`)
+        if (entry.kind === 'finding') {
+          requireFields(entry, ['severity'], label)
+          assertEnum(entry.severity, ['low', 'medium', 'high', 'critical'], `${label}.severity`)
+        }
         assertString(entry.summary, `${label}.summary`)
         assertArray(entry.evidence, `${label}.evidence`)
         if (entry.evidence.length === 0)

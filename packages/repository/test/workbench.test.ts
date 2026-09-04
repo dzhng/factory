@@ -3,7 +3,12 @@ import { lstat, mkdir, mkdtemp, readFile, rm, symlink, unlink, writeFile } from 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { canonicalJson, makeOwnedPath, objectOwnedPath } from '../../contract/src/index'
+import {
+  canonicalJson,
+  makeOwnedPath,
+  objectOwnedPath,
+  reviewSubjectCoverageId,
+} from '../../contract/src/index'
 import {
   ImmutableRecordConflictError,
   initializeRepositoryStore,
@@ -45,6 +50,67 @@ const trigger = {
   createdAt: '2026-09-04T00:00:00Z',
   materialization: 'complete' as const,
   limitations: [],
+}
+
+function reviewRecords(id: string, disposition: 'complete' | 'failed' = 'complete') {
+  const hash = 'a'.repeat(64)
+  const root = ['workspace', id]
+  const reviewManifest = {
+    schemaVersion: 1 as const,
+    reviewId: id,
+    subject: { kind: 'workspace' as const, repositoryObservationId: recordId('observation') },
+    patches: [],
+    sessionWatermarks: {},
+    coverageTargetWatermarks: {},
+    subjectFingerprint: hash,
+    subjectAttempt: {
+      fingerprint: hash,
+      coverageId: reviewSubjectCoverageId(hash, []),
+      effect: 'current-included' as const,
+      limitations: [],
+    },
+    evidenceSelections: [],
+    inputProblems: [],
+    triggerIds: [],
+    associationBatchIds: [],
+    limitations: [],
+    reviewer: { provider: 'codex' as const, model: 'gpt-test', effort: 'high' },
+    analyzerVersion: '1',
+    promptVersion: '1',
+    policyVersion: '1',
+    formatVersion: 1 as const,
+    bundleSha256: hash,
+    containerImageDigest: `sha256:${hash}`,
+    providerCliVersion: '1',
+    hostPlatform: 'linux/arm64',
+    startedAt: manifest.createdAt,
+    completedAt: manifest.createdAt,
+    disposition,
+    ...(disposition === 'failed' ? { failureReason: 'reviewer-output-empty' as const } : {}),
+  }
+  return {
+    manifestPath: makeOwnedPath('reviews', [...root, 'manifest.json']),
+    records: [
+      {
+        path: makeOwnedPath('reviews', [...root, 'response.txt']),
+        bytes: new TextEncoder().encode('review response\n'),
+      },
+      ...(disposition === 'failed'
+        ? []
+        : [
+            {
+              path: makeOwnedPath('reviews', [...root, 'ledger.json']),
+              bytes: new TextEncoder().encode(
+                canonicalJson({ schemaVersion: 1, reviewId: id, entries: [] }),
+              ),
+            },
+          ]),
+      {
+        path: makeOwnedPath('reviews', [...root, 'manifest.json']),
+        bytes: new TextEncoder().encode(canonicalJson(reviewManifest)),
+      },
+    ],
+  }
 }
 
 describe('sole repository writer', () => {
@@ -420,5 +486,31 @@ describe('sole repository writer', () => {
       firstPath,
       commitPath,
     ])
+  })
+
+  test('publishes exact review groups idempotently and isolates each review root', async () => {
+    const root = await fixtureRoot()
+    const store = await initializeRepositoryStore(root, manifest, {})
+    const complete = reviewRecords(recordId('review'))
+    await Promise.all([
+      store.publishImmutableGroup(complete.records, complete.manifestPath),
+      store.publishImmutableGroup(complete.records, complete.manifestPath),
+    ])
+    const failed = reviewRecords(`review_${'0'.repeat(25)}1`, 'failed')
+    await store.publishImmutableGroup(failed.records, failed.manifestPath)
+    expect(await store.readImmutable(complete.manifestPath)).toEqual(complete.records.at(-1)!.bytes)
+    expect(await store.readImmutable(failed.manifestPath)).toEqual(failed.records.at(-1)!.bytes)
+
+    await expect(
+      store.publishImmutableGroup([...complete.records, failed.records[0]!], complete.manifestPath),
+    ).rejects.toThrow('only its exact manifest, response, and ledger')
+    const conflicting = complete.records.map(record =>
+      record.path.endsWith('response.txt')
+        ? { ...record, bytes: new TextEncoder().encode('different response\n') }
+        : record,
+    )
+    await expect(
+      store.publishImmutableGroup(conflicting, complete.manifestPath),
+    ).rejects.toBeInstanceOf(ImmutableRecordConflictError)
   })
 })

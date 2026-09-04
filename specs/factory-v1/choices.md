@@ -904,3 +904,43 @@ second normative schema; the master specification and format own mechanics.
 - **Verdict:** Sound. Validation authority and reviewer visibility remain
   separate, explicit concerns.
 - **Confidence:** High.
+
+## Implementation choices — review execution
+
+### Pin effective model and effort before planning
+
+- **When:** Slice 09 review identity contract.
+- **The choice:** Repository configuration may omit model and effort, but the
+  CLI supplies versioned Factory defaults and resolves one complete reviewer
+  identity before it freezes the review plan. For example, an automatic Codex
+  review records the exact Codex model and effort Factory requested; it never
+  writes a placeholder that means “whatever the provider chose today.” If the
+  installed client cannot force or report those settings, that reviewer is
+  unavailable rather than reproducible by guesswork.
+- **The gap:** The spec required manifests to pin model and effort but the
+  initial shared reviewer type made both optional and did not say when defaults
+  became evidence.
+- **The reach:** Policy identity, bundle hashes, retries, and later comparisons
+  all use the same resolved settings. Changing a Factory default becomes an
+  explicit policy change that schedules a new current-code review.
+- **Verdict:** Sound. Reproduction depends on exact requested settings, not
+  mutable server defaults.
+- **Confidence:** High.
+
+### Prefer Codex when an automatic review has no authoring Stop
+
+- **When:** Slice 09 automatic reviewer selection.
+- **The choice:** A subject-only review can have no exact Session Stop to name
+  an authoring provider. In that case Factory tries the versioned Codex reviewer
+  first, then Claude when only Claude is authenticated. This is only the
+  no-context tie-breaker: when an exact Stop exists, Factory still prefers the
+  other harness and falls back to a fresh Session of the same harness. Weak
+  same-branch context never changes the choice.
+- **The gap:** The product fixed cross-harness selection from the newest Stop
+  but did not define `reviewer:auto` when a current-code or PR-diff review has no
+  selected Stop.
+- **The reach:** Subject-only reviews remain deterministic. Reversing the
+  preference is a one-constant policy change and must refresh the plan identity.
+- **Verdict:** Needs-user. Codex-first is the reversible provisional choice; a
+  product-level preferred harness can replace it before release.
+- **Confidence:** Low.

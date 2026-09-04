@@ -1,5 +1,5 @@
 {
-  "name": "@factory/reviewer",
+  "name": "@factory/review",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@factory/contract": "workspace:*",
-    "@factory/review-plan": "workspace:*"
+    "@factory/repository": "workspace:*",
+    "@factory/reviewer": "workspace:*"
   }
 }

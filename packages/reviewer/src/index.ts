@@ -8,6 +8,16 @@ export {
   type IsolationReport,
   type ProbeTermination,
 } from './probe.js'
+export {
+  openVerifiedReviewBundle,
+  readVerifiedReviewBundle,
+  selectReviewer,
+  type ReviewerAvailability,
+  type ReviewerChoice,
+  type ReviewerChoiceResult,
+  type ReviewerDefaults,
+  type VerifiedReviewBundle,
+} from './bundle.js'
 
 export type ReviewerProvider = 'codex' | 'claude' | 'fake'
 

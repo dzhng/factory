@@ -130,7 +130,7 @@ function inputs(): ReviewInputs {
     coverageActions: [],
     associations: [],
     policies: {
-      reviewer: { provider: 'codex' },
+      reviewer: { provider: 'codex', model: 'gpt-test', effort: 'high' },
       analyzerVersion: 'analyzer-v1',
       promptVersion: 'prompt-v1',
       policyVersion: 'policy-v1',
@@ -154,6 +154,7 @@ describe('review planning', () => {
         sessionWatermarks: { 'session-a': 1 },
         coverageTargetWatermarks: { 'session-a': 1 },
         inputProblems: [],
+        limitations: [],
         selections: [
           {
             kind: 'range',

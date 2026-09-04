@@ -250,6 +250,8 @@ Disposition is one of `complete`, `partial`, or `failed`:
 - `failed` means no meaningful semantic result was accepted.
 
 `ledger.json` contains only validated semantic entries with evidence citations.
+Findings carry an explicit low, medium, high, or critical severity so advisory
+results and opt-in enforcement use the same durable authority.
 `response.txt` preserves the reviewer response for inspection. Failed attempts
 store a sanitized reason in the manifest; transient full logs remain runtime
 state.

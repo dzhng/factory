@@ -19,7 +19,7 @@ import {
   type ReviewLedger,
   type ReviewInputProblem,
   type ReviewEvidenceSelection as ContractReviewEvidenceSelection,
-  type ReviewerSettings,
+  type ResolvedReviewerSettings,
   type ReviewTrigger,
   type SessionPullRequestAssociation,
 } from '@factory/contract'
@@ -60,6 +60,7 @@ export {
   validateReviewPlanRecord,
   verifyBundle,
   type BundleVerification,
+  type ReviewAcceptanceProjection,
   type ReviewBundleManifest,
   type ReviewPlanRecord,
 } from './bundle'
@@ -105,6 +106,7 @@ export type PriorReview = {
   coverageTargetWatermarks: Readonly<Record<string, number>>
   selections: readonly ReviewEvidenceSelection[]
   inputProblems: readonly ReviewInputProblem[]
+  limitations?: readonly Limitation[]
   triggerIds: readonly RecordId[]
   disposition: 'complete' | 'partial' | 'failed'
   policies: ReviewPolicies
@@ -139,7 +141,7 @@ export type ReviewHistoryLoadRequest = {
 }
 
 export type ReviewPolicies = {
-  reviewer: ReviewerSettings
+  reviewer: ResolvedReviewerSettings
   analyzerVersion: string
   promptVersion: string
   policyVersion: string
@@ -1363,6 +1365,31 @@ export function planReview(input: LoadedReviewInputs): ReviewPlan {
   if (snapshot === undefined)
     throw new TypeError('review inputs were not produced by loadReviewInputs')
   return planVerifiedReview(structuredClone(snapshot))
+}
+
+/** Derive authoring context from exact attempted ranges in loader-owned evidence. */
+export function reviewAuthoringProvider(input: LoadedReviewInputs): 'codex' | 'claude' | undefined {
+  const snapshot = loadedReviewInputs.get(input)
+  if (snapshot === undefined)
+    throw new TypeError('review inputs were not produced by loadReviewInputs')
+  const plan = planVerifiedReview(structuredClone(snapshot))
+  const attempted = new Set(
+    plan.selections
+      .filter(
+        selection =>
+          selection.kind === 'range' &&
+          ['eligible-included', 'eligible-gap'].includes(selection.coverageEffect),
+      )
+      .map(selection => selection.triggerId),
+  )
+  return snapshot.candidates
+    .filter((candidate): candidate is CandidateEvidence => 'trigger' in candidate)
+    .filter(candidate => attempted.has(candidate.trigger.triggerId))
+    .sort(
+      (left, right) =>
+        right.trigger.createdAt.localeCompare(left.trigger.createdAt) ||
+        right.trigger.triggerId.localeCompare(left.trigger.triggerId),
+    )[0]?.trigger.provider
 }
 
 /** Test-only pure fold seam. Production package exports do not expose it. */

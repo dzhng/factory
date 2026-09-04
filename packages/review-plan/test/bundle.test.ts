@@ -33,6 +33,7 @@ import {
   openReviewRepositoryReader,
   planReview as planLoadedReview,
   planReviewForTesting as planReview,
+  reviewAuthoringProvider,
   verifyBundle,
   type PortableRecordReader,
   type ReviewInputs,
@@ -153,7 +154,7 @@ function fixture(): { input: ReviewInputs; objects: Map<string, Uint8Array> } {
       coverageActions: [],
       associations: [],
       policies: {
-        reviewer: { provider: 'codex' },
+        reviewer: { provider: 'codex', model: 'gpt-test', effort: 'high' },
         analyzerVersion: 'analyzer-v1',
         promptVersion: 'prompt-v1',
         policyVersion: 'policy-v1',
@@ -236,15 +237,15 @@ describe('verified review bundles', () => {
     for (const [hash, bytes] of value.objects) await put(objectOwnedPath(hash), bytes)
     const reader = await openReviewRepositoryReader(root)
     const history = await loadReviewHistory(reader)
-    const bounded = planLoadedReview(
-      await loadReviewInputs(reader, {
-        mode: 'incremental',
-        subjectPath,
-        history,
-        policies: value.input.policies,
-        reviewLimits: { maxSessions: 1 },
-      }),
-    )
+    const boundedInputs = await loadReviewInputs(reader, {
+      mode: 'incremental',
+      subjectPath,
+      history,
+      policies: value.input.policies,
+      reviewLimits: { maxSessions: 1 },
+    })
+    expect(reviewAuthoringProvider(boundedInputs)).toBe('codex')
+    const bounded = planLoadedReview(boundedInputs)
     expect(bounded.selections).toContainEqual(
       expect.objectContaining({
         triggerId: deferredTrigger.triggerId,
@@ -495,7 +496,7 @@ describe('verified review bundles', () => {
       triggerIds: [],
       associationBatchIds: [],
       limitations: [limitation],
-      reviewer: { provider: 'codex' as const },
+      reviewer: { provider: 'codex' as const, model: 'gpt-test', effort: 'high' },
       analyzerVersion: 'analyzer-v1',
       promptVersion: 'prompt-v1',
       policyVersion: 'policy-v1',
@@ -653,7 +654,7 @@ describe('verified review bundles', () => {
       triggerIds: [],
       associationBatchIds: [],
       limitations: [],
-      reviewer: { provider: 'codex' as const },
+      reviewer: { provider: 'codex' as const, model: 'gpt-test', effort: 'high' },
       analyzerVersion: 'analyzer-v1',
       promptVersion: 'prompt-v1',
       policyVersion: 'policy-v1',
