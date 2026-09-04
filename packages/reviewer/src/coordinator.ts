@@ -3,7 +3,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { chmod, mkdir, readFile, realpath, rename, writeFile } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 
-import { canonicalJson, type RecordId } from '@factory/contract'
+import { canonicalJson, newRecordId, type RecordId } from '@factory/contract'
 import { withAdvisoryFileLock } from '@factory/repository'
 
 import {
@@ -135,7 +135,6 @@ export class ReviewAttemptCoordinator {
       formatVersion: verified.manifest.plan.policies.formatVersion,
     }
     const key = createHash('sha256').update(canonicalJson(identity)).digest('hex')
-    const reviewId = `review_${key.slice(0, 26).toUpperCase()}` as RecordId
     const attemptRoot = join(this.runtimeRoot, key)
     await privateDirectory(attemptRoot)
     const statePath = join(attemptRoot, 'state.json')
@@ -148,27 +147,68 @@ export class ReviewAttemptCoordinator {
         if (Buffer.byteLength(prior) > 2 * 1024 * 1024)
           throw new Error('review attempt state exceeds byte bound')
         const state = JSON.parse(prior) as AttemptState
-        if (state.schemaVersion !== 1 || state.key !== key || state.reviewId !== reviewId)
+        if (state.schemaVersion !== 1 || state.key !== key)
           throw new Error('review attempt state is corrupt')
         if (state.phase === 'completed') return restored(state.attempt)
+        return await this.executeStarted(
+          state.reviewId,
+          key,
+          statePath,
+          attemptRoot,
+          bundle,
+          choice,
+          executor,
+          input,
+        )
       }
+      const reviewId = newRecordId('review')
       await atomicState(statePath, { schemaVersion: 1, key, reviewId, phase: 'started' })
       await this.onBoundary?.('identity-persisted')
-      const attempt = await executor.run(bundle, choice, {
-        ...input,
+      return await this.executeStarted(
         reviewId,
-        runtimeRoot: attemptRoot,
-      })
-      const observed = readReviewerRawAttempt(attempt)
-      await atomicState(statePath, {
-        schemaVersion: 1,
         key,
-        reviewId,
-        phase: 'completed',
-        attempt: persisted(observed),
-      })
-      await this.onBoundary?.('attempt-persisted')
-      return attempt
+        statePath,
+        attemptRoot,
+        bundle,
+        choice,
+        executor,
+        input,
+      )
     })
+  }
+
+  private async executeStarted(
+    reviewId: RecordId,
+    key: string,
+    statePath: string,
+    attemptRoot: string,
+    bundle: VerifiedReviewBundle,
+    choice: ReviewerChoice,
+    executor: ReviewerExecutor,
+    input: Omit<ReviewerExecutionInput, 'reviewId' | 'runtimeRoot'>,
+  ): Promise<ReviewerRawAttempt> {
+    const attempt = await executor.run(bundle, choice, {
+      ...input,
+      reviewId,
+      runtimeRoot: attemptRoot,
+    })
+    const observed = readReviewerRawAttempt(attempt)
+    const verified = await readVerifiedReviewBundle(bundle)
+    if (
+      observed.reviewId !== reviewId ||
+      observed.bundleSha256 !== verified.sha256 ||
+      canonicalJson(observed.reviewer.settings) !== canonicalJson(choice.settings) ||
+      observed.imageDigest !== input.imageDigest
+    )
+      throw new Error('review executor returned facts outside its durable attempt identity')
+    await atomicState(statePath, {
+      schemaVersion: 1,
+      key,
+      reviewId,
+      phase: 'completed',
+      attempt: persisted(observed),
+    })
+    await this.onBoundary?.('attempt-persisted')
+    return attempt
   }
 }

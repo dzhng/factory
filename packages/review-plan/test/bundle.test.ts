@@ -25,6 +25,7 @@ import {
 
 import {
   buildBundle,
+  bindReviewPolicies,
   loadCandidateEvidence,
   loadReviewHistory,
   loadReviewHistoryForTesting,
@@ -241,11 +242,10 @@ describe('verified review bundles', () => {
       mode: 'incremental',
       subjectPath,
       history,
-      policies: value.input.policies,
       reviewLimits: { maxSessions: 1 },
     })
     expect(reviewAuthoringProvider(boundedInputs)).toBe('codex')
-    const bounded = planLoadedReview(boundedInputs)
+    const bounded = planLoadedReview(bindReviewPolicies(boundedInputs, value.input.policies))
     expect(bounded.selections).toContainEqual(
       expect.objectContaining({
         triggerId: deferredTrigger.triggerId,

@@ -31,6 +31,7 @@ export type CandidateScopeProof =
   | { kind: 'diagnostic-only' }
 
 export type CandidateEvidence = {
+  scopeProof?: CandidateScopeProof
   identity: SessionIdentity
   trigger: ReviewTrigger
   turn: TurnManifest
@@ -47,7 +48,14 @@ export type CandidateProblem = {
   availability: 'unavailable' | 'corrupt' | 'unsafe' | 'excluded'
   limitations: readonly Limitation[]
 } & (
-  | { kind: 'range'; sessionKey: string; turnId: RecordId; evidenceWatermark: number }
+  | {
+      kind: 'range'
+      sessionKey: string
+      turnId: RecordId
+      evidenceWatermark: number
+      provider?: 'codex' | 'claude'
+      createdAt?: string
+    }
   | { kind: 'opaque-problem' }
 )
 
@@ -109,7 +117,13 @@ export async function loadCandidateEvidence(
     classification: CandidateProblem['availability'],
     detail: string,
     limitationCode?: LimitationCode,
-    exact?: { sessionKey: string; turnId: RecordId; evidenceWatermark: number },
+    exact?: {
+      sessionKey: string
+      turnId: RecordId
+      evidenceWatermark: number
+      provider: 'codex' | 'claude'
+      createdAt: string
+    },
   ): CandidateProblem => ({
     ...(exact === undefined
       ? opaqueIdentity
@@ -128,7 +142,15 @@ export async function loadCandidateEvidence(
       },
     ],
   })
-  let trustedExact: { sessionKey: string; turnId: RecordId; evidenceWatermark: number } | undefined
+  let trustedExact:
+    | {
+        sessionKey: string
+        turnId: RecordId
+        evidenceWatermark: number
+        provider: 'codex' | 'claude'
+        createdAt: string
+      }
+    | undefined
   try {
     const triggerRead = await reader.read(triggerPath)
     if (triggerRead.kind !== 'readable')
@@ -143,6 +165,8 @@ export async function loadCandidateEvidence(
       sessionKey: trigger.sessionKey,
       turnId: trigger.turnId,
       evidenceWatermark: trigger.evidenceWatermark,
+      provider: trigger.provider,
+      createdAt: trigger.createdAt,
     }
     trustedExact = exact
     const identityPath = makeOwnedPath('sessions', [
@@ -233,6 +257,7 @@ export async function loadCandidateEvidence(
         exact,
       )
     const candidate: CandidateEvidence = {
+      scopeProof: descriptor.scopeProof,
       identity,
       trigger,
       turn,

@@ -1434,6 +1434,13 @@ function assertReviewer(value: unknown, label: string): asserts value is Resolve
   assertEnum(value.provider, ['codex', 'claude'], `${label}.provider`)
   assertString(value.model, `${label}.model`)
   assertString(value.effort, `${label}.effort`)
+  if (
+    (value.model as string).trim().length === 0 ||
+    Buffer.byteLength(value.model as string) > 256 ||
+    (value.effort as string).trim().length === 0 ||
+    Buffer.byteLength(value.effort as string) > 64
+  )
+    throw new TypeError(`${label} model and effort must be nonblank and bounded`)
 }
 
 function assertOptionalString(value: Record<string, unknown>, key: string, label: string): void {

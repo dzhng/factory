@@ -176,13 +176,17 @@ export type ReviewInputs = {
 
 declare const loadedReviewInputsBrand: unique symbol
 export type LoadedReviewInputs = { readonly [loadedReviewInputsBrand]: true }
+declare const loadedReviewEvidenceBrand: unique symbol
+export type LoadedReviewEvidence = { readonly [loadedReviewEvidenceBrand]: true }
 const loadedReviewInputs = new WeakMap<object, ReviewInputs>()
+const loadedReviewEvidence = new WeakMap<object, Omit<ReviewInputs, 'policies'>>()
 
 export type ReviewInputLoadRequest = {
   mode: ReviewInputs['mode']
   subjectPath: OwnedPath
   history: LoadedReviewHistory
-  policies: ReviewPolicies
+  /** Supply only after reviewer resolution; omit during policy-free evidence discovery. */
+  policies?: ReviewPolicies
   sessionKey?: string
   reviewLimits?: ReviewInputs['reviewLimits']
 }
@@ -317,7 +321,7 @@ function freezePriorLedger(review: PriorReview | undefined): FrozenPriorLedger |
 async function loadReviewInputsFromReader(
   reader: ReviewRepositoryReader,
   request: ReviewInputLoadRequest,
-): Promise<LoadedReviewInputs> {
+): Promise<LoadedReviewEvidence | LoadedReviewInputs> {
   const loadedHistory = getLoadedReviewHistoryState(request.history)
   if (loadedHistory === undefined)
     throw new TypeError('review history was not produced by loadReviewHistory')
@@ -641,6 +645,8 @@ async function loadReviewInputsFromReader(
           sessionKey: item.trigger.sessionKey,
           turnId: item.trigger.turnId,
           evidenceWatermark: item.trigger.evidenceWatermark,
+          provider: item.trigger.provider,
+          createdAt: item.trigger.createdAt,
           scopeProof: candidateScope(item.triggerId),
           availability: 'excluded',
           limitations: [
@@ -667,7 +673,6 @@ async function loadReviewInputsFromReader(
     reviews: history.reviews,
     coverageActions: history.coverageActions,
     associations,
-    policies: request.policies,
     ...(request.sessionKey === undefined ? {} : { sessionKey: request.sessionKey }),
     ...(request.reviewLimits === undefined ? {} : { reviewLimits: request.reviewLimits }),
     historySources: history.sources.map(source => ({
@@ -680,26 +685,42 @@ async function loadReviewInputsFromReader(
     subjectLimitations,
     subjectObjectRefs,
     inputProblems,
-  }) satisfies ReviewInputs
-  const loaded = Object.freeze({}) as LoadedReviewInputs
-  loadedReviewInputs.set(loaded, snapshot)
-  return loaded
+  }) satisfies Omit<ReviewInputs, 'policies'>
+  const loaded = Object.freeze({}) as LoadedReviewEvidence
+  loadedReviewEvidence.set(loaded, snapshot)
+  return request.policies === undefined ? loaded : bindReviewPolicies(loaded, request.policies)
 }
 
+export function loadReviewInputs(
+  reader: ReviewRepositoryReader,
+  request: ReviewInputLoadRequest & { policies: ReviewPolicies },
+): Promise<LoadedReviewInputs>
+export function loadReviewInputs(
+  reader: ReviewRepositoryReader,
+  request: ReviewInputLoadRequest & { policies?: never },
+): Promise<LoadedReviewEvidence>
 export async function loadReviewInputs(
   reader: ReviewRepositoryReader,
   request: ReviewInputLoadRequest,
-): Promise<LoadedReviewInputs> {
+): Promise<LoadedReviewEvidence | LoadedReviewInputs> {
   if (!isTrustedReviewRepositoryReader(reader))
     throw new TypeError('review repository reader was not opened from a confined tree snapshot')
   return await loadReviewInputsFromReader(reader, request)
 }
 
 /** Test-only raw reader seam; it cannot mint the production repository-reader brand. */
+export function loadReviewInputsForTesting(
+  reader: ReviewRepositoryReader,
+  request: ReviewInputLoadRequest & { policies: ReviewPolicies },
+): Promise<LoadedReviewInputs>
+export function loadReviewInputsForTesting(
+  reader: ReviewRepositoryReader,
+  request: ReviewInputLoadRequest & { policies?: never },
+): Promise<LoadedReviewEvidence>
 export async function loadReviewInputsForTesting(
   reader: ReviewRepositoryReader,
   request: ReviewInputLoadRequest,
-): Promise<LoadedReviewInputs> {
+): Promise<LoadedReviewEvidence | LoadedReviewInputs> {
   return await loadReviewInputsFromReader(reader, request)
 }
 
@@ -1361,6 +1382,19 @@ function planVerifiedReview(input: ReviewInputs): ReviewPlan {
 }
 
 /** Public planning entry: every nested input comes from the immutable repository loader. */
+export function bindReviewPolicies(
+  evidence: LoadedReviewEvidence,
+  policies: ReviewPolicies,
+): LoadedReviewInputs {
+  const snapshot = loadedReviewEvidence.get(evidence)
+  if (snapshot === undefined)
+    throw new TypeError('review evidence was not produced by loadReviewInputs')
+  const loaded = Object.freeze({}) as LoadedReviewInputs
+  loadedReviewInputs.set(loaded, structuredClone({ ...snapshot, policies }))
+  loadedReviewEvidence.set(loaded, structuredClone(snapshot))
+  return loaded
+}
+
 export function planReview(input: LoadedReviewInputs): ReviewPlan {
   const snapshot = loadedReviewInputs.get(input)
   if (snapshot === undefined)
@@ -1369,28 +1403,49 @@ export function planReview(input: LoadedReviewInputs): ReviewPlan {
 }
 
 /** Derive authoring context from exact attempted ranges in loader-owned evidence. */
-export function reviewAuthoringProvider(input: LoadedReviewInputs): 'codex' | 'claude' | undefined {
-  const snapshot = loadedReviewInputs.get(input)
+export function reviewAuthoringProvider(
+  input: LoadedReviewEvidence | LoadedReviewInputs,
+): 'codex' | 'claude' | undefined {
+  const snapshot = loadedReviewEvidence.get(input)
   if (snapshot === undefined)
     throw new TypeError('review inputs were not produced by loadReviewInputs')
-  const plan = planVerifiedReview(structuredClone(snapshot))
-  const attempted = new Set(
-    plan.selections
-      .filter(
-        selection =>
-          selection.kind === 'range' &&
-          ['eligible-included', 'eligible-gap'].includes(selection.coverageEffect),
-      )
-      .map(selection => selection.triggerId),
-  )
+  const coverage = foldCoverage(snapshot)
   return snapshot.candidates
-    .filter((candidate): candidate is CandidateEvidence => 'trigger' in candidate)
-    .filter(candidate => attempted.has(candidate.trigger.triggerId))
+    .flatMap(candidate => {
+      if ('trigger' in candidate)
+        return [
+          {
+            sessionKey: candidate.trigger.sessionKey,
+            evidenceWatermark: candidate.trigger.evidenceWatermark,
+            provider: candidate.trigger.provider,
+            createdAt: candidate.trigger.createdAt,
+            triggerId: candidate.trigger.triggerId,
+            scopeProof: candidate.scopeProof,
+          },
+        ]
+      if (
+        candidate.kind !== 'range' ||
+        candidate.availability === 'excluded' ||
+        candidate.provider === undefined ||
+        candidate.createdAt === undefined
+      )
+        return []
+      return [candidate as typeof candidate & { provider: 'codex' | 'claude'; createdAt: string }]
+    })
+    .filter(candidate => candidate.scopeProof?.kind !== 'diagnostic-only')
+    .filter(
+      candidate =>
+        snapshot.mode === 'force' ||
+        ((coverage.settledWatermarks[candidate.sessionKey] ?? 0) < candidate.evidenceWatermark &&
+          !coverage.reviewedWatermarks[candidate.sessionKey]?.includes(
+            candidate.evidenceWatermark,
+          )),
+    )
     .sort(
       (left, right) =>
-        right.trigger.createdAt.localeCompare(left.trigger.createdAt) ||
-        right.trigger.triggerId.localeCompare(left.trigger.triggerId),
-    )[0]?.trigger.provider
+        right.createdAt.localeCompare(left.createdAt) ||
+        right.triggerId.localeCompare(left.triggerId),
+    )[0]?.provider
 }
 
 /** Test-only pure fold seam. Production package exports do not expose it. */

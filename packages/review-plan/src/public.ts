@@ -1,5 +1,6 @@
 export {
   buildBundle,
+  bindReviewPolicies,
   loadCandidateEvidence,
   loadReviewInputs,
   loadReviewHistory,
@@ -15,6 +16,7 @@ export {
   type CompletedAssociationGroup,
   type EffectiveReviewLimits,
   type LoadedReviewHistory,
+  type LoadedReviewEvidence,
   type LoadedReviewInputs,
   type PortableRecordReader,
   type ReviewBundleManifest,
