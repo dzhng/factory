@@ -538,7 +538,9 @@ second normative schema; the master specification and format own mechanics.
 - **The gap:** The spec required a visible but nonblocking hook failure without
   assigning the boundary between storage errors and provider responses.
 - **The reach:** Slice 06 can always let the provider Session continue while
-  `doctor` gains a private diagnostic to report when storage permitted it. No
+  `doctor` gains a private diagnostic to report when storage permitted it.
+  Diagnostics are content-addressed so a repeatedly pending item converges on
+  one file, and both creation and inspection stop at 10,000 entries. No
   transient failure detail enters committed `.factory` evidence.
 - **Verdict:** Sound. It separates the strict durability API from fail-open hook
   control flow and leaves provider vocabulary with its adapter.
@@ -676,6 +678,12 @@ second normative schema; the master specification and format own mechanics.
   necessary for convergence.
 - **The reach:** “No partial Session” means no partial Session in the public
   projection, not that an interrupted disk can never contain unreachable files.
+  Recovery retires a claim only after reconstructing the exact deterministic
+  trigger, event, transcript, observation, and object inventory graph; a merely
+  schema-valid rewrite remains pending and is diagnosed. Fresh publication,
+  prefix resumption, and completion proof derive limitations from the same
+  frozen claim and durable observation/transcript graph, so a crash boundary
+  cannot change whether evidence is complete or partial.
 - **Verdict:** Sound. The logical boundary is explicit, testable, and rebuilds
   without private indexes.
 - **Confidence:** High.

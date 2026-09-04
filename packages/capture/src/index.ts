@@ -6,7 +6,6 @@ import {
   canonicalJson,
   makeOwnedPath,
   newRecordId,
-  parseCodeManifest,
   type EvidenceEnvelope,
   type JsonValue,
   type LifecycleRecord,
@@ -21,6 +20,7 @@ import {
 } from '@factory/contract'
 import {
   GitObserver,
+  loadCodeManifestObject,
   readConfinedFile,
   type ImmutableGroupRecord,
   type RepositoryRecords,
@@ -791,6 +791,239 @@ export type MaterializeStopResult =
   | { status: 'materialized'; turn: TurnRef }
   | { status: 'deferred'; reason: 'factory-conflict' | PlanRefusal['reason']; detail: string }
 
+async function materializationLimitations(
+  options: MaterializeStopOptions,
+  claimed: readonly { event: DurableCaptureEvent; raw: Uint8Array }[],
+  observation: RepositoryObservation,
+  transcriptBytes: readonly Uint8Array[],
+): Promise<Limitation[]> {
+  const limitations = [...observation.limitations]
+  if (
+    claimed.some(
+      item =>
+        item.event.worktreePath !== undefined &&
+        item.event.worktreePath !== options.repositoryRoot &&
+        !options.sameRepositoryWorktrees?.includes(item.event.worktreePath),
+    )
+  ) {
+    limitations.push({
+      code: 'cross-repository-session',
+      detail: 'Session activity was observed outside its owning repository',
+    })
+  }
+  if (observation.limitations.some(limitation => limitation.code === 'repository-race')) {
+    limitations.push({
+      code: 'repository-race',
+      detail: `repository changed from ${observation.startState} to ${observation.endState}`,
+    })
+  }
+  try {
+    const stop = JSON.parse(decoder.decode(claimed.at(-1)!.raw)) as Record<string, unknown>
+    if (typeof stop.transcript_path !== 'string') {
+      if (transcriptBytes.length !== 0)
+        throw new Error('Turn has a transcript without a provider transcript path')
+      limitations.push({
+        code: 'missing-transcript-range',
+        detail: 'Stop did not expose a provider transcript path',
+      })
+      return limitations
+    }
+    if (transcriptBytes.length > 1)
+      throw new Error('Turn has more than one provider transcript observation')
+    if (transcriptBytes.length === 1) {
+      if (
+        typeof stop.last_assistant_message === 'string' &&
+        !decoder.decode(transcriptBytes[0]!).includes(stop.last_assistant_message)
+      ) {
+        limitations.push({
+          code: 'missing-transcript-range',
+          detail: 'provider transcript lags the Stop assistant message',
+        })
+      }
+      return limitations
+    }
+    let outside = false
+    try {
+      const root = await realpath(options.providerHome)
+      const relation = relative(root, resolve(stop.transcript_path))
+      outside = relation === '' || relation.startsWith('..') || relation.startsWith('/')
+    } catch {
+      // An unavailable provider root has the same fail-closed result as an unreadable transcript.
+    }
+    limitations.push({
+      code: 'missing-transcript-range',
+      detail: outside
+        ? 'provider transcript path is outside its configured home'
+        : 'provider transcript is unavailable or failed safe-path verification',
+    })
+  } catch (error) {
+    if (!(error instanceof SyntaxError || error instanceof TypeError)) throw error
+    limitations.push({ code: 'corrupt-input', detail: 'Stop payload is not valid JSON' })
+  }
+  return limitations
+}
+
+async function verifyMaterializedTurnGraph(
+  options: MaterializeStopOptions,
+  claimed: readonly { event: DurableCaptureEvent; raw: Uint8Array }[],
+  identity: ReturnType<typeof materializationIdentity>,
+  turnPath: OwnedPath,
+): Promise<{ bytes: Uint8Array; manifest: TurnManifest }> {
+  const bytes = await options.store.readImmutable(turnPath)
+  const manifest = JSON.parse(decoder.decode(bytes)) as TurnManifest
+  const identityPath = makeOwnedPath('sessions', [
+    options.claim.stop.provider,
+    identity.sessionKey,
+    'identity.json',
+  ])
+  const base = [options.claim.stop.provider, identity.sessionKey, 'turns', identity.turnId]
+  const [identityBytes, eventBytes, transcriptBytes, observationBytes] = await Promise.all([
+    options.store.readImmutable(identityPath),
+    options.store.readImmutable(makeOwnedPath('sessions', [...base, 'events.jsonl'])),
+    options.store.readImmutable(makeOwnedPath('sessions', [...base, 'transcript.jsonl'])),
+    options.store.readImmutable(
+      makeOwnedPath('repository-observations', [`${manifest.repositoryObservationId!}.json`]),
+    ),
+  ])
+  const session = JSON.parse(decoder.decode(identityBytes)) as SessionIdentity
+  const eventEnvelopes = decoder
+    .decode(eventBytes)
+    .trimEnd()
+    .split('\n')
+    .filter(Boolean)
+    .map(line => JSON.parse(line) as EvidenceEnvelope)
+  const transcriptEnvelopes = decoder
+    .decode(transcriptBytes)
+    .trimEnd()
+    .split('\n')
+    .filter(Boolean)
+    .map(line => JSON.parse(line) as EvidenceEnvelope)
+  const observation = JSON.parse(decoder.decode(observationBytes)) as RepositoryObservation
+  if (
+    session.provider !== options.claim.stop.provider ||
+    session.nativeSessionId !== options.claim.stop.sessionId ||
+    session.captureGeneration !== options.claim.stop.generation ||
+    session.sessionKey !== identity.sessionKey ||
+    session.repositoryId !== options.store.manifest.repositoryId ||
+    session.firstObservedAt !== options.sessionFirstObservedAt ||
+    manifest.turnId !== identity.turnId ||
+    manifest.sessionKey !== identity.sessionKey ||
+    manifest.nativeStopId !== options.claim.stop.stopId ||
+    manifest.capturedAt !== claimed.at(-1)?.event.occurredAt ||
+    manifest.materializedAt !== options.claim.claimedAt ||
+    manifest.captureAdapterVersion !== (options.adapterVersion ?? 'capture-v1') ||
+    manifest.formatVersion !== 1 ||
+    manifest.eventRange.first !== claimed[0]?.event.sequence ||
+    manifest.eventRange.last !== options.claim.throughSequence ||
+    eventEnvelopes.length !== options.claim.eventKeys.length ||
+    manifest.repositoryObservationId !== identity.observationId ||
+    manifest.branch !== observation.git.branch ||
+    canonicalJson(manifest.codeManifest ?? null) !==
+      canonicalJson(observation.codeManifest ?? null) ||
+    canonicalJson(manifest.stagedPatch ?? null) !==
+      canonicalJson(observation.stagedPatch ?? null) ||
+    canonicalJson(manifest.unstagedPatch ?? null) !==
+      canonicalJson(observation.unstagedPatch ?? null) ||
+    observation.observationId !== manifest.repositoryObservationId ||
+    observation.repositoryId !== options.store.manifest.repositoryId
+  ) {
+    throw new Error('Interrupted materialization graph does not match its durable claim')
+  }
+  for (let index = 0; index < eventEnvelopes.length; index += 1) {
+    const envelope = eventEnvelopes[index]!
+    const durable = claimed[index]
+    const expectedRaw: ObjectRef | undefined =
+      durable === undefined
+        ? undefined
+        : {
+            algorithm: 'sha256',
+            sha256: durable.event.rawSha256,
+            bytes: durable.event.byteLength,
+            mediaType: 'application/json',
+            role: 'provider-hook',
+          }
+    const expectedEnvelope =
+      durable === undefined
+        ? undefined
+        : {
+            sequence: durable.event.sequence,
+            observedAt: durable.event.occurredAt,
+            raw: expectedRaw!,
+          }
+    if (durable === undefined || canonicalJson(envelope) !== canonicalJson(expectedEnvelope!)) {
+      throw new Error('Interrupted Turn event inventory does not match its durable claim')
+    }
+    await options.store.getObject(envelope.raw)
+  }
+  const transcriptObjectBytes: Uint8Array[] = []
+  for (let index = 0; index < transcriptEnvelopes.length; index += 1) {
+    const envelope = transcriptEnvelopes[index]!
+    const expectedEnvelope = {
+      sequence: index,
+      observedAt: options.claim.claimedAt,
+      raw: envelope.raw,
+    }
+    if (
+      canonicalJson(envelope) !== canonicalJson(expectedEnvelope) ||
+      envelope.raw.algorithm !== 'sha256' ||
+      envelope.raw.mediaType !== 'application/x-ndjson' ||
+      envelope.raw.role !== 'provider-transcript-observation'
+    ) {
+      throw new Error('Interrupted Turn transcript inventory does not match its durable claim')
+    }
+    transcriptObjectBytes.push(await options.store.getObject(envelope.raw))
+  }
+  const observationRefs = [
+    observation.codeManifest,
+    observation.stagedPatch,
+    observation.unstagedPatch,
+  ].filter((reference): reference is ObjectRef => reference !== undefined)
+  const patchRefs = [observation.stagedPatch, observation.unstagedPatch].filter(
+    (reference): reference is ObjectRef => reference !== undefined,
+  )
+  const codeObjects: ObjectRef[] = []
+  if (observation.codeManifest !== undefined) {
+    if (observation.worktreeFingerprint !== observation.codeManifest.sha256) {
+      throw new Error('Repository observation fingerprint does not match its code manifest')
+    }
+    const codeManifest = await loadCodeManifestObject(
+      observation.codeManifest,
+      async reference => await options.store.getObject(reference),
+    )
+    for (const entry of codeManifest.entries) {
+      if ('object' in entry) codeObjects.push(entry.object)
+    }
+  }
+  for (const reference of [...patchRefs, ...codeObjects]) {
+    await options.store.getObject(reference)
+  }
+  const rawObjects = eventEnvelopes.map(envelope => envelope.raw)
+  const transcriptObjects = transcriptEnvelopes.map(envelope => envelope.raw)
+  const expectedInventory = uniqueRefs([
+    ...rawObjects,
+    ...transcriptObjects,
+    ...observationRefs,
+    ...codeObjects,
+  ])
+  if (
+    canonicalJson(manifest.rawObjects) !== canonicalJson(rawObjects) ||
+    canonicalJson(manifest.transcriptObservations) !== canonicalJson(transcriptObjects) ||
+    canonicalJson(manifest.inventory) !== canonicalJson(expectedInventory)
+  ) {
+    throw new Error('Interrupted Turn dependency inventory does not match its durable graph')
+  }
+  const expectedLimitations = await materializationLimitations(
+    options,
+    claimed,
+    observation,
+    transcriptObjectBytes,
+  )
+  if (canonicalJson(manifest.limitations) !== canonicalJson(expectedLimitations)) {
+    throw new Error('Interrupted Turn limitations do not match its durable evidence')
+  }
+  return { bytes, manifest }
+}
+
 export async function materializeStop(
   options: MaterializeStopOptions,
 ): Promise<MaterializeStopResult> {
@@ -807,16 +1040,23 @@ export async function materializeStop(
   const existingTrigger = await options.store.tryReadImmutable(triggerPath)
   if (existingTrigger !== undefined) {
     const trigger = JSON.parse(decoder.decode(existingTrigger)) as ReviewTrigger
-    if (
-      trigger.turnId !== identity.turnId ||
-      trigger.sessionKey !== identity.sessionKey ||
-      trigger.evidenceWatermark !== options.claim.throughSequence ||
-      trigger.provider !== options.claim.stop.provider
-    ) {
+    const verified = await verifyMaterializedTurnGraph(options, claimed, identity, turnPath)
+    const expectedTrigger: ReviewTrigger = {
+      schemaVersion: 1,
+      triggerId: identity.triggerId,
+      sessionKey: identity.sessionKey,
+      turnId: identity.turnId,
+      repositoryObservationId: identity.observationId,
+      evidenceWatermark: options.claim.throughSequence,
+      provider: options.claim.stop.provider,
+      createdAt: options.claim.claimedAt,
+      materialization: verified.manifest.limitations.length === 0 ? 'complete' : 'partial',
+      limitations: verified.manifest.limitations,
+    }
+    if (canonicalJson(trigger) !== canonicalJson(expectedTrigger)) {
       throw new Error('Existing materialization trigger does not match its durable claim')
     }
-    const bytes = await options.store.readImmutable(turnPath)
-    const turn = { path: turnPath, sha256: sha256(bytes) }
+    const turn = { path: turnPath, sha256: sha256(verified.bytes) }
     await options.journal.complete(options.claim, {
       ...turn,
       repositoryRoot: options.store.repositoryRoot,
@@ -833,76 +1073,8 @@ export async function materializeStop(
   }
   const existingTurn = await options.store.tryReadImmutable(turnPath)
   if (existingTurn !== undefined) {
-    const turnManifest = JSON.parse(decoder.decode(existingTurn)) as TurnManifest
-    const identityPath = makeOwnedPath('sessions', [
-      options.claim.stop.provider,
-      identity.sessionKey,
-      'identity.json',
-    ])
-    const eventsPath = makeOwnedPath('sessions', [
-      options.claim.stop.provider,
-      identity.sessionKey,
-      'turns',
-      identity.turnId,
-      'events.jsonl',
-    ])
-    const transcriptPath = makeOwnedPath('sessions', [
-      options.claim.stop.provider,
-      identity.sessionKey,
-      'turns',
-      identity.turnId,
-      'transcript.jsonl',
-    ])
-    const [identityBytes, eventBytes, transcriptBytes, observationBytes] = await Promise.all([
-      options.store.readImmutable(identityPath),
-      options.store.readImmutable(eventsPath),
-      options.store.readImmutable(transcriptPath),
-      options.store.readImmutable(
-        makeOwnedPath('repository-observations', [`${turnManifest.repositoryObservationId!}.json`]),
-      ),
-    ])
-    const session = JSON.parse(decoder.decode(identityBytes)) as SessionIdentity
-    const eventEnvelopes = decoder
-      .decode(eventBytes)
-      .trimEnd()
-      .split('\n')
-      .filter(Boolean)
-      .map(line => JSON.parse(line) as EvidenceEnvelope)
-    const observation = JSON.parse(decoder.decode(observationBytes)) as RepositoryObservation
-    if (
-      session.provider !== options.claim.stop.provider ||
-      session.nativeSessionId !== options.claim.stop.sessionId ||
-      session.captureGeneration !== options.claim.stop.generation ||
-      session.sessionKey !== identity.sessionKey ||
-      turnManifest.turnId !== identity.turnId ||
-      turnManifest.sessionKey !== identity.sessionKey ||
-      turnManifest.nativeStopId !== options.claim.stop.stopId ||
-      turnManifest.eventRange.last !== options.claim.throughSequence ||
-      eventEnvelopes.length !== options.claim.eventKeys.length ||
-      observation.observationId !== turnManifest.repositoryObservationId ||
-      observation.repositoryId !== options.store.manifest.repositoryId
-    ) {
-      throw new Error('Interrupted materialization prefix does not match its durable claim')
-    }
-    for (let index = 0; index < eventEnvelopes.length; index += 1) {
-      const envelope = eventEnvelopes[index]!
-      const durable = claimed[index]
-      if (
-        durable === undefined ||
-        envelope.sequence !== durable.event.sequence ||
-        envelope.raw.sha256 !== durable.event.rawSha256 ||
-        envelope.raw.bytes !== durable.event.byteLength
-      ) {
-        throw new Error('Interrupted Turn event inventory does not match its durable claim')
-      }
-    }
-    for (const reference of turnManifest.inventory) await options.store.getObject(reference)
-    if (transcriptBytes.byteLength > 0) {
-      for (const line of decoder.decode(transcriptBytes).trimEnd().split('\n')) {
-        const envelope = JSON.parse(line) as EvidenceEnvelope
-        await options.store.getObject(envelope.raw)
-      }
-    }
+    const verified = await verifyMaterializedTurnGraph(options, claimed, identity, turnPath)
+    const turnManifest = verified.manifest
     const trigger: ReviewTrigger = {
       schemaVersion: 1,
       triggerId: identity.triggerId,
@@ -919,7 +1091,7 @@ export async function materializeStop(
       [{ path: triggerPath, bytes: encoder.encode(canonicalJson(trigger)) }],
       triggerPath,
     )
-    const turn = { path: turnPath, sha256: sha256(existingTurn) }
+    const turn = { path: turnPath, sha256: sha256(verified.bytes) }
     await options.journal.complete(options.claim, {
       ...turn,
       repositoryRoot: options.store.repositoryRoot,
@@ -928,7 +1100,6 @@ export async function materializeStop(
     return { status: 'materialized', turn }
   }
   const events: StopMaterializationEvent[] = []
-  const limitations: Limitation[] = []
   for (const item of claimed) {
     const raw = await options.store.putObject(
       (async function* () {
@@ -944,19 +1115,6 @@ export async function materializeStop(
   const existingObservation = await options.store.tryReadImmutable(observationPath)
   let observation: RepositoryObservation
   const codeObjects: ObjectRef[] = []
-  if (
-    claimed.some(
-      item =>
-        item.event.worktreePath !== undefined &&
-        item.event.worktreePath !== options.repositoryRoot &&
-        !options.sameRepositoryWorktrees?.includes(item.event.worktreePath),
-    )
-  ) {
-    limitations.push({
-      code: 'cross-repository-session',
-      detail: 'Session activity was observed outside its owning repository',
-    })
-  }
   if (existingObservation !== undefined) {
     observation = JSON.parse(decoder.decode(existingObservation)) as RepositoryObservation
   } else {
@@ -983,16 +1141,14 @@ export async function materializeStop(
       return { status: 'deferred', reason: 'repository-mismatch', detail: observed.reason.detail }
     }
     observation = observed.kind === 'raced' ? observed.partial : observed.observation
-    if (observed.kind === 'raced') {
-      limitations.push({
-        code: 'repository-race',
-        detail: `repository changed from ${observed.race.startState} to ${observed.race.endState}`,
-      })
-    }
   }
   if (observation.codeManifest !== undefined) {
-    const manifest = parseCodeManifest(
-      JSON.parse(decoder.decode(await options.store.getObject(observation.codeManifest))),
+    if (observation.worktreeFingerprint !== observation.codeManifest.sha256) {
+      throw new Error('Repository observation fingerprint does not match its code manifest')
+    }
+    const manifest = await loadCodeManifestObject(
+      observation.codeManifest,
+      async reference => await options.store.getObject(reference),
     )
     for (const entry of manifest.entries) {
       if ('object' in entry) codeObjects.push(entry.object)
@@ -1026,27 +1182,21 @@ export async function materializeStop(
             { mediaType: 'application/x-ndjson', role: 'provider-transcript-observation' },
           )
           transcript.push({ observedAt: options.claim.claimedAt, raw })
-          if (
-            typeof value.last_assistant_message === 'string' &&
-            !decoder.decode(result.bytes).includes(value.last_assistant_message)
-          ) {
-            limitations.push({
-              code: 'missing-transcript-range',
-              detail: 'provider transcript lags the Stop assistant message',
-            })
-          }
         }
-        if (result.limitation !== undefined) limitations.push(result.limitation)
-      } else {
-        limitations.push({
-          code: 'missing-transcript-range',
-          detail: 'Stop did not expose a provider transcript path',
-        })
       }
-    } catch {
-      limitations.push({ code: 'corrupt-input', detail: 'Stop payload is not valid JSON' })
+    } catch (error) {
+      if (!(error instanceof SyntaxError || error instanceof TypeError)) throw error
     }
   }
+  const transcriptBytes = await Promise.all(
+    transcript.map(async item => await options.store.getObject(item.raw)),
+  )
+  const limitations = await materializationLimitations(
+    options,
+    claimed,
+    observation,
+    transcriptBytes,
+  )
   const plan = planTurn({
     repositoryId: options.store.manifest.repositoryId,
     claim: options.claim,
@@ -1056,7 +1206,7 @@ export async function materializeStop(
     materializedAt: options.claim.claimedAt,
     adapterVersion: options.adapterVersion ?? 'capture-v1',
     sessionFirstObservedAt: options.sessionFirstObservedAt,
-    limitations,
+    limitations: limitations.slice(observation.limitations.length),
     codeObjects,
   })
   if ('reason' in plan) return { status: 'deferred', reason: plan.reason, detail: plan.detail }

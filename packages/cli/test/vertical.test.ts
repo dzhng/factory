@@ -9,11 +9,14 @@ import {
   mkdtemp,
   readFile,
   readdir,
+  symlink,
   unlink,
   writeFile,
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+
+import { canonicalJson } from '@factory/contract'
 
 if (process.env.FACTORY_DOCKER_TEST !== '1') {
   throw new Error('capture vertical tests must run in the project Docker environment')
@@ -657,7 +660,48 @@ describe('installed capture vertical', () => {
     )
     expect(report.pendingStops).toBe(1)
     expect(report.captureDiagnostics.length).toBeGreaterThan(0)
+    expect(await send(linked, 'linked-stop')).toMatchObject({ code: 0, stdout: '{}\n' })
+    const repeated = JSON.parse(
+      (await command(value.factory, ['doctor'], value.repository, value.env)).stdout,
+    )
+    expect(repeated.captureDiagnostics).toEqual(report.captureDiagnostics)
     expect(await pathExists(join(linked, '.factory'))).toBeFalse()
+  })
+
+  test('bounds the doctor diagnostic inventory', async () => {
+    const value = await createFixture()
+    expect((await command(value.factory, ['init'], value.repository, value.env)).code).toBe(0)
+    expect(
+      await command(
+        value.factory,
+        ['capture', '--provider', 'codex'],
+        value.repository,
+        value.env,
+        `${JSON.stringify({ session_id: 'diagnostic-bound', hook_event_name: 'Stop', turn_id: 'stop-1', cwd: value.repository })}\n`,
+      ),
+    ).toMatchObject({ code: 0, stdout: '{}\n' })
+    const common = await git(
+      value.repository,
+      'rev-parse',
+      '--path-format=absolute',
+      '--git-common-dir',
+    )
+    const diagnostics = join(common, 'factory-runtime', 'journal-v1', 'diagnostics')
+    for (let first = 0; first < 10_001; first += 500) {
+      await Promise.all(
+        Array.from({ length: Math.min(500, 10_001 - first) }, async (_unused, offset) => {
+          const name = createHash('sha256')
+            .update(`diagnostic-${first + offset}`)
+            .digest('hex')
+          await writeFile(join(diagnostics, `${name}.txt`), 'diagnostic\n')
+        }),
+      )
+    }
+    const report = JSON.parse(
+      (await command(value.factory, ['doctor'], value.repository, value.env)).stdout,
+    )
+    expect(report.captureDiagnostics).toHaveLength(10_001)
+    expect(report.captureDiagnostics.at(-1)).toBe('inventory-exceeds-bound')
   })
 
   test('keeps forged or unavailable transcript input partial without leaking its path', async () => {
@@ -817,6 +861,458 @@ describe('installed capture vertical', () => {
       `${JSON.stringify({ session_id: 'prefix-conflict', hook_event_name: 'SessionEnd', cwd: value.repository })}\n`,
     )
     expect(await readdir(triggerRoot)).toEqual([])
+  })
+
+  test('does not retire recovery when a committed Turn graph loses a dependency', async () => {
+    const value = await createFixture()
+    expect((await command(value.factory, ['init'], value.repository, value.env)).code).toBe(0)
+    const payload = {
+      session_id: 'damaged-graph',
+      turn_id: 'damaged-stop',
+      hook_event_name: 'Stop',
+      cwd: value.repository,
+    }
+    expect(
+      await command(
+        value.factory,
+        ['capture', '--provider', 'codex'],
+        value.repository,
+        value.env,
+        `${JSON.stringify(payload)}\n`,
+      ),
+    ).toMatchObject({ code: 0, stdout: '{}\n' })
+    const initial = JSON.parse(
+      (await command(value.factory, ['doctor'], value.repository, value.env)).stdout,
+    )
+    const sessionKey = initial.projection.sessions[0].sessionKey
+    const turnsRoot = join(value.repository, '.factory', 'sessions', 'codex', sessionKey, 'turns')
+    const turnId = (await readdir(turnsRoot))[0]!
+    await unlink(join(turnsRoot, turnId, 'events.jsonl'))
+    const common = await git(
+      value.repository,
+      'rev-parse',
+      '--path-format=absolute',
+      '--git-common-dir',
+    )
+    const database = new Database(join(common, 'factory-runtime', 'journal-v1', 'journal.sqlite'))
+    database.run('DELETE FROM completions')
+    database.close(false)
+
+    expect(
+      await command(
+        value.factory,
+        ['capture', '--provider', 'codex'],
+        value.repository,
+        value.env,
+        `${JSON.stringify({ session_id: 'damaged-graph', hook_event_name: 'SessionEnd', cwd: value.repository })}\n`,
+      ),
+    ).toMatchObject({ code: 0, stdout: '{}\n' })
+    const damaged = JSON.parse(
+      (await command(value.factory, ['doctor'], value.repository, value.env)).stdout,
+    )
+    expect(damaged.pendingStops).toBe(1)
+    expect(damaged.projection.triggers).toBe(0)
+    expect(damaged.captureDiagnostics.length).toBeGreaterThan(0)
+  })
+
+  test('verifies a patch dependency when the observation has no code manifest', async () => {
+    const value = await createFixture()
+    expect((await command(value.factory, ['init'], value.repository, value.env)).code).toBe(0)
+    const payload = {
+      session_id: 'missing-first-patch',
+      turn_id: 'missing-first-patch-stop',
+      hook_event_name: 'Stop',
+      cwd: value.repository,
+    }
+    expect(
+      await command(
+        value.factory,
+        ['capture', '--provider', 'codex'],
+        value.repository,
+        value.env,
+        `${JSON.stringify(payload)}\n`,
+      ),
+    ).toMatchObject({ code: 0, stdout: '{}\n' })
+    const initial = JSON.parse(
+      (await command(value.factory, ['doctor'], value.repository, value.env)).stdout,
+    )
+    const sessionKey = initial.projection.sessions[0].sessionKey
+    const turnsRoot = join(value.repository, '.factory', 'sessions', 'codex', sessionKey, 'turns')
+    const turnId = (await readdir(turnsRoot))[0]!
+    const manifestPath = join(turnsRoot, turnId, 'manifest.json')
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+    const observationPath = join(
+      value.repository,
+      '.factory',
+      'repository-observations',
+      `${manifest.repositoryObservationId}.json`,
+    )
+    const observation = JSON.parse(await readFile(observationPath, 'utf8'))
+    const missingPatch = {
+      algorithm: 'sha256',
+      sha256: 'f'.repeat(64),
+      bytes: 1,
+      mediaType: 'text/x-diff',
+      role: 'staged-patch',
+    }
+    delete observation.codeManifest
+    observation.stagedPatch = missingPatch
+    delete manifest.codeManifest
+    manifest.stagedPatch = missingPatch
+    manifest.inventory = [
+      ...manifest.rawObjects,
+      ...manifest.transcriptObservations,
+      missingPatch,
+    ].sort((left, right) => left.sha256.localeCompare(right.sha256))
+    await Promise.all([
+      writeFile(observationPath, canonicalJson(observation)),
+      writeFile(manifestPath, canonicalJson(manifest)),
+    ])
+    const common = await git(
+      value.repository,
+      'rev-parse',
+      '--path-format=absolute',
+      '--git-common-dir',
+    )
+    const database = new Database(join(common, 'factory-runtime', 'journal-v1', 'journal.sqlite'))
+    database.run('DELETE FROM completions')
+    database.close(false)
+
+    expect(
+      await command(
+        value.factory,
+        ['capture', '--provider', 'codex'],
+        value.repository,
+        value.env,
+        `${JSON.stringify({ session_id: 'missing-first-patch', hook_event_name: 'SessionEnd', cwd: value.repository })}\n`,
+      ),
+    ).toMatchObject({ code: 0, stdout: '{}\n' })
+    const damaged = JSON.parse(
+      (await command(value.factory, ['doctor'], value.repository, value.env)).stdout,
+    )
+    expect(damaged.pendingStops).toBe(1)
+    expect(damaged.captureDiagnostics.length).toBeGreaterThan(0)
+  })
+
+  test('rejects schema-valid Turn and trigger rewrites during completion recovery', async () => {
+    const value = await createFixture()
+    expect((await command(value.factory, ['init'], value.repository, value.env)).code).toBe(0)
+    const stop = `${JSON.stringify({ session_id: 'rewritten-graph', hook_event_name: 'Stop', turn_id: 'rewritten-stop', cwd: value.repository })}\n`
+    expect(
+      await command(
+        value.factory,
+        ['capture', '--provider', 'codex'],
+        value.repository,
+        value.env,
+        stop,
+      ),
+    ).toMatchObject({ code: 0, stdout: '{}\n' })
+    const initial = JSON.parse(
+      (await command(value.factory, ['doctor'], value.repository, value.env)).stdout,
+    )
+    const sessionKey = initial.projection.sessions[0].sessionKey
+    const turnsRoot = join(value.repository, '.factory', 'sessions', 'codex', sessionKey, 'turns')
+    const turnId = (await readdir(turnsRoot))[0]!
+    const manifestPath = join(turnsRoot, turnId, 'manifest.json')
+    const originalManifest = await readFile(manifestPath, 'utf8')
+    const manifest = JSON.parse(originalManifest)
+    const observationPath = join(
+      value.repository,
+      '.factory',
+      'repository-observations',
+      `${manifest.repositoryObservationId}.json`,
+    )
+    const originalObservation = await readFile(observationPath, 'utf8')
+    const observation = JSON.parse(originalObservation)
+    const originalCodeManifest = observation.codeManifest
+    const mislabelledCodeManifest = { ...originalCodeManifest, role: 'workspace-file' }
+    observation.codeManifest = mislabelledCodeManifest
+    manifest.codeManifest = mislabelledCodeManifest
+    manifest.inventory = manifest.inventory.map((reference: { sha256: string; role: string }) =>
+      reference.sha256 === originalCodeManifest.sha256 &&
+      reference.role === originalCodeManifest.role
+        ? mislabelledCodeManifest
+        : reference,
+    )
+    await Promise.all([
+      writeFile(observationPath, canonicalJson(observation)),
+      writeFile(manifestPath, canonicalJson(manifest)),
+    ])
+    const common = await git(
+      value.repository,
+      'rev-parse',
+      '--path-format=absolute',
+      '--git-common-dir',
+    )
+    const journalPath = join(common, 'factory-runtime', 'journal-v1', 'journal.sqlite')
+    let database = new Database(journalPath)
+    database.run('DELETE FROM completions')
+    database.close(false)
+    expect(
+      await command(
+        value.factory,
+        ['capture', '--provider', 'codex'],
+        value.repository,
+        value.env,
+        `${JSON.stringify({ session_id: 'rewritten-graph', hook_event_name: 'SessionEnd', cwd: value.repository })}\n`,
+      ),
+    ).toMatchObject({ code: 0, stdout: '{}\n' })
+    expect(
+      JSON.parse((await command(value.factory, ['doctor'], value.repository, value.env)).stdout)
+        .pendingStops,
+    ).toBe(1)
+
+    await Promise.all([
+      writeFile(observationPath, originalObservation),
+      writeFile(manifestPath, originalManifest),
+    ])
+    Object.assign(manifest, JSON.parse(originalManifest))
+    const omitted = manifest.rawObjects[0]
+    manifest.rawObjects = manifest.rawObjects.slice(1)
+    manifest.inventory = manifest.inventory.filter(
+      (reference: { sha256: string }) => reference.sha256 !== omitted.sha256,
+    )
+    await writeFile(manifestPath, `${JSON.stringify(manifest)}\n`)
+    database = new Database(journalPath)
+    database.run('DELETE FROM completions')
+    database.close(false)
+    expect(
+      await command(
+        value.factory,
+        ['capture', '--provider', 'codex'],
+        value.repository,
+        value.env,
+        `${JSON.stringify({ session_id: 'rewritten-graph', hook_event_name: 'SessionEnd', cwd: value.repository })}\n`,
+      ),
+    ).toMatchObject({ code: 0, stdout: '{}\n' })
+    const parsedDoctor = await command(value.factory, ['doctor'], value.repository, value.env)
+    expect(parsedDoctor.code, parsedDoctor.stderr).toBe(0)
+    expect(JSON.parse(parsedDoctor.stdout).pendingStops).toBe(1)
+
+    await writeFile(manifestPath, originalManifest)
+    const eventsPath = join(turnsRoot, turnId, 'events.jsonl')
+    const originalEvents = await readFile(eventsPath, 'utf8')
+    const eventRows = originalEvents
+      .trimEnd()
+      .split('\n')
+      .map(line => JSON.parse(line))
+    eventRows[0].parsed = { misleading: true }
+    await writeFile(eventsPath, eventRows.map(value => canonicalJson(value)).join(''))
+    expect(
+      await command(
+        value.factory,
+        ['capture', '--provider', 'codex'],
+        value.repository,
+        value.env,
+        stop,
+      ),
+    ).toMatchObject({ code: 0, stdout: '{}\n' })
+    const envelopeDoctor = await command(value.factory, ['doctor'], value.repository, value.env)
+    expect(envelopeDoctor.code, envelopeDoctor.stderr).toBe(0)
+    expect(JSON.parse(envelopeDoctor.stdout).pendingStops).toBe(1)
+
+    await writeFile(eventsPath, originalEvents)
+    const triggerRoot = join(value.repository, '.factory', 'review-triggers')
+    const triggerPath = join(triggerRoot, (await readdir(triggerRoot))[0]!)
+    const trigger = JSON.parse(await readFile(triggerPath, 'utf8'))
+    trigger.createdAt = '2026-01-01T00:00:00.000Z'
+    await writeFile(triggerPath, `${JSON.stringify(trigger)}\n`)
+    expect(
+      await command(
+        value.factory,
+        ['capture', '--provider', 'codex'],
+        value.repository,
+        value.env,
+        stop,
+      ),
+    ).toMatchObject({ code: 0, stdout: '{}\n' })
+    const rewritten = JSON.parse(
+      (await command(value.factory, ['doctor'], value.repository, value.env)).stdout,
+    )
+    expect(rewritten.pendingStops).toBe(1)
+    expect(rewritten.projection.triggers).toBe(1)
+    expect(rewritten.captureDiagnostics.length).toBeGreaterThan(1)
+  })
+
+  test('keeps observation limitations authoritative during completion recovery', async () => {
+    const value = await createFixture()
+    expect((await command(value.factory, ['init'], value.repository, value.env)).code).toBe(0)
+    await symlink('../outside', join(value.repository, 'unsafe-link'))
+    const stop = `${JSON.stringify({ session_id: 'limited-graph', hook_event_name: 'Stop', turn_id: 'limited-stop', cwd: value.repository })}\n`
+    expect(
+      await command(
+        value.factory,
+        ['capture', '--provider', 'codex'],
+        value.repository,
+        value.env,
+        stop,
+      ),
+    ).toMatchObject({ code: 0, stdout: '{}\n' })
+    const initial = JSON.parse(
+      (await command(value.factory, ['doctor'], value.repository, value.env)).stdout,
+    )
+    const sessionKey = initial.projection.sessions[0].sessionKey
+    const turnsRoot = join(value.repository, '.factory', 'sessions', 'codex', sessionKey, 'turns')
+    const turnId = (await readdir(turnsRoot))[0]!
+    const manifestPath = join(turnsRoot, turnId, 'manifest.json')
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+    expect(manifest.limitations.length).toBeGreaterThan(1)
+    manifest.limitations = manifest.limitations.filter(
+      (limitation: { code: string }) => limitation.code === 'missing-transcript-range',
+    )
+    await writeFile(manifestPath, `${JSON.stringify(manifest)}\n`)
+    const triggerRoot = join(value.repository, '.factory', 'review-triggers')
+    const triggerPath = join(triggerRoot, (await readdir(triggerRoot))[0]!)
+    const trigger = JSON.parse(await readFile(triggerPath, 'utf8'))
+    trigger.limitations = manifest.limitations
+    trigger.materialization = 'partial'
+    await writeFile(triggerPath, `${JSON.stringify(trigger)}\n`)
+    const common = await git(
+      value.repository,
+      'rev-parse',
+      '--path-format=absolute',
+      '--git-common-dir',
+    )
+    const database = new Database(join(common, 'factory-runtime', 'journal-v1', 'journal.sqlite'))
+    database.run('DELETE FROM completions')
+    database.close(false)
+
+    expect(
+      await command(
+        value.factory,
+        ['capture', '--provider', 'codex'],
+        value.repository,
+        value.env,
+        `${JSON.stringify({ session_id: 'limited-graph', hook_event_name: 'SessionEnd', cwd: value.repository })}\n`,
+      ),
+    ).toMatchObject({ code: 0, stdout: '{}\n' })
+    const damaged = JSON.parse(
+      (await command(value.factory, ['doctor'], value.repository, value.env)).stdout,
+    )
+    expect(damaged.pendingStops).toBe(1)
+    expect(damaged.captureDiagnostics.length).toBeGreaterThan(0)
+  })
+
+  test('derives identical limitations when resuming immutable prefixes', async () => {
+    for (const scenario of ['lagging-transcript', 'missing-transcript', 'raced-observation']) {
+      const value = await createFixture()
+      expect((await command(value.factory, ['init'], value.repository, value.env)).code).toBe(0)
+      const transcript = join(value.home, '.codex', 'sessions', `${scenario}.jsonl`)
+      if (scenario === 'lagging-transcript') await writeFile(transcript, '{"message":"older"}\n')
+      const payload = {
+        session_id: `prefix-${scenario}`,
+        hook_event_name: 'Stop',
+        turn_id: `stop-${scenario}`,
+        cwd: value.repository,
+        ...(scenario === 'lagging-transcript'
+          ? { transcript_path: transcript, last_assistant_message: 'newer' }
+          : {}),
+      }
+      expect(
+        await command(
+          value.factory,
+          ['capture', '--provider', 'codex'],
+          value.repository,
+          value.env,
+          `${JSON.stringify(payload)}\n`,
+        ),
+      ).toMatchObject({ code: 0, stdout: '{}\n' })
+      const initial = JSON.parse(
+        (await command(value.factory, ['doctor'], value.repository, value.env)).stdout,
+      )
+      const sessionKey = initial.projection.sessions[0].sessionKey
+      const turnsRoot = join(value.repository, '.factory', 'sessions', 'codex', sessionKey, 'turns')
+      const turnId = (await readdir(turnsRoot))[0]!
+      const manifestPath = join(turnsRoot, turnId, 'manifest.json')
+      const originalManifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+      const observationPath = join(
+        value.repository,
+        '.factory',
+        'repository-observations',
+        `${originalManifest.repositoryObservationId}.json`,
+      )
+      if (scenario === 'raced-observation') {
+        const observation = JSON.parse(await readFile(observationPath, 'utf8'))
+        observation.startState = 'a'.repeat(64)
+        observation.endState = 'b'.repeat(64)
+        observation.limitations.push({
+          code: 'repository-race',
+          detail: 'Git state changed during observation',
+        })
+        await writeFile(observationPath, canonicalJson(observation))
+      }
+      const triggerRoot = join(value.repository, '.factory', 'review-triggers')
+      await Promise.all([
+        unlink(manifestPath),
+        unlink(join(triggerRoot, (await readdir(triggerRoot))[0]!)),
+      ])
+      const common = await git(
+        value.repository,
+        'rev-parse',
+        '--path-format=absolute',
+        '--git-common-dir',
+      )
+      const journalPath = join(common, 'factory-runtime', 'journal-v1', 'journal.sqlite')
+      let database = new Database(journalPath)
+      database.run('DELETE FROM completions')
+      database.close(false)
+
+      expect(
+        await command(
+          value.factory,
+          ['capture', '--provider', 'codex'],
+          value.repository,
+          value.env,
+          `${JSON.stringify({ session_id: `prefix-${scenario}`, hook_event_name: 'SessionEnd', cwd: value.repository })}\n`,
+        ),
+      ).toMatchObject({ code: 0, stdout: '{}\n' })
+      const resumedManifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+      if (scenario === 'raced-observation') {
+        expect(resumedManifest.limitations).toContainEqual({
+          code: 'repository-race',
+          detail: `repository changed from ${'a'.repeat(64)} to ${'b'.repeat(64)}`,
+        })
+      } else {
+        expect(resumedManifest.limitations).toContainEqual({
+          code: 'missing-transcript-range',
+          detail:
+            scenario === 'lagging-transcript'
+              ? 'provider transcript lags the Stop assistant message'
+              : 'Stop did not expose a provider transcript path',
+        })
+      }
+
+      database = new Database(journalPath)
+      database.run('DELETE FROM completions')
+      database.close(false)
+      expect(
+        await command(
+          value.factory,
+          ['capture', '--provider', 'codex'],
+          value.repository,
+          value.env,
+          `${JSON.stringify(payload)}\n`,
+        ),
+      ).toMatchObject({ code: 0, stdout: '{}\n' })
+      const recovered = JSON.parse(
+        (await command(value.factory, ['doctor'], value.repository, value.env)).stdout,
+      )
+      if (recovered.pendingStops !== 0) {
+        const diagnostic = await readFile(
+          join(
+            common,
+            'factory-runtime',
+            'journal-v1',
+            'diagnostics',
+            recovered.captureDiagnostics[0],
+          ),
+          'utf8',
+        )
+        throw new Error(
+          `${scenario} remained pending: ${JSON.stringify(recovered)} diagnostic=${diagnostic}`,
+        )
+      }
+    }
   })
 })
 

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, open, readFile, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, open, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -1013,6 +1013,16 @@ describe('runtime journal', () => {
       'utf8',
     )
     expect(diagnostic).toContain('ConflictingCaptureError')
+
+    const repeated = await journal.appendNonBlocking(capture('same-event', 'conflict'))
+    expect(repeated.diagnosticId).toBe(result.diagnosticId)
+    expect(await readdir(join(root, 'journal-v1', 'diagnostics'))).toEqual([
+      `${result.diagnosticId}.txt`,
+    ])
+
+    await rm(join(root, 'journal-v1', 'diagnostics'), { recursive: true })
+    await writeFile(join(root, 'journal-v1', 'diagnostics'), 'unavailable')
+    expect(await journal.appendNonBlocking(capture('same-event', 'another conflict'))).toEqual({})
   })
 
   test('does not acknowledge or allocate a sequence when the runtime disk is full', async () => {

@@ -1,6 +1,16 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
-import { chmod, link, lstat, mkdir, open, readdir, realpath, unlink } from 'node:fs/promises'
+import {
+  chmod,
+  link,
+  lstat,
+  mkdir,
+  open,
+  opendir,
+  readdir,
+  realpath,
+  unlink,
+} from 'node:fs/promises'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 
@@ -8,6 +18,8 @@ import type { OwnedPath } from '@factory/contract'
 
 export type CaptureProvider = 'codex' | 'claude'
 export type CaptureEventKind = 'session-start' | 'turn' | 'stop' | 'session-end' | 'other'
+
+const MAX_DIAGNOSTICS = 10_000
 
 export interface RawCaptureInput {
   provider: CaptureProvider
@@ -416,16 +428,9 @@ class SqliteJournal implements RuntimeJournal {
     try {
       return { receipt: await this.appendUnchecked(input) }
     } catch (error) {
-      const diagnosticId = randomUUID()
       try {
-        await syncDirectory(this.diagnostics)
-        const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error)
-        await writeSynced(
-          join(this.diagnostics, `${diagnosticId}.txt`),
-          new TextEncoder().encode(`${new Date().toISOString()} ${message}\n`),
-        )
-        await syncDirectory(this.diagnostics)
-        return { diagnosticId }
+        const diagnosticId = await this.persistDiagnostic(error)
+        return diagnosticId === undefined ? {} : { diagnosticId }
       } catch {
         return {}
       }
@@ -435,17 +440,47 @@ class SqliteJournal implements RuntimeJournal {
   }
 
   async recordDiagnostic(error: unknown): Promise<string | undefined> {
-    const diagnosticId = randomUUID()
     try {
-      const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error)
-      const bytes = new TextEncoder().encode(`${new Date().toISOString()} ${message}\n`)
-      if (bytes.byteLength > 16 * 1024) return undefined
-      await writeSynced(join(this.diagnostics, `${diagnosticId}.txt`), bytes)
-      await syncDirectory(this.diagnostics)
-      return diagnosticId
+      return await this.persistDiagnostic(error)
     } catch {
       return undefined
     }
+  }
+
+  private async persistDiagnostic(error: unknown): Promise<string | undefined> {
+    const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error)
+    const messageBytes = new TextEncoder().encode(message)
+    if (messageBytes.byteLength > 16 * 1024) return undefined
+    const diagnosticId = digest(messageBytes)
+    const path = join(this.diagnostics, `${diagnosticId}.txt`)
+    try {
+      const existing = await lstat(path)
+      return existing.isFile() ? diagnosticId : undefined
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') return undefined
+    }
+    const directory = await opendir(this.diagnostics)
+    let count = 0
+    try {
+      for await (const _entry of directory) {
+        count += 1
+        if (count >= MAX_DIAGNOSTICS) return undefined
+      }
+    } finally {
+      try {
+        await directory.close()
+      } catch {
+        // Async iteration closes the directory after exhaustion.
+      }
+    }
+    const bytes = new TextEncoder().encode(`${new Date().toISOString()} ${message}\n`)
+    try {
+      await writeSynced(path, bytes)
+      await syncDirectory(this.diagnostics)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+    }
+    return diagnosticId
   }
 
   async claimStop(stop: StopIdentity): Promise<ClaimStopResult> {

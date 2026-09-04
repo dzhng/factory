@@ -90,6 +90,26 @@ const GIT_CONFIGURATION = [
   'core.pager=cat',
 ] as const
 
+export async function loadCodeManifestObject(
+  ref: ObjectRef,
+  readVerifiedObject: (ref: ObjectRef) => Promise<Uint8Array>,
+  maximumBytes = DEFAULT_MAX_GIT_OUTPUT_BYTES,
+): Promise<CodeManifest> {
+  validateObjectRef(ref)
+  if (
+    ref.mediaType !== 'application/vnd.factory.code-manifest+json' ||
+    ref.role !== 'workspace-code-manifest'
+  ) {
+    throw new TypeError('object reference does not identify a Factory code manifest')
+  }
+  if (ref.bytes > maximumBytes) throw new Error('code manifest exceeds loader limit')
+  const text = new TextDecoder('utf-8', { fatal: true }).decode(await readVerifiedObject(ref))
+  const value = JSON.parse(text) as unknown
+  if (canonicalJson(value) !== text)
+    throw new TypeError('code manifest object is not canonical JSON')
+  return parseCodeManifest(value)
+}
+
 class GitOutputLimitError extends Error {
   constructor(readonly maximumBytes: number) {
     super(`Git output exceeds ${maximumBytes} bytes`)
@@ -1113,20 +1133,10 @@ export class GitObserver {
   }
 
   async loadCodeManifest(ref: ObjectRef): Promise<CodeManifest> {
-    validateObjectRef(ref)
-    if (
-      ref.mediaType !== 'application/vnd.factory.code-manifest+json' ||
-      ref.role !== 'workspace-code-manifest'
-    ) {
-      throw new TypeError('object reference does not identify a Factory code manifest')
-    }
-    if (ref.bytes > this.maxGitOutputBytes) throw new Error('code manifest exceeds loader limit')
-    const text = new TextDecoder('utf-8', { fatal: true }).decode(
-      await this.readVerifiedObject(ref),
+    return await loadCodeManifestObject(
+      ref,
+      async reference => await this.readVerifiedObject(reference),
+      this.maxGitOutputBytes,
     )
-    const value = JSON.parse(text) as unknown
-    if (canonicalJson(value) !== text)
-      throw new TypeError('code manifest object is not canonical JSON')
-    return parseCodeManifest(value)
   }
 }

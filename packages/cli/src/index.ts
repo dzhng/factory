@@ -8,8 +8,8 @@ import {
   link,
   mkdir,
   open,
+  opendir,
   readFile,
-  readdir,
   realpath,
   rename,
   unlink,
@@ -921,15 +921,30 @@ async function doctor(
     gitCommon.code === 0
       ? join(gitCommon.stdout.trim(), 'factory-runtime', 'journal-v1', 'diagnostics')
       : undefined
-  const diagnosticNames =
-    diagnosticsRoot !== undefined && (await pathKind(diagnosticsRoot)) === 'directory'
-      ? await readdir(diagnosticsRoot)
-      : []
-  const captureDiagnostics = diagnosticNames
-    .filter(name => /^[0-9a-f-]+\.txt$/.test(name))
-    .sort()
-    .slice(0, 10_000)
-  if (diagnosticNames.length > 10_000) captureDiagnostics.push('inventory-exceeds-bound')
+  const captureDiagnostics: string[] = []
+  let diagnosticsTruncated = false
+  if (diagnosticsRoot !== undefined && (await pathKind(diagnosticsRoot)) === 'directory') {
+    const directory = await opendir(diagnosticsRoot)
+    let visited = 0
+    try {
+      for await (const entry of directory) {
+        visited += 1
+        if (visited > 10_000) {
+          diagnosticsTruncated = true
+          break
+        }
+        if (/^[0-9a-f]{64}\.txt$/.test(entry.name)) captureDiagnostics.push(entry.name)
+      }
+    } finally {
+      try {
+        await directory.close()
+      } catch {
+        // Async iteration closes the directory after exhaustion.
+      }
+    }
+  }
+  captureDiagnostics.sort()
+  if (diagnosticsTruncated) captureDiagnostics.push('inventory-exceeds-bound')
   const projection = reduceRepository(records)
   const issues = [
     ...verification.issues,

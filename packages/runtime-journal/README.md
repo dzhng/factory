@@ -50,3 +50,7 @@ materialization.
 Post-Stop SessionEnd events have their own completion record so a crash cannot
 strand lifecycle evidence after a Turn is already complete. SessionStart remains
 inside the first Stop claim and never creates a portable Session on its own.
+
+Private diagnostics are content-addressed and capped. Repeated recovery of one
+stuck item therefore converges on one report instead of growing runtime state on
+every hook invocation, and readers stop at the same inventory boundary.
