@@ -4,6 +4,7 @@ import {
   canonicalJson,
   decodeGitPath,
   encodeGitPath,
+  githubRepositoryKey,
   makeOwnedPath,
   newRecordId,
   parseCodeManifest,
@@ -269,7 +270,7 @@ describe('public repository contract', () => {
       [
         makeOwnedPath('pull-requests', [
           'github',
-          'owner-repo',
+          githubRepositoryKey('github.com', 'R_fixture'),
           '42',
           'observations',
           `${recordId('observation')}.json`,
@@ -278,12 +279,37 @@ describe('public repository contract', () => {
           schemaVersion: 1,
           observationId: recordId('observation'),
           provider: 'github',
-          repositoryKey: 'owner-repo',
+          repositoryKey: githubRepositoryKey('github.com', 'R_fixture'),
           number: 42,
+          availability: 'available',
+          externalId: 'PR_42',
+          hostname: 'github.com',
+          url: 'https://github.com/owner/repo/pull/42',
           state: 'open',
-          commits: [],
+          base: {
+            repositoryKey: githubRepositoryKey('github.com', 'R_fixture'),
+            externalId: 'R_fixture',
+            repository: 'owner/repo',
+            ref: 'main',
+            sha: hash,
+          },
+          head: {
+            repositoryKey: githubRepositoryKey('github.com', 'R_fixture'),
+            externalId: 'R_fixture',
+            repository: 'owner/repo',
+            ref: 'feature',
+            sha: hash,
+          },
+          commits: [hash],
+          completeness: 'complete',
+          commitMembership: 'complete',
           observedAt: timestamp,
-          limitations: [],
+          providerUpdatedAt: timestamp,
+          raw: [{ ...object, mediaType: 'application/json', role: 'github-pr-metadata' }],
+          diff: { ...object, mediaType: 'text/x-diff', role: 'pull-request-diff' },
+          limitations: [
+            { code: 'unavailable-pull-request-code', detail: 'Fixture has no code manifest' },
+          ],
         },
       ],
       [
@@ -505,6 +531,257 @@ describe('public repository contract', () => {
     ).toThrow('owned path')
   })
 
+  test('keeps unavailable pull requests distinct from exact observations', () => {
+    const observedAt = '2026-09-04T00:00:00Z'
+    const sha = '0'.repeat(40)
+    const observationId = recordId('pr-observation')
+    const repositoryKey = 'ghr_b3duZXIvcmVwbw'
+    const path = makeOwnedPath('pull-requests', [
+      'github',
+      repositoryKey,
+      '42',
+      'observations',
+      `${observationId}.json`,
+    ])
+    const unavailable = {
+      schemaVersion: 1,
+      observationId,
+      provider: 'github',
+      repositoryKey,
+      number: 42,
+      availability: 'unavailable',
+      reason: 'authentication-required',
+      observedAt,
+      limitations: [{ code: 'unavailable-pull-request', detail: 'gh is not authenticated' }],
+    }
+    expect(() => validatePublicRecord(path, unavailable)).not.toThrow()
+    expect(() =>
+      validatePublicRecord(path, {
+        ...unavailable,
+        head: { repositoryKey, ref: 'feature', sha },
+      }),
+    ).toThrow('unknown fields')
+  })
+
+  test('validates manual PR association evidence without calling it verified', () => {
+    const observedAt = '2026-09-04T00:00:00Z'
+    const observationId = recordId('pr-observation')
+    const evidenceId = recordId('association')
+    const repositoryKey = 'ghr_b3duZXIvcmVwbw'
+    const path = makeOwnedPath('pull-requests', [
+      'github',
+      repositoryKey,
+      '42',
+      'associations',
+      observationId,
+      `${evidenceId}.json`,
+    ])
+    expect(() =>
+      validatePublicRecord(path, {
+        schemaVersion: 1,
+        evidenceId,
+        sessionKey: 'session_01',
+        pullRequestObservationId: observationId,
+        kind: 'manual',
+        strength: 'asserted',
+        shas: [],
+        repositoryIdentity: 'unavailable',
+        sourceObservationIds: [],
+        assertion: { actor: 'developer', reason: 'paired during review' },
+        observedAt,
+      }),
+    ).not.toThrow()
+  })
+
+  test('binds exact PR evidence to its base repository and semantic raw objects', () => {
+    const observedAt = '2026-09-04T00:00:00Z'
+    const observationId = recordId('pr-observation')
+    const repositoryKey = githubRepositoryKey('github.com', 'R_base')
+    const path = makeOwnedPath('pull-requests', [
+      'github',
+      repositoryKey,
+      '42',
+      'observations',
+      `${observationId}.json`,
+    ])
+    const object = {
+      algorithm: 'sha256',
+      sha256: '0'.repeat(64),
+      bytes: 1,
+      mediaType: 'application/json',
+      role: 'github-pr-metadata',
+    }
+    const valid = {
+      schemaVersion: 1,
+      observationId,
+      provider: 'github',
+      repositoryKey,
+      number: 42,
+      availability: 'available',
+      externalId: 'PR_42',
+      hostname: 'github.com',
+      url: 'https://github.com/owner/repo/pull/42',
+      state: 'open',
+      base: {
+        repositoryKey,
+        externalId: 'R_base',
+        repository: 'owner/repo',
+        ref: 'main',
+        sha: '1'.repeat(40),
+      },
+      head: {
+        repositoryKey: githubRepositoryKey('github.com', 'R_fork'),
+        externalId: 'R_fork',
+        repository: 'contributor/repo',
+        ref: 'feature',
+        sha: '2'.repeat(40),
+      },
+      commits: ['2'.repeat(40)],
+      completeness: 'complete',
+      commitMembership: 'complete',
+      observedAt,
+      providerUpdatedAt: observedAt,
+      raw: [object],
+      diff: { ...object, mediaType: 'text/x-diff', role: 'pull-request-diff' },
+      limitations: [
+        { code: 'unavailable-pull-request-code', detail: 'Fixture has no code manifest' },
+      ],
+    }
+    expect(() => validatePublicRecord(path, valid)).not.toThrow()
+    expect(() =>
+      validatePublicRecord(path, {
+        ...valid,
+        base: {
+          ...valid.base,
+          repositoryKey: githubRepositoryKey('github.com', 'R_other'),
+          externalId: 'R_other',
+        },
+      }),
+    ).toThrow('base repository')
+    expect(() => validatePublicRecord(path, { ...valid, raw: [] })).toThrow('raw evidence')
+    expect(() => validatePublicRecord(path, { ...valid, diff: object })).toThrow('diff semantics')
+    expect(() =>
+      validatePublicRecord(path, {
+        ...valid,
+        completeness: 'partial',
+        commitMembership: 'prefix',
+      }),
+    ).toThrow('explicit limitation')
+    expect(() =>
+      validatePublicRecord(path, {
+        ...valid,
+        limitations: [
+          ...valid.limitations,
+          { code: 'incomplete-pull-request-commits', detail: 'contradiction' },
+        ],
+      }),
+    ).toThrow('cannot claim incomplete')
+    expect(() =>
+      validatePublicRecord(path, {
+        ...valid,
+        completeness: 'partial',
+        commitMembership: 'complete',
+        head: {
+          repositoryKey: githubRepositoryKey('github.com', 'R_fork'),
+          externalId: 'R_fork',
+          repository: 'contributor/repo',
+        },
+        limitations: [
+          ...valid.limitations,
+          { code: 'incomplete-pull-request-refs', detail: 'deleted ref' },
+        ],
+      }),
+    ).not.toThrow()
+    expect(() =>
+      validatePublicRecord(path, {
+        ...valid,
+        completeness: 'partial',
+        commitMembership: 'complete',
+        head: {
+          repositoryKey: githubRepositoryKey('github.com', 'R_fork'),
+          externalId: 'R_fork',
+          repository: 'contributor/repo',
+          sha: '3'.repeat(40),
+        },
+        limitations: [
+          ...valid.limitations,
+          { code: 'incomplete-pull-request-refs', detail: 'deleted ref' },
+        ],
+      }),
+    ).toThrow('membership must contain head')
+  })
+
+  test('validates provider-derived repository mappings and completed association batches', () => {
+    const observedAt = '2026-09-04T00:00:00Z'
+    const mappingId = recordId('github-repository-mapping')
+    const repositoryKey = githubRepositoryKey('github.com', 'R_base')
+    const repositoryId = 'repo_local'
+    const raw = {
+      algorithm: 'sha256',
+      sha256: '4'.repeat(64),
+      bytes: 1,
+      mediaType: 'application/json',
+      role: 'github-repository-metadata',
+    }
+    expect(() =>
+      validatePublicRecord(
+        makeOwnedPath('pull-requests', [
+          'github',
+          repositoryKey,
+          'repository-mappings',
+          repositoryId,
+          `${mappingId}.json`,
+        ]),
+        {
+          schemaVersion: 1,
+          observationId: mappingId,
+          provider: 'github',
+          repositoryId,
+          repositoryKey,
+          externalId: 'R_base',
+          hostname: 'github.com',
+          repository: 'owner/repo',
+          url: 'https://github.com/owner/repo',
+          observedAt,
+          raw: [raw],
+        },
+      ),
+    ).not.toThrow()
+
+    const observationId = recordId('pr-observation')
+    const evidenceId = recordId('association')
+    const batchId = recordId('association-batch')
+    const batchPath = makeOwnedPath('pull-requests', [
+      'github',
+      repositoryKey,
+      '42',
+      'associations',
+      observationId,
+      'batches',
+      `${batchId}.json`,
+    ])
+    const batch = {
+      schemaVersion: 1,
+      batchId,
+      provider: 'github',
+      repositoryKey,
+      number: 42,
+      pullRequestObservationId: observationId,
+      kind: 'automatic',
+      evidence: [{ evidenceId, sha256: '5'.repeat(64) }],
+      sourceObservationIds: [mappingId],
+      observedAt,
+      policyVersion: 'factory-v1-exact-git-v1',
+    }
+    expect(() => validatePublicRecord(batchPath, batch)).not.toThrow()
+    expect(() =>
+      validatePublicRecord(batchPath, {
+        ...batch,
+        evidence: [...batch.evidence, batch.evidence[0]],
+      }),
+    ).toThrow('unique')
+  })
+
   test('binds payload identities to paths across repository, PR, review, and decision records', () => {
     const timestamp = '2026-09-04T00:00:00Z'
     const hash = '0'.repeat(64)
@@ -584,12 +861,37 @@ describe('public repository contract', () => {
           schemaVersion: 1,
           observationId: recordId('observation'),
           provider: 'github',
-          repositoryKey: 'other-repo',
+          repositoryKey: githubRepositoryKey('github.com', 'R_other'),
           number: 43,
+          availability: 'available',
+          externalId: 'PR_43',
+          hostname: 'github.com',
+          url: 'https://github.com/other/repo/pull/43',
           state: 'open',
-          commits: [],
+          base: {
+            repositoryKey: githubRepositoryKey('github.com', 'R_other'),
+            externalId: 'R_other',
+            repository: 'other/repo',
+            ref: 'main',
+            sha: hash,
+          },
+          head: {
+            repositoryKey: githubRepositoryKey('github.com', 'R_other'),
+            externalId: 'R_other',
+            repository: 'other/repo',
+            ref: 'feature',
+            sha: hash,
+          },
+          commits: [hash],
+          completeness: 'complete',
+          commitMembership: 'complete',
           observedAt: timestamp,
-          limitations: [],
+          providerUpdatedAt: timestamp,
+          raw: [{ ...object, mediaType: 'application/json', role: 'github-pr-metadata' }],
+          diff: { ...object, mediaType: 'text/x-diff', role: 'pull-request-diff' },
+          limitations: [
+            { code: 'unavailable-pull-request-code', detail: 'Fixture has no code manifest' },
+          ],
         },
       ],
       [

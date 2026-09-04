@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 
 export const FACTORY_FORMAT_VERSION = 1 as const
 export const FACTORY_READER_VERSION = '0.1.0' as const
@@ -8,6 +8,27 @@ export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue
 
 /** Portable identity shared by clones that retain the same Factory history. */
 export type RepositoryId = `repo_${string}`
+/** Stable GitHub/GHES host plus provider repository identity, safe as one path segment. */
+export type GithubRepositoryKey = `ghr_${string}`
+/** Canonical stable GitHub identity: normalized host plus provider repository node ID. */
+export function githubRepositoryKey(
+  hostname: string,
+  providerRepositoryId: string,
+): GithubRepositoryKey {
+  if (
+    hostname.length > 253 ||
+    !hostname
+      .split('.')
+      .every(label => /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/.test(label))
+  ) {
+    throw new TypeError('GitHub hostname is invalid')
+  }
+  if (providerRepositoryId.length === 0) throw new TypeError('GitHub repository identity is empty')
+  const digest = createHash('sha256')
+    .update(`${hostname.toLowerCase()}\0${providerRepositoryId}`)
+    .digest('hex')
+  return `ghr_${digest}`
+}
 /** Collision-resistant, sortable identity that is safe as one path segment. */
 export type RecordId = `${string}_${string}`
 /** Lowercase SHA-256 over exact object bytes. */
@@ -39,6 +60,9 @@ export type LimitationCode =
   | 'unavailable-provider-field'
   | 'unavailable-git-state'
   | 'unavailable-pull-request'
+  | 'unavailable-pull-request-code'
+  | 'incomplete-pull-request-commits'
+  | 'incomplete-pull-request-refs'
   | 'unverified-object'
   | 'excluded-by-limit'
   | 'corrupt-input'
@@ -166,36 +190,170 @@ export type CodeManifest = {
   limitations: readonly Limitation[]
 }
 
-export type PullRequestObservation = {
+export type PullRequestGitRef = {
+  repositoryKey: GithubRepositoryKey
+  externalId: string
+  /** Owner/name locator observed with this immutable provider snapshot. */
+  repository: string
+  ref: string
+  sha: string
+}
+
+export type PartialPullRequestGitRef = {
+  repositoryKey?: GithubRepositoryKey
+  externalId?: string
+  /** Owner/name locator observed with this immutable provider snapshot. */
+  repository?: string
+  ref?: string
+  sha?: string
+}
+
+type PullRequestObservationBase = {
   schemaVersion: 1
   observationId: RecordId
   provider: 'github'
-  repositoryKey: string
+  repositoryKey: GithubRepositoryKey
   number: number
-  state: 'open' | 'closed' | 'merged' | 'unavailable'
-  base?: string
-  head?: string
-  commits: readonly string[]
   observedAt: string
-  providerUpdatedAt?: string
-  codeManifest?: ObjectRef
-  diff?: ObjectRef
   limitations: readonly Limitation[]
 }
 
-export type SessionPullRequestAssociation = {
+type AvailablePullRequestObservationBase = PullRequestObservationBase & {
+  availability: 'available'
+  externalId: string
+  hostname: string
+  url: string
+  state: 'open' | 'closed' | 'merged'
+  providerUpdatedAt: string
+  raw: readonly ObjectRef[]
+  codeManifest?: ObjectRef
+  diff: ObjectRef
+}
+
+/** A coherent provider snapshot whose commit membership and refs are complete. */
+export type CompletePullRequestObservation = AvailablePullRequestObservationBase & {
+  completeness: 'complete'
+  commitMembership: 'complete'
+  base: PullRequestGitRef
+  head: PullRequestGitRef
+  commits: readonly [string, ...string[]]
+}
+
+/** A coherent, reviewable diff with explicitly incomplete commit/ref metadata. */
+export type PartialPullRequestObservation = AvailablePullRequestObservationBase & {
+  completeness: 'partial'
+  commitMembership: 'complete' | 'prefix'
+  base: PartialPullRequestGitRef & Pick<PullRequestGitRef, 'repositoryKey' | 'repository'>
+  head: PartialPullRequestGitRef
+  /** Exact observed prefix only; never a membership set. */
+  commits: readonly string[]
+}
+
+export type AvailablePullRequestObservation =
+  | CompletePullRequestObservation
+  | PartialPullRequestObservation
+
+/** Failed or incoherent reads preserve raw evidence without exposing partial fields as exact. */
+export type PullRequestUnavailableReason =
+  | 'gh-missing'
+  | 'authentication-required'
+  | 'not-found'
+  | 'command-failed'
+  | 'command-timeout'
+  | 'output-limit'
+  | 'invalid-response'
+  | 'observation-changed'
+
+export type UnavailablePullRequestObservation = PullRequestObservationBase & {
+  availability: 'unavailable'
+  reason: PullRequestUnavailableReason
+  raw?: readonly ObjectRef[]
+}
+
+export type PullRequestObservation =
+  | AvailablePullRequestObservation
+  | UnavailablePullRequestObservation
+
+/** Provider-derived link from one portable Factory repository to one GitHub repository identity. */
+export type GithubRepositoryMappingObservation = {
+  schemaVersion: 1
+  observationId: RecordId
+  provider: 'github'
+  repositoryId: RepositoryId
+  repositoryKey: GithubRepositoryKey
+  externalId: string
+  hostname: string
+  repository: string
+  url: string
+  observedAt: string
+  raw: readonly ObjectRef[]
+}
+
+export type AssociationBatch = {
+  schemaVersion: 1
+  batchId: RecordId
+  provider: 'github'
+  repositoryKey: GithubRepositoryKey
+  number: number
+  pullRequestObservationId: RecordId
+  kind: 'automatic' | 'manual'
+  evidence: readonly { evidenceId: RecordId; sha256: Sha256 }[]
+  sourceObservationIds: readonly RecordId[]
+  observedAt: string
+  policyVersion: string
+}
+
+type SessionPullRequestAssociationBase = {
   schemaVersion: 1
   evidenceId: RecordId
   sessionKey: string
   pullRequestObservationId: RecordId
-  kind: 'commit' | 'head' | 'code-state-continuity'
-  strength: 'verified' | 'strong'
-  shas: readonly string[]
-  repositoryIdentity: 'same' | 'different' | 'unavailable'
-  sourceObservationIds: readonly RecordId[]
-  invalidates?: RecordId
   observedAt: string
 }
+
+export type ExactCommitAssociation = SessionPullRequestAssociationBase & {
+  kind: 'commit'
+  strength: 'verified'
+  shas: readonly [string, ...string[]]
+  repositoryIdentity: 'same' | 'different' | 'unavailable'
+  sourceObservationIds: readonly [RecordId, ...RecordId[]]
+}
+export type ExactHeadAssociation = SessionPullRequestAssociationBase & {
+  kind: 'head'
+  strength: 'verified'
+  shas: readonly [string]
+  repositoryIdentity: 'same' | 'different' | 'unavailable'
+  sourceObservationIds: readonly [RecordId, ...RecordId[]]
+}
+export type VerifiedCodeStateContinuityAssociation = SessionPullRequestAssociationBase & {
+  kind: 'code-state-continuity'
+  strength: 'verified'
+  shas: readonly [string, ...string[]]
+  repositoryIdentity: 'same' | 'different' | 'unavailable'
+  sourceObservationIds: readonly [RecordId, ...RecordId[]]
+}
+export type ManualAssociationEvidence = SessionPullRequestAssociationBase & {
+  kind: 'manual'
+  strength: 'asserted'
+  shas: readonly []
+  repositoryIdentity: 'unavailable'
+  sourceObservationIds: readonly []
+  assertion: { actor: string; reason: string }
+}
+export type PullRequestAssociationInvalidation = SessionPullRequestAssociationBase & {
+  kind: 'invalidation'
+  strength: 'verified'
+  shas: readonly [string, ...string[]]
+  repositoryIdentity: 'same' | 'different' | 'unavailable'
+  sourceObservationIds: readonly []
+  invalidates: RecordId
+}
+export type SessionPullRequestAssociation =
+  | ExactCommitAssociation
+  | ExactHeadAssociation
+  | VerifiedCodeStateContinuityAssociation
+  | ManualAssociationEvidence
+  | PullRequestAssociationInvalidation
 
 export type ReviewTrigger = {
   schemaVersion: 1
@@ -588,15 +746,36 @@ const RECORD_KEYS = {
     'provider',
     'repositoryKey',
     'number',
+    'availability',
+    'completeness',
+    'commitMembership',
+    'externalId',
+    'hostname',
+    'url',
     'state',
     'base',
     'head',
     'commits',
     'observedAt',
     'providerUpdatedAt',
+    'raw',
     'codeManifest',
     'diff',
+    'reason',
     'limitations',
+  ],
+  githubRepositoryMapping: [
+    'schemaVersion',
+    'observationId',
+    'provider',
+    'repositoryId',
+    'repositoryKey',
+    'externalId',
+    'hostname',
+    'repository',
+    'url',
+    'observedAt',
+    'raw',
   ],
   association: [
     'schemaVersion',
@@ -609,7 +788,21 @@ const RECORD_KEYS = {
     'repositoryIdentity',
     'sourceObservationIds',
     'invalidates',
+    'assertion',
     'observedAt',
+  ],
+  associationBatch: [
+    'schemaVersion',
+    'batchId',
+    'provider',
+    'repositoryKey',
+    'number',
+    'pullRequestObservationId',
+    'kind',
+    'evidence',
+    'sourceObservationIds',
+    'observedAt',
+    'policyVersion',
   ],
   trigger: [
     'schemaVersion',
@@ -686,13 +879,31 @@ type RecordPath =
   | { kind: 'turn'; provider: string; sessionKey: string; turnId: string }
   | { kind: 'envelope'; provider: string; sessionKey: string; turnId: string }
   | { kind: 'repositoryObservation'; observationId: string }
-  | { kind: 'pullRequestObservation'; repositoryKey: string; number: number; observationId: string }
+  | {
+      kind: 'pullRequestObservation'
+      repositoryKey: string
+      number: number
+      observationId: string
+    }
+  | {
+      kind: 'githubRepositoryMapping'
+      repositoryKey: string
+      repositoryId: string
+      observationId: string
+    }
   | {
       kind: 'association'
       repositoryKey: string
       number: number
       observationId: string
       evidenceId: string
+    }
+  | {
+      kind: 'associationBatch'
+      repositoryKey: string
+      number: number
+      observationId: string
+      batchId: string
     }
   | { kind: 'trigger'; triggerId: string }
   | {
@@ -715,15 +926,36 @@ type RecordPath =
 
 function parseRecordPath(path: OwnedPath): RecordPath {
   let match = /^sessions\/([^/]+)\/([^/]+)\/identity\.json$/.exec(path)
-  if (match) return { kind: 'sessionIdentity', provider: match[1]!, sessionKey: match[2]! }
+  if (match)
+    return {
+      kind: 'sessionIdentity',
+      provider: match[1]!,
+      sessionKey: match[2]!,
+    }
   match = /^sessions\/([^/]+)\/([^/]+)\/lifecycle\/([^/]+)\.json$/.exec(path)
   if (match)
-    return { kind: 'lifecycle', provider: match[1]!, sessionKey: match[2]!, eventId: match[3]! }
+    return {
+      kind: 'lifecycle',
+      provider: match[1]!,
+      sessionKey: match[2]!,
+      eventId: match[3]!,
+    }
   match = /^sessions\/([^/]+)\/([^/]+)\/turns\/([^/]+)\/manifest\.json$/.exec(path)
-  if (match) return { kind: 'turn', provider: match[1]!, sessionKey: match[2]!, turnId: match[3]! }
+  if (match)
+    return {
+      kind: 'turn',
+      provider: match[1]!,
+      sessionKey: match[2]!,
+      turnId: match[3]!,
+    }
   match = /^sessions\/([^/]+)\/([^/]+)\/turns\/([^/]+)\/(?:events|transcript)\.jsonl$/.exec(path)
   if (match)
-    return { kind: 'envelope', provider: match[1]!, sessionKey: match[2]!, turnId: match[3]! }
+    return {
+      kind: 'envelope',
+      provider: match[1]!,
+      sessionKey: match[2]!,
+      turnId: match[3]!,
+    }
   match = /^repository-observations\/([^/]+)\.json$/.exec(path)
   if (match) return { kind: 'repositoryObservation', observationId: match[1]! }
   match = /^pull-requests\/github\/([^/]+)\/([1-9]\d*)\/observations\/([^/]+)\.json$/.exec(path)
@@ -732,6 +964,14 @@ function parseRecordPath(path: OwnedPath): RecordPath {
       kind: 'pullRequestObservation',
       repositoryKey: match[1]!,
       number: Number(match[2]),
+      observationId: match[3]!,
+    }
+  match = /^pull-requests\/github\/([^/]+)\/repository-mappings\/([^/]+)\/([^/]+)\.json$/.exec(path)
+  if (match)
+    return {
+      kind: 'githubRepositoryMapping',
+      repositoryKey: match[1]!,
+      repositoryId: match[2]!,
       observationId: match[3]!,
     }
   match = /^pull-requests\/github\/([^/]+)\/([1-9]\d*)\/associations\/([^/]+)\/([^/]+)\.json$/.exec(
@@ -744,6 +984,18 @@ function parseRecordPath(path: OwnedPath): RecordPath {
       number: Number(match[2]),
       observationId: match[3]!,
       evidenceId: match[4]!,
+    }
+  match =
+    /^pull-requests\/github\/([^/]+)\/([1-9]\d*)\/associations\/([^/]+)\/batches\/([^/]+)\.json$/.exec(
+      path,
+    )
+  if (match)
+    return {
+      kind: 'associationBatch',
+      repositoryKey: match[1]!,
+      number: Number(match[2]),
+      observationId: match[3]!,
+      batchId: match[4]!,
     }
   match = /^review-triggers\/([^/]+)\.json$/.exec(path)
   if (match) return { kind: 'trigger', triggerId: match[1]! }
@@ -772,7 +1024,11 @@ function parseRecordPath(path: OwnedPath): RecordPath {
             ? 'ledger'
             : 'response',
       reviewId: match[3]!,
-      subject: { kind: 'pull-request', repositoryKey: match[1]!, number: Number(match[2]) },
+      subject: {
+        kind: 'pull-request',
+        repositoryKey: match[1]!,
+        number: Number(match[2]),
+      },
     }
   match = /^reviews\/coverage-actions\/([^/]+)\.json$/.exec(path)
   if (match) return { kind: 'coverage', actionId: match[1]! }
@@ -826,6 +1082,9 @@ const LIMITATION_CODES = new Set<LimitationCode>([
   'unavailable-provider-field',
   'unavailable-git-state',
   'unavailable-pull-request',
+  'unavailable-pull-request-code',
+  'incomplete-pull-request-commits',
+  'incomplete-pull-request-refs',
   'unverified-object',
   'excluded-by-limit',
   'corrupt-input',
@@ -1078,10 +1337,19 @@ function validateRecordShape(
     repositoryObservation: RECORD_KEYS.repositoryObservation.filter(
       key => !['codeManifest', 'stagedPatch', 'unstagedPatch'].includes(key),
     ),
-    pullRequestObservation: RECORD_KEYS.pullRequestObservation.filter(
-      key => !['base', 'head', 'providerUpdatedAt', 'codeManifest', 'diff'].includes(key),
-    ),
-    association: RECORD_KEYS.association.filter(key => key !== 'invalidates'),
+    pullRequestObservation: [
+      'schemaVersion',
+      'observationId',
+      'provider',
+      'repositoryKey',
+      'number',
+      'availability',
+      'observedAt',
+      'limitations',
+    ],
+    githubRepositoryMapping: RECORD_KEYS.githubRepositoryMapping,
+    association: RECORD_KEYS.association.filter(key => !['invalidates', 'assertion'].includes(key)),
+    associationBatch: RECORD_KEYS.associationBatch,
     trigger: RECORD_KEYS.trigger.filter(key => key !== 'repositoryObservationId'),
     review: RECORD_KEYS.review.filter(
       key => !['head', 'codeManifest', 'priorLedger', 'failureReason'].includes(key),
@@ -1184,24 +1452,263 @@ function validateRecordShape(
       assertIdentity(value.observationId, path.observationId, 'repositoryObservation.observationId')
       break
     }
-    case 'pullRequestObservation':
+    case 'pullRequestObservation': {
       assertRecordId(value.observationId, 'pullRequestObservation.observationId')
       assertIdentity(value.provider, 'github', 'pullRequestObservation.provider')
       assertString(value.repositoryKey, 'pullRequestObservation.repositoryKey')
+      if (!/^ghr_[A-Za-z0-9_-]+$/.test(value.repositoryKey)) {
+        throw new TypeError('pullRequestObservation.repositoryKey is invalid')
+      }
       assertPositiveInteger(value.number, 'pullRequestObservation.number')
       assertEnum(
-        value.state,
-        ['open', 'closed', 'merged', 'unavailable'],
-        'pullRequestObservation.state',
+        value.availability,
+        ['available', 'unavailable'],
+        'pullRequestObservation.availability',
       )
-      for (const key of ['base', 'head']) assertOptionalString(value, key, 'pullRequestObservation')
-      assertGitObjectIds(value.commits, 'pullRequestObservation.commits')
       assertTimestamp(value.observedAt, 'pullRequestObservation.observedAt')
-      if ('providerUpdatedAt' in value)
+      if (value.availability === 'available') {
+        assertExactKeys(
+          value,
+          RECORD_KEYS.pullRequestObservation.filter(key => key !== 'reason'),
+          'pullRequestObservation',
+        )
+        requireFields(
+          value,
+          [
+            'externalId',
+            'hostname',
+            'url',
+            'state',
+            'base',
+            'head',
+            'commits',
+            'completeness',
+            'commitMembership',
+            'providerUpdatedAt',
+            'raw',
+            'diff',
+          ],
+          'pullRequestObservation',
+        )
+        assertEnum(value.state, ['open', 'closed', 'merged'], 'pullRequestObservation.state')
+        assertEnum(
+          value.completeness,
+          ['complete', 'partial'],
+          'pullRequestObservation.completeness',
+        )
+        assertEnum(
+          value.commitMembership,
+          ['complete', 'prefix'],
+          'pullRequestObservation.commitMembership',
+        )
+        if (value.completeness === 'complete' && value.commitMembership !== 'complete') {
+          throw new TypeError('complete pullRequestObservation requires complete membership')
+        }
+        for (const key of ['externalId', 'hostname', 'url']) {
+          assertString(value[key], `pullRequestObservation.${key}`)
+        }
+        if (!/^[A-Za-z0-9.-]+$/.test(value.hostname as string)) {
+          throw new TypeError('pullRequestObservation.hostname is invalid')
+        }
+        let providerUrl: URL
+        try {
+          providerUrl = new URL(value.url as string)
+        } catch {
+          throw new TypeError('pullRequestObservation.url is invalid')
+        }
+        if (
+          providerUrl.protocol !== 'https:' ||
+          providerUrl.hostname.toLowerCase() !== (value.hostname as string).toLowerCase()
+        ) {
+          throw new TypeError('pullRequestObservation.url does not match hostname')
+        }
+        for (const key of ['base', 'head'] as const) {
+          const ref = value[key]
+          assertRecord(ref, `pullRequestObservation.${key}`)
+          assertExactKeys(
+            ref,
+            ['repositoryKey', 'externalId', 'repository', 'ref', 'sha'],
+            `pullRequestObservation.${key}`,
+          )
+          if (value.completeness === 'complete' || key === 'base') {
+            requireFields(
+              ref,
+              ['repositoryKey', 'externalId', 'repository'],
+              `pullRequestObservation.${key}`,
+            )
+          }
+          if (value.completeness === 'complete') {
+            requireFields(ref, ['ref', 'sha'], `pullRequestObservation.${key}`)
+          }
+          if ('repositoryKey' in ref) {
+            assertString(ref.repositoryKey, `pullRequestObservation.${key}.repositoryKey`)
+            if (!/^ghr_[A-Za-z0-9_-]+$/.test(ref.repositoryKey)) {
+              throw new TypeError(`pullRequestObservation.${key}.repositoryKey is invalid`)
+            }
+          }
+          if ('externalId' in ref) {
+            assertString(ref.externalId, `pullRequestObservation.${key}.externalId`)
+            if (
+              'repositoryKey' in ref &&
+              ref.repositoryKey !== githubRepositoryKey(value.hostname as string, ref.externalId)
+            ) {
+              throw new TypeError(`pullRequestObservation.${key}.repositoryKey is not canonical`)
+            }
+          }
+          for (const field of ['repository', 'ref'] as const) {
+            if (field in ref) assertString(ref[field], `pullRequestObservation.${key}.${field}`)
+          }
+          if ('sha' in ref) assertGitObjectIds([ref.sha], `pullRequestObservation.${key}.sha`)
+          if (key === 'head' && value.completeness === 'partial') {
+            const identityFields = ['repositoryKey', 'externalId', 'repository']
+            const present = identityFields.filter(field => field in ref).length
+            if (present !== 0 && present !== identityFields.length) {
+              throw new TypeError(
+                'partial pullRequestObservation head identity must be all-or-none',
+              )
+            }
+          }
+        }
+        if ((value.base as Record<string, unknown>).repositoryKey !== value.repositoryKey) {
+          throw new TypeError('pullRequestObservation base repository must match its owned path')
+        }
+        if (
+          value.repositoryKey !==
+          githubRepositoryKey(
+            value.hostname as string,
+            (value.base as Record<string, unknown>).externalId as string,
+          )
+        ) {
+          throw new TypeError('pullRequestObservation.repositoryKey is not canonical')
+        }
+        assertGitObjectIds(value.commits, 'pullRequestObservation.commits')
+        const commits = value.commits as string[]
+        if (new Set(commits).size !== commits.length) {
+          throw new TypeError('pullRequestObservation commits must be unique')
+        }
+        const observedHead = (value.head as Record<string, unknown>).sha
+        if (
+          value.commitMembership === 'complete' &&
+          (commits.length === 0 ||
+            (typeof observedHead === 'string' && !commits.includes(observedHead)))
+        ) {
+          throw new TypeError('complete pullRequestObservation membership must contain head')
+        }
         assertTimestamp(value.providerUpdatedAt, 'pullRequestObservation.providerUpdatedAt')
-      for (const key of ['codeManifest', 'diff'])
-        assertOptionalObjectRef(value, key, 'pullRequestObservation')
+        assertObjectRefs(value.raw, 'pullRequestObservation.raw')
+        if ((value.raw as ObjectRef[]).length === 0) {
+          throw new TypeError('pullRequestObservation raw evidence must not be empty')
+        }
+        if (
+          !(value.raw as ObjectRef[]).some(
+            ref => ref.mediaType === 'application/json' && ref.role === 'github-pr-metadata',
+          )
+        ) {
+          throw new TypeError('pullRequestObservation raw evidence lacks GitHub metadata')
+        }
+        assertOptionalObjectRef(value, 'codeManifest', 'pullRequestObservation')
+        if (
+          'codeManifest' in value &&
+          ((value.codeManifest as ObjectRef).mediaType !==
+            'application/vnd.factory.code-manifest+json' ||
+            (value.codeManifest as ObjectRef).role !== 'workspace-code-manifest')
+        ) {
+          throw new TypeError('pullRequestObservation code manifest semantics are invalid')
+        }
+        assertObjectRef(value.diff, 'pullRequestObservation.diff')
+        if (
+          (value.diff as ObjectRef).mediaType !== 'text/x-diff' ||
+          (value.diff as ObjectRef).role !== 'pull-request-diff'
+        ) {
+          throw new TypeError('pullRequestObservation diff semantics are invalid')
+        }
+      } else {
+        assertExactKeys(
+          value,
+          [
+            'schemaVersion',
+            'observationId',
+            'provider',
+            'repositoryKey',
+            'number',
+            'availability',
+            'reason',
+            'observedAt',
+            'raw',
+            'limitations',
+          ],
+          'pullRequestObservation',
+        )
+        requireFields(value, ['reason'], 'pullRequestObservation')
+        assertEnum(
+          value.reason,
+          [
+            'gh-missing',
+            'authentication-required',
+            'not-found',
+            'command-failed',
+            'command-timeout',
+            'output-limit',
+            'invalid-response',
+            'observation-changed',
+          ],
+          'pullRequestObservation.reason',
+        )
+        if ('raw' in value) assertObjectRefs(value.raw, 'pullRequestObservation.raw')
+      }
       assertLimitations(value.limitations, 'pullRequestObservation.limitations')
+      if (
+        value.availability === 'available' &&
+        !('codeManifest' in value) &&
+        !(value.limitations as Limitation[]).some(
+          item => item.code === 'unavailable-pull-request-code',
+        )
+      ) {
+        throw new TypeError('pullRequestObservation missing code manifest requires a limitation')
+      }
+      if (
+        value.availability === 'available' &&
+        value.commitMembership === 'prefix' &&
+        !(value.limitations as Limitation[]).some(
+          item => item.code === 'incomplete-pull-request-commits',
+        )
+      ) {
+        throw new TypeError('partial commit membership requires an explicit limitation')
+      }
+      if (value.availability === 'available' && value.completeness === 'partial') {
+        const hasAllRefs = ['base', 'head'].every(key => {
+          const ref = value[key] as Record<string, unknown>
+          return ['repositoryKey', 'externalId', 'repository', 'ref', 'sha'].every(
+            field => field in ref,
+          )
+        })
+        if (hasAllRefs && value.commitMembership === 'complete') {
+          throw new TypeError('partial pullRequestObservation must identify what is incomplete')
+        }
+        if (
+          !hasAllRefs &&
+          !(value.limitations as Limitation[]).some(
+            item => item.code === 'incomplete-pull-request-refs',
+          )
+        ) {
+          throw new TypeError('partial refs require an explicit limitation')
+        }
+      }
+      if (value.availability === 'available' && value.completeness === 'complete') {
+        if (
+          (value.limitations as Limitation[]).some(item =>
+            ['incomplete-pull-request-commits', 'incomplete-pull-request-refs'].includes(item.code),
+          )
+        ) {
+          throw new TypeError('complete pullRequestObservation cannot claim incomplete evidence')
+        }
+      }
+      if (
+        value.availability === 'unavailable' &&
+        !(value.limitations as Limitation[]).some(item => item.code === 'unavailable-pull-request')
+      ) {
+        throw new TypeError('unavailable pullRequestObservation requires its limitation')
+      }
       assertIdentity(
         value.repositoryKey,
         path.repositoryKey,
@@ -1214,12 +1721,75 @@ function validateRecordShape(
         'pullRequestObservation.observationId',
       )
       break
-    case 'association':
+    }
+    case 'githubRepositoryMapping': {
+      assertRecordId(value.observationId, 'githubRepositoryMapping.observationId')
+      assertIdentity(value.provider, 'github', 'githubRepositoryMapping.provider')
+      assertString(value.repositoryId, 'githubRepositoryMapping.repositoryId')
+      if (!/^repo_[A-Za-z0-9_-]+$/.test(value.repositoryId as string)) {
+        throw new TypeError('githubRepositoryMapping.repositoryId is invalid')
+      }
+      assertString(value.repositoryKey, 'githubRepositoryMapping.repositoryKey')
+      if (!/^ghr_[A-Za-z0-9_-]+$/.test(value.repositoryKey as string)) {
+        throw new TypeError('githubRepositoryMapping.repositoryKey is invalid')
+      }
+      for (const key of ['externalId', 'hostname', 'repository', 'url']) {
+        assertString(value[key], `githubRepositoryMapping.${key}`)
+      }
+      if (!/^[A-Za-z0-9.-]+$/.test(value.hostname as string)) {
+        throw new TypeError('githubRepositoryMapping.hostname is invalid')
+      }
+      let url: URL
+      try {
+        url = new URL(value.url as string)
+      } catch {
+        throw new TypeError('githubRepositoryMapping.url is invalid')
+      }
+      if (
+        url.protocol !== 'https:' ||
+        url.hostname.toLowerCase() !== (value.hostname as string).toLowerCase()
+      ) {
+        throw new TypeError('githubRepositoryMapping.url does not match hostname')
+      }
+      if (
+        value.repositoryKey !==
+        githubRepositoryKey(value.hostname as string, value.externalId as string)
+      ) {
+        throw new TypeError('githubRepositoryMapping.repositoryKey is not canonical')
+      }
+      assertTimestamp(value.observedAt, 'githubRepositoryMapping.observedAt')
+      assertObjectRefs(value.raw, 'githubRepositoryMapping.raw')
+      if (
+        (value.raw as ObjectRef[]).length === 0 ||
+        !(value.raw as ObjectRef[]).some(
+          ref => ref.mediaType === 'application/json' && ref.role === 'github-repository-metadata',
+        )
+      ) {
+        throw new TypeError('githubRepositoryMapping requires raw repository metadata')
+      }
+      assertIdentity(
+        value.repositoryKey,
+        path.repositoryKey,
+        'githubRepositoryMapping.repositoryKey',
+      )
+      assertIdentity(value.repositoryId, path.repositoryId, 'githubRepositoryMapping.repositoryId')
+      assertIdentity(
+        value.observationId,
+        path.observationId,
+        'githubRepositoryMapping.observationId',
+      )
+      break
+    }
+    case 'association': {
       assertRecordId(value.evidenceId, 'association.evidenceId')
       assertString(value.sessionKey, 'association.sessionKey')
       assertRecordId(value.pullRequestObservationId, 'association.pullRequestObservationId')
-      assertEnum(value.kind, ['commit', 'head', 'code-state-continuity'], 'association.kind')
-      assertEnum(value.strength, ['verified', 'strong'], 'association.strength')
+      assertEnum(
+        value.kind,
+        ['commit', 'head', 'code-state-continuity', 'manual', 'invalidation'],
+        'association.kind',
+      )
+      assertEnum(value.strength, ['verified', 'asserted'], 'association.strength')
       assertGitObjectIds(value.shas, 'association.shas')
       assertEnum(
         value.repositoryIdentity,
@@ -1228,6 +1798,44 @@ function validateRecordShape(
       )
       assertRecordIdArray(value.sourceObservationIds, 'association.sourceObservationIds')
       if ('invalidates' in value) assertRecordId(value.invalidates, 'association.invalidates')
+      if ('assertion' in value) {
+        assertRecord(value.assertion, 'association.assertion')
+        assertExactKeys(value.assertion, ['actor', 'reason'], 'association.assertion')
+        requireFields(value.assertion, ['actor', 'reason'], 'association.assertion')
+        assertString(value.assertion.actor, 'association.assertion.actor')
+        assertString(value.assertion.reason, 'association.assertion.reason')
+      }
+      if (value.kind === 'manual') {
+        if (
+          value.strength !== 'asserted' ||
+          !('assertion' in value) ||
+          'invalidates' in value ||
+          (value.shas as unknown[]).length !== 0 ||
+          (value.sourceObservationIds as unknown[]).length !== 0
+        ) {
+          throw new TypeError('manual association shape is invalid')
+        }
+      } else if (value.kind === 'invalidation') {
+        if (
+          value.strength !== 'verified' ||
+          !('invalidates' in value) ||
+          value.invalidates === value.evidenceId ||
+          'assertion' in value ||
+          (value.shas as unknown[]).length === 0 ||
+          (value.sourceObservationIds as unknown[]).length !== 0
+        ) {
+          throw new TypeError('invalidation association shape is invalid')
+        }
+      } else if (
+        value.strength !== 'verified' ||
+        'assertion' in value ||
+        'invalidates' in value ||
+        (value.shas as unknown[]).length === 0 ||
+        (value.sourceObservationIds as unknown[]).length === 0 ||
+        (value.kind === 'head' && (value.shas as unknown[]).length !== 1)
+      ) {
+        throw new TypeError('verified association shape is invalid')
+      }
       assertTimestamp(value.observedAt, 'association.observedAt')
       assertIdentity(
         value.pullRequestObservationId,
@@ -1236,6 +1844,54 @@ function validateRecordShape(
       )
       assertIdentity(value.evidenceId, path.evidenceId, 'association.evidenceId')
       break
+    }
+    case 'associationBatch': {
+      assertRecordId(value.batchId, 'associationBatch.batchId')
+      assertIdentity(value.provider, 'github', 'associationBatch.provider')
+      assertString(value.repositoryKey, 'associationBatch.repositoryKey')
+      assertPositiveInteger(value.number, 'associationBatch.number')
+      assertRecordId(value.pullRequestObservationId, 'associationBatch.pullRequestObservationId')
+      assertEnum(value.kind, ['automatic', 'manual'], 'associationBatch.kind')
+      assertArray(value.evidence, 'associationBatch.evidence')
+      const evidenceIds = new Set<string>()
+      for (const [index, entry] of (value.evidence as unknown[]).entries()) {
+        const label = `associationBatch.evidence[${index}]`
+        assertRecord(entry, label)
+        assertExactKeys(entry, ['evidenceId', 'sha256'], label)
+        requireFields(entry, ['evidenceId', 'sha256'], label)
+        assertRecordId(entry.evidenceId, `${label}.evidenceId`)
+        assertSha256(entry.sha256, `${label}.sha256`)
+        if (evidenceIds.has(entry.evidenceId as string)) {
+          throw new TypeError('associationBatch evidence IDs must be unique')
+        }
+        evidenceIds.add(entry.evidenceId as string)
+      }
+      const evidenceOrder = (value.evidence as { evidenceId: string }[]).map(
+        entry => entry.evidenceId,
+      )
+      if (evidenceOrder.join('\0') !== [...evidenceOrder].sort().join('\0')) {
+        throw new TypeError('associationBatch evidence must use canonical order')
+      }
+      assertRecordIdArray(value.sourceObservationIds, 'associationBatch.sourceObservationIds')
+      const sourceOrder = value.sourceObservationIds as string[]
+      if (
+        new Set(sourceOrder).size !== sourceOrder.length ||
+        sourceOrder.join('\0') !== [...sourceOrder].sort().join('\0')
+      ) {
+        throw new TypeError('associationBatch sources must be unique and canonically ordered')
+      }
+      assertTimestamp(value.observedAt, 'associationBatch.observedAt')
+      assertString(value.policyVersion, 'associationBatch.policyVersion')
+      assertIdentity(value.repositoryKey, path.repositoryKey, 'associationBatch.repositoryKey')
+      assertIdentity(value.number, path.number, 'associationBatch.number')
+      assertIdentity(
+        value.pullRequestObservationId,
+        path.observationId,
+        'associationBatch.pullRequestObservationId',
+      )
+      assertIdentity(value.batchId, path.batchId, 'associationBatch.batchId')
+      break
+    }
     case 'trigger':
       assertRecordId(value.triggerId, 'trigger.triggerId')
       assertString(value.sessionKey, 'trigger.sessionKey')
