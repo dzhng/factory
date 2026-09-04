@@ -1,0 +1,1340 @@
+import { spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
+
+import {
+  canonicalJson,
+  githubRepositoryKey,
+  isGithubRepositoryLocator,
+  makeOwnedPath,
+  newRecordId,
+  validatePublicRecord,
+  validateObjectRef,
+  type GithubRepositoryKey,
+  type GithubRepositoryMappingObservation,
+  type ObjectRef,
+  type AvailablePullRequestObservation,
+  type PullRequestObservation,
+  type PullRequestUnavailableReason,
+  type RecordId,
+  type RepositoryId,
+  type AssociationBatch,
+  type SessionPullRequestAssociation,
+} from '@factory/contract'
+import { RepositoryStore } from '@factory/repository'
+
+export type PullRequestRef = {
+  hostname: string
+  owner: string
+  name: string
+  number: number
+}
+
+export type GhCommandResult =
+  | {
+      kind: 'completed'
+      exitCode: number
+      stdout: Uint8Array
+      stderr: Uint8Array
+    }
+  | {
+      kind: 'missing' | 'timeout' | 'output-limit'
+      stdout: Uint8Array
+      stderr: Uint8Array
+    }
+
+export interface GhCommandRunner {
+  run(args: readonly string[], maximumDurationMs?: number): Promise<GhCommandResult>
+}
+
+export interface PrObjectStore {
+  put(bytes: Uint8Array, metadata: { mediaType: string; role: string }): Promise<ObjectRef>
+}
+
+type DeadlineResult<T> = { kind: 'completed'; value: T } | { kind: 'failed' } | { kind: 'timeout' }
+
+async function settleWithinDeadline<T>(
+  start: () => Promise<T>,
+  deadline: number,
+): Promise<DeadlineResult<T>> {
+  const remaining = deadline - performance.now()
+  if (remaining <= 0) return { kind: 'timeout' }
+  let timer: NodeJS.Timeout | undefined
+  const timeout = new Promise<{ kind: 'timeout' }>(resolve => {
+    timer = setTimeout(() => resolve({ kind: 'timeout' }), remaining)
+  })
+  const operation = Promise.resolve()
+    .then(start)
+    .then(value => ({ kind: 'completed' as const, value }))
+    .catch(() => ({ kind: 'failed' as const }))
+  try {
+    return await Promise.race([operation, timeout])
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
+}
+
+export type GithubPrObserverOptions = {
+  run?: GhCommandRunner['run']
+  objects: PrObjectStore
+  maxCommandBytes?: number
+  maxCommandDurationMs?: number
+  maxGhBytes?: number
+  maxAcquisitionDurationMs?: number
+  maxCommits?: number
+  maxCommitPages?: number
+  /** Optional exact-SHA snapshot seam; requested failures remain explicit limitations. */
+  captureCodeManifest?: (input: {
+    pullRequest: {
+      hostname: string
+      number: number
+      url: string
+      base: {
+        repositoryKey: GithubRepositoryKey
+        externalId: string
+        repository: string
+        ref?: string
+        sha?: string
+      }
+      head: {
+        repositoryKey: GithubRepositoryKey
+        externalId: string
+        repository: string
+        ref?: string
+        sha: string
+      }
+    }
+    signal: AbortSignal
+    deadlineMs: number
+  }) => Promise<ObjectRef | undefined>
+  now?: () => Date
+}
+
+/** Runtime-only typed failure when no provider-stable repository identity can be proven. */
+export type PrUnavailable = {
+  availability: 'unavailable'
+  reason: PullRequestUnavailableReason
+  requested: PullRequestRef
+  observedAt: string
+  raw: readonly ObjectRef[]
+  detail: string
+  /** Persistable only after GitHub returned its stable repository identity. */
+  record?: Extract<PullRequestObservation, { availability: 'unavailable' }>
+}
+
+type Metadata = {
+  repositoryId: string
+  repository: string
+  repositoryUrl: string
+  externalId: string
+  url: string
+  number: number
+  state: 'open' | 'closed' | 'merged'
+  baseRef?: string
+  baseSha?: string
+  headRepositoryId?: string
+  headRepository?: string
+  headRef?: string
+  headSha?: string
+  updatedAt: string
+  commits: string[]
+  commitsComplete: boolean
+  endCursor?: string
+}
+
+const QUERY = `query FactoryPullRequest($owner:String!,$name:String!,$number:Int!,$limit:Int!,$cursor:String){repository(owner:$owner,name:$name){id nameWithOwner url pullRequest(number:$number){id url number state mergedAt baseRefName baseRefOid headRefName headRefOid updatedAt headRepository{id nameWithOwner url} commits(first:$limit,after:$cursor){nodes{commit{oid}} pageInfo{hasNextPage endCursor}}}}}`
+
+function hash(value: string | Uint8Array): string {
+  return createHash('sha256').update(value).digest('hex')
+}
+
+function recordId(prefix: string, observedAt: string, identity: string): RecordId {
+  return newRecordId(
+    prefix,
+    Date.parse(observedAt),
+    Buffer.from(hash(identity).slice(0, 20), 'hex'),
+  )
+}
+
+function assertString(value: unknown, label: string): asserts value is string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 4_096)
+    throw new TypeError(`${label} is invalid`)
+}
+
+function assertSha(value: unknown, label: string): asserts value is string {
+  if (typeof value !== 'string' || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(value)) {
+    throw new TypeError(`${label} is not a Git object ID`)
+  }
+}
+
+function optionalString(value: unknown, label: string): string | undefined {
+  if (value === null || value === undefined) return undefined
+  assertString(value, label)
+  return value
+}
+
+function optionalSha(value: unknown, label: string): string | undefined {
+  if (value === null || value === undefined) return undefined
+  assertSha(value, label)
+  return value
+}
+
+function isUtcTimestamp(value: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?Z$/.exec(value)
+  const parsed = new Date(value)
+  return (
+    match !== null &&
+    Number.isFinite(parsed.getTime()) &&
+    parsed.getUTCFullYear() === Number(match[1]) &&
+    parsed.getUTCMonth() + 1 === Number(match[2]) &&
+    parsed.getUTCDate() === Number(match[3]) &&
+    parsed.getUTCHours() === Number(match[4]) &&
+    parsed.getUTCMinutes() === Number(match[5]) &&
+    parsed.getUTCSeconds() === Number(match[6])
+  )
+}
+
+function parseMetadata(bytes: Uint8Array, requestedNumber: number, hostname: string): Metadata {
+  const decoded = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+  const value = JSON.parse(decoded) as Record<string, unknown>
+  if ('errors' in value && (!Array.isArray(value.errors) || value.errors.length > 0)) {
+    throw new TypeError('GraphQL response errors are invalid')
+  }
+  const data = value.data as Record<string, unknown> | undefined
+  const repository = data?.repository as Record<string, unknown> | undefined
+  const pullRequest = repository?.pullRequest as Record<string, unknown> | undefined
+  if (repository === undefined || pullRequest === undefined)
+    throw new TypeError('pull request is absent')
+  assertString(repository.id, 'repository.id')
+  assertString(repository.nameWithOwner, 'repository.nameWithOwner')
+  assertString(repository.url, 'repository.url')
+  assertString(pullRequest.id, 'pullRequest.id')
+  assertString(pullRequest.url, 'pullRequest.url')
+  for (const [label, providerUrl] of [
+    ['repository.url', repository.url],
+    ['pullRequest.url', pullRequest.url],
+  ] as const) {
+    let parsed: URL
+    try {
+      parsed = new URL(providerUrl)
+    } catch {
+      throw new TypeError(`${label} is invalid`)
+    }
+    if (
+      parsed.protocol !== 'https:' ||
+      parsed.hostname.toLowerCase() !== hostname.toLowerCase() ||
+      parsed.username !== '' ||
+      parsed.password !== '' ||
+      parsed.search !== '' ||
+      parsed.hash !== ''
+    ) {
+      throw new TypeError(`${label} is outside the requested GitHub host`)
+    }
+  }
+  if (pullRequest.number !== requestedNumber)
+    throw new TypeError('pull request number does not match')
+  const baseRef = optionalString(pullRequest.baseRefName, 'pullRequest.baseRefName')
+  const baseSha = optionalSha(pullRequest.baseRefOid, 'pullRequest.baseRefOid')
+  const headRef = optionalString(pullRequest.headRefName, 'pullRequest.headRefName')
+  const headSha = optionalSha(pullRequest.headRefOid, 'pullRequest.headRefOid')
+  assertString(pullRequest.updatedAt, 'pullRequest.updatedAt')
+  if (!isUtcTimestamp(pullRequest.updatedAt)) throw new TypeError('updatedAt is invalid')
+  const headRepository =
+    pullRequest.headRepository === null || pullRequest.headRepository === undefined
+      ? undefined
+      : (pullRequest.headRepository as Record<string, unknown>)
+  if (headRepository !== undefined) {
+    assertString(headRepository.id, 'pullRequest.headRepository.id')
+    assertString(headRepository.nameWithOwner, 'pullRequest.headRepository.nameWithOwner')
+    assertString(headRepository.url, 'pullRequest.headRepository.url')
+  }
+  const repositoryLocators: Array<readonly [string, string, string]> = [
+    ['repository', repository.nameWithOwner, repository.url],
+  ]
+  if (headRepository !== undefined) {
+    repositoryLocators.push([
+      'pullRequest.headRepository',
+      headRepository.nameWithOwner as string,
+      headRepository.url as string,
+    ])
+  }
+  for (const [label, repositoryName, repositoryUrl] of repositoryLocators) {
+    if (!isGithubRepositoryLocator(repositoryName)) {
+      throw new TypeError(`${label}.nameWithOwner is invalid`)
+    }
+    const parsed = new URL(repositoryUrl)
+    if (
+      parsed.protocol !== 'https:' ||
+      parsed.hostname.toLowerCase() !== hostname.toLowerCase() ||
+      parsed.pathname.replace(/\/$/, '') !== `/${repositoryName}` ||
+      parsed.username !== '' ||
+      parsed.password !== '' ||
+      parsed.search !== '' ||
+      parsed.hash !== ''
+    ) {
+      throw new TypeError(`${label}.url does not match its repository locator`)
+    }
+  }
+  const pullRequestUrl = new URL(pullRequest.url)
+  if (
+    pullRequestUrl.pathname.replace(/\/$/, '') !==
+    `/${repository.nameWithOwner}/pull/${requestedNumber}`
+  ) {
+    throw new TypeError('pullRequest.url does not match its pull-request locator')
+  }
+  const connection = pullRequest.commits as Record<string, unknown> | undefined
+  if (connection === undefined || !Array.isArray(connection.nodes)) {
+    throw new TypeError('commit connection is invalid')
+  }
+  const commits = connection.nodes.map((node, index) => {
+    const commit = (node as Record<string, unknown>)?.commit as Record<string, unknown> | undefined
+    assertSha(commit?.oid, `commits[${index}].oid`)
+    return commit.oid
+  })
+  if (new Set(commits).size !== commits.length)
+    throw new TypeError('commit page contains duplicates')
+  const pageInfo = connection.pageInfo as Record<string, unknown> | undefined
+  if (pageInfo === undefined || typeof pageInfo.hasNextPage !== 'boolean') {
+    throw new TypeError('commit page information is invalid')
+  }
+  if (
+    pageInfo.hasNextPage &&
+    (typeof pageInfo.endCursor !== 'string' || pageInfo.endCursor.length === 0)
+  ) {
+    throw new TypeError('commit page cursor is invalid')
+  }
+  let state: Metadata['state']
+  if (pullRequest.mergedAt !== null && pullRequest.mergedAt !== undefined) {
+    assertString(pullRequest.mergedAt, 'pullRequest.mergedAt')
+    if (!isUtcTimestamp(pullRequest.mergedAt) || pullRequest.state !== 'MERGED') {
+      throw new TypeError('pull request merged state is inconsistent')
+    }
+    state = 'merged'
+  } else if (pullRequest.state === 'OPEN') state = 'open'
+  else if (pullRequest.state === 'CLOSED') state = 'closed'
+  else throw new TypeError('pull request state is invalid')
+  return {
+    repositoryId: repository.id,
+    repository: repository.nameWithOwner,
+    repositoryUrl: repository.url,
+    externalId: pullRequest.id,
+    url: pullRequest.url,
+    number: requestedNumber,
+    state,
+    ...(baseRef === undefined ? {} : { baseRef }),
+    ...(baseSha === undefined ? {} : { baseSha }),
+    ...(headRepository === undefined
+      ? {}
+      : {
+          headRepositoryId: headRepository.id as string,
+          headRepository: headRepository.nameWithOwner as string,
+        }),
+    ...(headRef === undefined ? {} : { headRef }),
+    ...(headSha === undefined ? {} : { headSha }),
+    updatedAt: pullRequest.updatedAt,
+    commits,
+    commitsComplete: !pageInfo.hasNextPage,
+    ...(typeof pageInfo.endCursor === 'string' ? { endCursor: pageInfo.endCursor } : {}),
+  }
+}
+
+function sameSnapshot(left: Metadata, right: Metadata): boolean {
+  return canonicalJson(left) === canonicalJson(right)
+}
+
+function unavailableReason(result: GhCommandResult): PullRequestUnavailableReason {
+  if (result.kind === 'missing') return 'gh-missing'
+  if (result.kind === 'timeout') return 'command-timeout'
+  if (result.kind === 'output-limit') return 'output-limit'
+  const message = new TextDecoder().decode(result.stderr).toLowerCase()
+  if (message.includes('auth') || message.includes('login')) return 'authentication-required'
+  if (message.includes('not found') || message.includes('could not resolve')) return 'not-found'
+  return 'command-failed'
+}
+
+export async function runBoundedGh(
+  args: readonly string[],
+  maximumBytes: number,
+  maximumDurationMs: number,
+  executable = 'gh',
+): Promise<GhCommandResult> {
+  if (!Number.isSafeInteger(maximumBytes) || maximumBytes < 1) {
+    throw new TypeError('maximumBytes must be a positive integer')
+  }
+  if (!Number.isSafeInteger(maximumDurationMs) || maximumDurationMs < 1) {
+    throw new TypeError('maximumDurationMs must be a positive integer')
+  }
+  return await new Promise(resolve => {
+    const child = spawn(executable, [...args], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    const stdout: Buffer[] = []
+    const stderr: Buffer[] = []
+    let stdoutBytes = 0
+    let stderrBytes = 0
+    let settled = false
+    let terminalKind: 'timeout' | 'output-limit' | undefined
+    let terminationTimer: NodeJS.Timeout | undefined
+    let timer: NodeJS.Timeout | undefined
+    const finish = (result: GhCommandResult) => {
+      if (settled) return
+      settled = true
+      if (timer !== undefined) clearTimeout(timer)
+      if (terminationTimer !== undefined) clearTimeout(terminationTimer)
+      resolve(result)
+    }
+    const snapshot = () => ({
+      stdout: Buffer.concat(stdout),
+      stderr: Buffer.concat(stderr),
+    })
+    const terminate = (kind: 'timeout' | 'output-limit') => {
+      if (terminalKind !== undefined || settled) return
+      terminalKind = kind
+      child.stdout.destroy()
+      child.stderr.destroy()
+      child.kill('SIGKILL')
+      terminationTimer = setTimeout(() => finish({ kind, ...snapshot() }), 1_000)
+    }
+    const append = (target: Buffer[], chunk: Buffer, stream: 'stdout' | 'stderr') => {
+      if (terminalKind !== undefined || settled) return
+      const used = stdoutBytes + stderrBytes
+      const retained = chunk.subarray(0, Math.max(0, maximumBytes - used))
+      if (retained.byteLength > 0) target.push(retained)
+      if (stream === 'stdout') stdoutBytes += retained.byteLength
+      else stderrBytes += retained.byteLength
+      if (retained.byteLength < chunk.byteLength) terminate('output-limit')
+    }
+    child.stdout.on('data', chunk => append(stdout, Buffer.from(chunk), 'stdout'))
+    child.stderr.on('data', chunk => append(stderr, Buffer.from(chunk), 'stderr'))
+    child.on('error', error => {
+      finish({
+        kind: (error as NodeJS.ErrnoException).code === 'ENOENT' ? 'missing' : 'completed',
+        exitCode: 127,
+        ...snapshot(),
+      } as GhCommandResult)
+    })
+    child.on('close', code =>
+      finish(
+        terminalKind === undefined
+          ? { kind: 'completed', exitCode: code ?? 1, ...snapshot() }
+          : { kind: terminalKind, ...snapshot() },
+      ),
+    )
+    timer = setTimeout(() => {
+      terminate('timeout')
+    }, maximumDurationMs)
+  })
+}
+
+export class GithubPrObserver {
+  private readonly run: GhCommandRunner['run']
+  private readonly now: () => Date
+  private readonly maxCommits: number
+  private readonly maxCommitPages: number
+  private readonly maxCommandDurationMs: number
+  private readonly maxGhBytes: number
+  private readonly maxAcquisitionDurationMs: number
+
+  constructor(private readonly options: GithubPrObserverOptions) {
+    const maximumBytes = options.maxCommandBytes ?? 16 * 1024 * 1024
+    const maximumDurationMs = options.maxCommandDurationMs ?? 30_000
+    if (!Number.isSafeInteger(maximumBytes) || maximumBytes < 1) {
+      throw new TypeError('maxCommandBytes must be a positive integer')
+    }
+    if (!Number.isSafeInteger(maximumDurationMs) || maximumDurationMs < 1) {
+      throw new TypeError('maxCommandDurationMs must be a positive integer')
+    }
+    this.run =
+      options.run ??
+      ((args, duration) =>
+        runBoundedGh(
+          args,
+          maximumBytes,
+          Math.min(maximumDurationMs, duration ?? maximumDurationMs),
+        ))
+    this.now = options.now ?? (() => new Date())
+    this.maxCommits = options.maxCommits ?? 250
+    this.maxCommitPages = options.maxCommitPages ?? Math.ceil(this.maxCommits / 100)
+    this.maxCommandDurationMs = maximumDurationMs
+    this.maxGhBytes = options.maxGhBytes ?? 64 * 1024 * 1024
+    this.maxAcquisitionDurationMs = options.maxAcquisitionDurationMs ?? 120_000
+    if (!Number.isSafeInteger(this.maxCommits) || this.maxCommits < 1) {
+      throw new TypeError('maxCommits must be a positive integer')
+    }
+    if (!Number.isSafeInteger(this.maxCommitPages) || this.maxCommitPages < 1) {
+      throw new TypeError('maxCommitPages must be a positive integer')
+    }
+    for (const [label, value] of [
+      ['maxGhBytes', this.maxGhBytes],
+      ['maxAcquisitionDurationMs', this.maxAcquisitionDurationMs],
+    ] as const) {
+      if (!Number.isSafeInteger(value) || value < 1)
+        throw new TypeError(`${label} must be a positive integer`)
+    }
+  }
+
+  async observe(ref: PullRequestRef): Promise<AvailablePullRequestObservation | PrUnavailable> {
+    if (!Number.isSafeInteger(ref.number) || ref.number < 1)
+      throw new TypeError('PR number is invalid')
+    githubRepositoryKey(ref.hostname, 'validate')
+    for (const [label, value] of [
+      ['owner', ref.owner],
+      ['repository name', ref.name],
+    ] as const) {
+      if (!/^[A-Za-z0-9_.-]{1,100}$/.test(value)) throw new TypeError(`GitHub ${label} is invalid`)
+    }
+    const observedAt = this.now().toISOString()
+    const raw: ObjectRef[] = []
+    const startedAt = performance.now()
+    const deadline = startedAt + this.maxAcquisitionDurationMs
+    let ghBytes = 0
+    const putBounded = async (
+      bytes: Uint8Array,
+      metadata: { mediaType: string; role: string },
+    ): Promise<{ kind: 'stored'; object: ObjectRef } | { kind: 'timeout' | 'failed' }> => {
+      const result = await settleWithinDeadline(
+        () => this.options.objects.put(bytes, metadata),
+        deadline,
+      )
+      if (result.kind === 'completed') return { kind: 'stored', object: result.value }
+      return result
+    }
+    const execute = async (args: readonly string[]): Promise<GhCommandResult> => {
+      const remaining = this.maxAcquisitionDurationMs - (performance.now() - startedAt)
+      if (remaining <= 0)
+        return {
+          kind: 'timeout',
+          stdout: new Uint8Array(),
+          stderr: new Uint8Array(),
+        }
+      const execution = await settleWithinDeadline(
+        () =>
+          this.run(args, Math.min(this.maxCommandDurationMs, Math.max(1, Math.floor(remaining)))),
+        deadline,
+      )
+      if (execution.kind === 'timeout') {
+        return {
+          kind: 'timeout',
+          stdout: new Uint8Array(),
+          stderr: new Uint8Array(),
+        }
+      }
+      if (execution.kind === 'failed') {
+        return {
+          kind: 'completed',
+          exitCode: 1,
+          stdout: new Uint8Array(),
+          stderr: new Uint8Array(),
+        }
+      }
+      const result = execution.value
+      ghBytes += result.stdout.byteLength + result.stderr.byteLength
+      if (ghBytes > this.maxGhBytes) {
+        return {
+          kind: 'output-limit',
+          stdout: new Uint8Array(),
+          stderr: new Uint8Array(),
+        }
+      }
+      return result
+    }
+    let repositoryKey: GithubRepositoryKey | undefined
+    let baseIdentity: { externalId: string; repository: string } | undefined
+    const unavailable = (reason: PullRequestUnavailableReason, detail: string): PrUnavailable => {
+      let record: Extract<PullRequestObservation, { availability: 'unavailable' }> | undefined
+      if (repositoryKey !== undefined && baseIdentity !== undefined && raw.length > 0) {
+        record = {
+          schemaVersion: 1,
+          observationId: recordId(
+            'pr-observation',
+            observedAt,
+            `${repositoryKey}\0${ref.number}\0${reason}\0${raw.map(item => item.sha256).join()}`,
+          ),
+          provider: 'github',
+          repositoryKey,
+          number: ref.number,
+          availability: 'unavailable',
+          reason,
+          hostname: ref.hostname.toLowerCase(),
+          base: {
+            repositoryKey,
+            externalId: baseIdentity.externalId,
+            repository: baseIdentity.repository,
+          },
+          observedAt,
+          raw: raw as [ObjectRef, ...ObjectRef[]],
+          limitations: [{ code: 'unavailable-pull-request', detail }],
+        }
+        validatePublicRecord(
+          makeOwnedPath('pull-requests', [
+            'github',
+            repositoryKey,
+            String(ref.number),
+            'observations',
+            `${record.observationId}.json`,
+          ]),
+          record,
+        )
+      }
+      return {
+        availability: 'unavailable',
+        reason,
+        requested: ref,
+        observedAt,
+        raw,
+        detail,
+        ...(record === undefined ? {} : { record }),
+      }
+    }
+    const readSnapshot = async (): Promise<
+      | { kind: 'observed'; metadata: Metadata }
+      | {
+          kind: 'unavailable'
+          reason: ReturnType<typeof unavailableReason> | 'invalid-response' | 'observation-changed'
+          detail: string
+        }
+    > => {
+      const commits: string[] = []
+      const seenCommits = new Set<string>()
+      const seenCursors = new Set<string>()
+      let cursor: string | undefined
+      let firstPage: Metadata | undefined
+      let pages = 0
+      const finish = (complete: boolean, terminalCursor?: string): Metadata => {
+        if (firstPage === undefined) throw new Error('pull-request metadata page is absent')
+        const { endCursor: _initialCursor, ...facts } = firstPage
+        return {
+          ...facts,
+          commits,
+          commitsComplete: complete,
+          ...(complete || terminalCursor === undefined ? {} : { endCursor: terminalCursor }),
+        }
+      }
+      while (true) {
+        const remaining = this.maxCommits - commits.length
+        if (remaining === 0) {
+          return { kind: 'observed', metadata: finish(false, cursor) }
+        }
+        const args = [
+          'api',
+          `--hostname=${ref.hostname}`,
+          'graphql',
+          '-f',
+          `query=${QUERY}`,
+          '-F',
+          `owner=${ref.owner}`,
+          '-F',
+          `name=${ref.name}`,
+          '-F',
+          `number=${ref.number}`,
+          '-F',
+          `limit=${Math.min(100, remaining)}`,
+          ...(cursor === undefined ? [] : ['-F', `cursor=${cursor}`]),
+        ]
+        const result = await execute(args)
+        pages += 1
+        if (result.kind !== 'completed' || result.exitCode !== 0) {
+          return {
+            kind: 'unavailable',
+            reason: unavailableReason(result),
+            detail: 'GitHub metadata was unavailable',
+          }
+        }
+        let page: Metadata
+        try {
+          page = parseMetadata(result.stdout, ref.number, ref.hostname)
+        } catch {
+          return {
+            kind: 'unavailable',
+            reason: 'invalid-response',
+            detail: 'GitHub returned malformed pull-request metadata',
+          }
+        }
+        const metadataObject = await putBounded(result.stdout, {
+          mediaType: 'application/json',
+          role: 'github-pr-metadata',
+        })
+        if (metadataObject.kind !== 'stored') {
+          return {
+            kind: 'unavailable',
+            reason: metadataObject.kind === 'timeout' ? 'command-timeout' : 'command-failed',
+            detail: 'GitHub metadata evidence could not be stored within the acquisition bound',
+          }
+        }
+        raw.push(metadataObject.object)
+        const pageRepositoryKey = githubRepositoryKey(ref.hostname, page.repositoryId)
+        if (repositoryKey === undefined) {
+          repositoryKey = pageRepositoryKey
+          baseIdentity = { externalId: page.repositoryId, repository: page.repository }
+        } else if (repositoryKey !== pageRepositoryKey) {
+          return {
+            kind: 'unavailable',
+            reason: 'observation-changed',
+            detail: 'Pull request base repository identity changed during observation',
+          }
+        }
+        if (firstPage === undefined) firstPage = page
+        else {
+          const pageFacts = {
+            ...page,
+            commits: firstPage.commits,
+            commitsComplete: firstPage.commitsComplete,
+            endCursor: firstPage.endCursor,
+          }
+          if (!sameSnapshot(firstPage, pageFacts)) {
+            return {
+              kind: 'unavailable',
+              reason: 'observation-changed',
+              detail: 'Pull request changed between commit pages',
+            }
+          }
+        }
+        if (page.commits.length > remaining) {
+          return {
+            kind: 'unavailable',
+            reason: 'invalid-response',
+            detail: 'GitHub returned more commits than Factory requested',
+          }
+        }
+        commits.push(...page.commits)
+        if (page.commits.some(sha => seenCommits.has(sha))) {
+          return {
+            kind: 'unavailable',
+            reason: 'invalid-response',
+            detail: 'GitHub repeated a commit between pages',
+          }
+        }
+        page.commits.forEach(sha => seenCommits.add(sha))
+        if (page.commitsComplete) {
+          if (
+            commits.length === 0 ||
+            (page.headSha !== undefined && !commits.includes(page.headSha))
+          ) {
+            return {
+              kind: 'unavailable',
+              reason: 'invalid-response',
+              detail: 'GitHub complete commit data does not contain the PR head',
+            }
+          }
+          return { kind: 'observed', metadata: finish(true) }
+        }
+        if (commits.length >= this.maxCommits) {
+          return { kind: 'observed', metadata: finish(false, page.endCursor) }
+        }
+        if (
+          page.commits.length === 0 ||
+          page.endCursor === undefined ||
+          seenCursors.has(page.endCursor)
+        ) {
+          return {
+            kind: 'unavailable',
+            reason: 'invalid-response',
+            detail: 'GitHub commit pagination made no progress',
+          }
+        }
+        seenCursors.add(page.endCursor)
+        if (pages >= this.maxCommitPages) {
+          return { kind: 'observed', metadata: finish(false, page.endCursor) }
+        }
+        cursor = page.endCursor
+      }
+    }
+    const firstRead = await readSnapshot()
+    if (firstRead.kind === 'unavailable') return unavailable(firstRead.reason, firstRead.detail)
+    const first = firstRead.metadata
+    const diffResult = await execute([
+      'pr',
+      'diff',
+      String(ref.number),
+      '--repo',
+      `${ref.hostname}/${ref.owner}/${ref.name}`,
+      '--patch',
+    ])
+    if (diffResult.kind !== 'completed' || diffResult.exitCode !== 0) {
+      return unavailable(unavailableReason(diffResult), 'GitHub pull-request diff was unavailable')
+    }
+    const diffStored = await putBounded(diffResult.stdout, {
+      mediaType: 'text/x-diff',
+      role: 'pull-request-diff',
+    })
+    if (diffStored.kind !== 'stored') {
+      return unavailable(
+        diffStored.kind === 'timeout' ? 'command-timeout' : 'command-failed',
+        'GitHub pull-request diff evidence could not be stored within the acquisition bound',
+      )
+    }
+    const diff = diffStored.object
+    raw.push(diff)
+    const secondRead = await readSnapshot()
+    if (secondRead.kind === 'unavailable') return unavailable(secondRead.reason, secondRead.detail)
+    const second = secondRead.metadata
+    if (!sameSnapshot(first, second)) {
+      return unavailable('observation-changed', 'Pull request changed while Factory observed it')
+    }
+    const baseRepositoryKey = githubRepositoryKey(ref.hostname, first.repositoryId)
+    const headRepositoryKey =
+      first.headRepositoryId === undefined
+        ? undefined
+        : githubRepositoryKey(ref.hostname, first.headRepositoryId)
+    let codeManifest: ObjectRef | undefined
+    if (headRepositoryKey !== undefined && first.headSha !== undefined) {
+      const remaining = Math.max(0, this.maxAcquisitionDurationMs - (performance.now() - startedAt))
+      const controller = new AbortController()
+      let captureTimer: NodeJS.Timeout | undefined
+      try {
+        if (remaining > 0 && this.options.captureCodeManifest !== undefined) {
+          const timeout = new Promise<undefined>(resolve => {
+            captureTimer = setTimeout(() => {
+              controller.abort()
+              resolve(undefined)
+            }, remaining)
+          })
+          codeManifest = await Promise.race([
+            this.options.captureCodeManifest({
+              pullRequest: {
+                hostname: ref.hostname.toLowerCase(),
+                number: ref.number,
+                url: first.url,
+                base: {
+                  repositoryKey: baseRepositoryKey,
+                  externalId: first.repositoryId,
+                  repository: first.repository,
+                  ...(first.baseRef === undefined ? {} : { ref: first.baseRef }),
+                  ...(first.baseSha === undefined ? {} : { sha: first.baseSha }),
+                },
+                head: {
+                  repositoryKey: headRepositoryKey,
+                  externalId: first.headRepositoryId!,
+                  repository: first.headRepository!,
+                  ...(first.headRef === undefined ? {} : { ref: first.headRef }),
+                  sha: first.headSha,
+                },
+              },
+              signal: controller.signal,
+              deadlineMs: Date.now() + remaining,
+            }),
+            timeout,
+          ])
+        }
+      } catch {
+        codeManifest = undefined
+      } finally {
+        if (captureTimer !== undefined) clearTimeout(captureTimer)
+      }
+    }
+    if (codeManifest !== undefined) {
+      try {
+        validateObjectRef(codeManifest)
+        if (
+          codeManifest.mediaType !== 'application/vnd.factory.code-manifest+json' ||
+          codeManifest.role !== 'workspace-code-manifest'
+        ) {
+          codeManifest = undefined
+        }
+      } catch {
+        codeManifest = undefined
+      }
+    }
+    const refsComplete =
+      first.baseRef !== undefined &&
+      first.baseSha !== undefined &&
+      headRepositoryKey !== undefined &&
+      first.headRepository !== undefined &&
+      first.headRef !== undefined &&
+      first.headSha !== undefined
+    const complete = first.commitsComplete && refsComplete
+    const identity = canonicalJson({
+      baseRepositoryKey,
+      headRepositoryKey: headRepositoryKey ?? null,
+      first,
+      diff: diff.sha256,
+      codeManifest: codeManifest?.sha256 ?? null,
+    })
+    const common = {
+      schemaVersion: 1 as const,
+      observationId: recordId('pr-observation', observedAt, identity),
+      provider: 'github' as const,
+      repositoryKey: baseRepositoryKey,
+      number: ref.number,
+      availability: 'available' as const,
+      externalId: first.externalId,
+      hostname: ref.hostname.toLowerCase(),
+      url: first.url,
+      state: first.state,
+      base: {
+        repositoryKey: baseRepositoryKey,
+        externalId: first.repositoryId,
+        repository: first.repository,
+        ...(first.baseRef === undefined ? {} : { ref: first.baseRef }),
+        ...(first.baseSha === undefined ? {} : { sha: first.baseSha }),
+      },
+      head: {
+        ...(headRepositoryKey === undefined
+          ? {}
+          : {
+              repositoryKey: headRepositoryKey,
+              externalId: first.headRepositoryId!,
+            }),
+        ...(first.headRepository === undefined ? {} : { repository: first.headRepository }),
+        ...(first.headRef === undefined ? {} : { ref: first.headRef }),
+        ...(first.headSha === undefined ? {} : { sha: first.headSha }),
+      },
+      commits: first.commits,
+      observedAt,
+      providerUpdatedAt: first.updatedAt,
+      raw,
+      codeAvailability:
+        codeManifest !== undefined
+          ? ('captured' as const)
+          : this.options.captureCodeManifest === undefined
+            ? ('not-requested' as const)
+            : ('unavailable' as const),
+      ...(codeManifest === undefined ? {} : { codeManifest }),
+      diff,
+      limitations: [
+        ...(first.commitsComplete
+          ? []
+          : [
+              {
+                code: 'incomplete-pull-request-commits' as const,
+                detail: `Commit evidence reached the configured ${this.maxCommits}-commit or ${this.maxCommitPages}-page bound`,
+              },
+            ]),
+        ...(refsComplete
+          ? []
+          : [
+              {
+                code: 'incomplete-pull-request-refs' as const,
+                detail: 'GitHub no longer exposed every pull-request repository, ref, or object ID',
+              },
+            ]),
+        ...(codeManifest === undefined && this.options.captureCodeManifest !== undefined
+          ? [
+              {
+                code: 'unavailable-pull-request-code' as const,
+                detail: 'Exact PR head code manifest was unavailable',
+              },
+            ]
+          : []),
+      ],
+    }
+    const observation: AvailablePullRequestObservation = complete
+      ? {
+          ...common,
+          completeness: 'complete',
+          commitMembership: 'complete',
+          base: common.base as Extract<
+            AvailablePullRequestObservation,
+            { completeness: 'complete' }
+          >['base'],
+          head: common.head as Extract<
+            AvailablePullRequestObservation,
+            { completeness: 'complete' }
+          >['head'],
+          commits: common.commits as [string, ...string[]],
+        }
+      : {
+          ...common,
+          completeness: 'partial',
+          commitMembership: first.commitsComplete ? 'complete' : 'prefix',
+        }
+    try {
+      validatePublicRecord(
+        makeOwnedPath('pull-requests', [
+          'github',
+          observation.repositoryKey,
+          String(observation.number),
+          'observations',
+          `${observation.observationId}.json`,
+        ]),
+        observation,
+      )
+    } catch {
+      return unavailable(
+        'invalid-response',
+        'GitHub observation failed Factory contract validation',
+      )
+    }
+    return observation
+  }
+}
+
+export type GithubRepositoryMapperOptions = {
+  run?: GhCommandRunner['run']
+  objects: PrObjectStore
+  maxCommandBytes?: number
+  maxCommandDurationMs?: number
+  maxAcquisitionDurationMs?: number
+  now?: () => Date
+}
+
+export type GithubRepositoryMappingUnavailable = {
+  availability: 'unavailable'
+  reason: PullRequestUnavailableReason
+  repositoryId: RepositoryId
+  observedAt: string
+  detail: string
+}
+
+/** Observe the GitHub identity selected by `gh` for the current local repository. */
+export async function observeGithubRepositoryMapping(
+  repositoryId: RepositoryId,
+  hostname: string,
+  options: GithubRepositoryMapperOptions,
+): Promise<GithubRepositoryMappingObservation | GithubRepositoryMappingUnavailable> {
+  if (!/^repo_[A-Za-z0-9_-]+$/.test(repositoryId)) {
+    throw new TypeError('Factory repository identity is invalid')
+  }
+  githubRepositoryKey(hostname, 'validate')
+  const maximumBytes = options.maxCommandBytes ?? 1024 * 1024
+  const maximumDurationMs = options.maxCommandDurationMs ?? 30_000
+  const maximumAcquisitionDurationMs = options.maxAcquisitionDurationMs ?? 60_000
+  for (const [label, value] of [
+    ['maxCommandBytes', maximumBytes],
+    ['maxCommandDurationMs', maximumDurationMs],
+    ['maxAcquisitionDurationMs', maximumAcquisitionDurationMs],
+  ] as const) {
+    if (!Number.isSafeInteger(value) || value < 1) {
+      throw new TypeError(`${label} must be a positive integer`)
+    }
+  }
+  const run =
+    options.run ??
+    ((args: readonly string[], duration?: number) =>
+      runBoundedGh(args, maximumBytes, duration ?? maximumDurationMs))
+  const observedAt = (options.now ?? (() => new Date()))().toISOString()
+  const deadline = performance.now() + maximumAcquisitionDurationMs
+  const execution = await settleWithinDeadline(
+    () =>
+      run(
+        ['repo', 'view', '--json', 'id,nameWithOwner,url'],
+        Math.min(maximumDurationMs, maximumAcquisitionDurationMs),
+      ),
+    deadline,
+  )
+  if (execution.kind !== 'completed') {
+    return {
+      availability: 'unavailable',
+      reason: execution.kind === 'timeout' ? 'command-timeout' : 'command-failed',
+      repositoryId,
+      observedAt,
+      detail: 'GitHub repository identity was unavailable',
+    }
+  }
+  const result = execution.value
+  if (result.stdout.byteLength + result.stderr.byteLength > maximumBytes) {
+    return {
+      availability: 'unavailable',
+      reason: 'output-limit',
+      repositoryId,
+      observedAt,
+      detail: 'GitHub repository identity exceeded the acquisition byte bound',
+    }
+  }
+  if (result.kind !== 'completed' || result.exitCode !== 0) {
+    return {
+      availability: 'unavailable',
+      reason: unavailableReason(result),
+      repositoryId,
+      observedAt,
+      detail: 'GitHub repository identity was unavailable',
+    }
+  }
+  let metadata: { id: string; nameWithOwner: string; url: string }
+  try {
+    const parsed = JSON.parse(
+      new TextDecoder('utf-8', { fatal: true }).decode(result.stdout),
+    ) as Record<string, unknown>
+    assertString(parsed.id, 'repository.id')
+    assertString(parsed.nameWithOwner, 'repository.nameWithOwner')
+    assertString(parsed.url, 'repository.url')
+    if (!isGithubRepositoryLocator(parsed.nameWithOwner)) {
+      throw new TypeError('repository.nameWithOwner is invalid')
+    }
+    const url = new URL(parsed.url)
+    if (
+      url.protocol !== 'https:' ||
+      url.hostname.toLowerCase() !== hostname.toLowerCase() ||
+      url.username !== '' ||
+      url.password !== '' ||
+      url.search !== '' ||
+      url.hash !== ''
+    ) {
+      throw new TypeError('repository.url is outside the requested GitHub host')
+    }
+    if (url.pathname.replace(/\/$/, '') !== `/${parsed.nameWithOwner}`) {
+      throw new TypeError('repository.url does not match repository.nameWithOwner')
+    }
+    metadata = {
+      id: parsed.id,
+      nameWithOwner: parsed.nameWithOwner,
+      url: parsed.url,
+    }
+  } catch {
+    return {
+      availability: 'unavailable',
+      reason: 'invalid-response',
+      repositoryId,
+      observedAt,
+      detail: 'GitHub returned malformed repository metadata',
+    }
+  }
+  const stored = await settleWithinDeadline(
+    () =>
+      options.objects.put(result.stdout, {
+        mediaType: 'application/json',
+        role: 'github-repository-metadata',
+      }),
+    deadline,
+  )
+  if (stored.kind !== 'completed') {
+    return {
+      availability: 'unavailable',
+      reason: stored.kind === 'timeout' ? 'command-timeout' : 'command-failed',
+      repositoryId,
+      observedAt,
+      detail:
+        'GitHub repository identity evidence could not be stored within the acquisition bound',
+    }
+  }
+  const raw = stored.value
+  const repositoryKey = githubRepositoryKey(hostname, metadata.id)
+  const observation: GithubRepositoryMappingObservation = {
+    schemaVersion: 1,
+    observationId: recordId(
+      'github-repository-mapping',
+      observedAt,
+      canonicalJson({ repositoryId, repositoryKey, metadata, raw: raw.sha256 }),
+    ),
+    provider: 'github',
+    repositoryId,
+    repositoryKey,
+    externalId: metadata.id,
+    hostname: hostname.toLowerCase(),
+    repository: metadata.nameWithOwner,
+    url: metadata.url,
+    observedAt,
+    raw: [raw],
+  }
+  validatePublicRecord(
+    makeOwnedPath('pull-requests', [
+      'github',
+      repositoryKey,
+      'repository-mappings',
+      repositoryId,
+      `${observation.observationId}.json`,
+    ]),
+    observation,
+  )
+  return observation
+}
+
+export async function persistGithubRepositoryMapping(
+  store: RepositoryStore,
+  observation: GithubRepositoryMappingObservation,
+): Promise<void> {
+  const path = makeOwnedPath('pull-requests', [
+    'github',
+    observation.repositoryKey,
+    'repository-mappings',
+    observation.repositoryId,
+    `${observation.observationId}.json`,
+  ])
+  validatePublicRecord(path, observation)
+  await store.createImmutable(path, new TextEncoder().encode(canonicalJson(observation)))
+}
+
+export async function persistPullRequestEvidence(
+  store: RepositoryStore,
+  observation: PullRequestObservation,
+  associations: readonly SessionPullRequestAssociation[],
+  options: { policyVersion?: string } = {},
+): Promise<readonly AssociationBatch[]> {
+  const root = ['github', observation.repositoryKey, String(observation.number)]
+  if (observation.availability === 'unavailable' && associations.length !== 0) {
+    throw new TypeError('unavailable pull requests cannot have associations')
+  }
+  const observationRecord = {
+    path: makeOwnedPath('pull-requests', [
+      ...root,
+      'observations',
+      `${observation.observationId}.json`,
+    ]),
+    bytes: new TextEncoder().encode(canonicalJson(observation)),
+  }
+  const records: {
+    path: ReturnType<typeof makeOwnedPath>
+    bytes: Uint8Array
+  }[] = []
+  for (const association of associations) {
+    if (association.pullRequestObservationId !== observation.observationId) {
+      throw new TypeError('association belongs to another pull-request observation')
+    }
+    records.push({
+      path: makeOwnedPath('pull-requests', [
+        ...root,
+        'associations',
+        observation.observationId,
+        `${association.evidenceId}.json`,
+      ]),
+      bytes: new TextEncoder().encode(canonicalJson(association)),
+    })
+  }
+  for (const record of [observationRecord, ...records]) {
+    validatePublicRecord(record.path, JSON.parse(new TextDecoder().decode(record.bytes)))
+  }
+  const recordById = new Map(
+    records.map((record, index) => [associations[index]!.evidenceId, record]),
+  )
+  const automatic = associations.filter(association => association.kind !== 'manual')
+  const manualByTime = new Map<string, SessionPullRequestAssociation[]>()
+  for (const association of associations.filter(candidate => candidate.kind === 'manual')) {
+    const group = manualByTime.get(association.observedAt) ?? []
+    group.push(association)
+    manualByTime.set(association.observedAt, group)
+  }
+  const groups: {
+    kind: 'automatic' | 'manual'
+    associations: SessionPullRequestAssociation[]
+  }[] = [
+    ...(automatic.length === 0 ? [] : [{ kind: 'automatic' as const, associations: automatic }]),
+    ...[...manualByTime.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([, group]) => ({ kind: 'manual' as const, associations: group })),
+  ]
+  const batches: AssociationBatch[] = []
+  const batchRecords: {
+    path: ReturnType<typeof makeOwnedPath>
+    bytes: Uint8Array
+  }[] = []
+  for (const group of groups) {
+    const observedAts = new Set(group.associations.map(association => association.observedAt))
+    if (observedAts.size !== 1) throw new TypeError('one association batch requires one timestamp')
+    const evidence = group.associations
+      .map(association => ({
+        evidenceId: association.evidenceId,
+        sha256: hash(
+          recordById.get(association.evidenceId)!.bytes,
+        ) as AssociationBatch['evidence'][number]['sha256'],
+      }))
+      .sort((left, right) => left.evidenceId.localeCompare(right.evidenceId))
+    const sourceObservationIds = [
+      ...new Set(group.associations.flatMap(association => association.sourceObservationIds)),
+    ].sort()
+    const batchIdentity = canonicalJson({
+      observationId: observation.observationId,
+      kind: group.kind,
+      evidence,
+      sourceObservationIds,
+      policyVersion: options.policyVersion ?? 'factory-v1-exact-git-v1',
+    })
+    const observedAt = group.associations[0]!.observedAt
+    const batch: AssociationBatch = {
+      schemaVersion: 1,
+      batchId: recordId('association-batch', observedAt, batchIdentity),
+      provider: 'github',
+      repositoryKey: observation.repositoryKey,
+      number: observation.number,
+      pullRequestObservationId: observation.observationId,
+      kind: group.kind,
+      evidence,
+      sourceObservationIds,
+      observedAt,
+      policyVersion: options.policyVersion ?? 'factory-v1-exact-git-v1',
+    }
+    const batchPath = makeOwnedPath('pull-requests', [
+      ...root,
+      'associations',
+      observation.observationId,
+      'batches',
+      `${batch.batchId}.json`,
+    ])
+    validatePublicRecord(batchPath, batch)
+    batchRecords.push({
+      path: batchPath,
+      bytes: new TextEncoder().encode(canonicalJson(batch)),
+    })
+    batches.push(batch)
+  }
+  await store.createImmutable(observationRecord.path, observationRecord.bytes)
+  for (const record of records) await store.createImmutable(record.path, record.bytes)
+  for (const record of batchRecords) await store.createImmutable(record.path, record.bytes)
+  return batches
+}
+
+/** Verify a completed batch before its association records enter a projection. */
+export function verifyAssociationBatch(
+  batch: AssociationBatch,
+  observation: PullRequestObservation,
+  records: readonly SessionPullRequestAssociation[],
+): boolean {
+  try {
+    validatePublicRecord(
+      makeOwnedPath('pull-requests', [
+        'github',
+        observation.repositoryKey,
+        String(observation.number),
+        'observations',
+        `${observation.observationId}.json`,
+      ]),
+      observation,
+    )
+    if (
+      batch.repositoryKey !== observation.repositoryKey ||
+      batch.number !== observation.number ||
+      batch.pullRequestObservationId !== observation.observationId
+    ) {
+      return false
+    }
+    validatePublicRecord(
+      makeOwnedPath('pull-requests', [
+        'github',
+        batch.repositoryKey,
+        String(batch.number),
+        'associations',
+        batch.pullRequestObservationId,
+        'batches',
+        `${batch.batchId}.json`,
+      ]),
+      batch,
+    )
+  } catch {
+    return false
+  }
+  if (batch.evidence.length !== records.length) return false
+  if (new Set(records.map(record => record.evidenceId)).size !== records.length) return false
+  if (new Set(batch.evidence.map(entry => entry.evidenceId)).size !== batch.evidence.length)
+    return false
+  const expectedKind = batch.kind === 'manual' ? 'manual' : 'automatic'
+  if (
+    records.some(
+      record =>
+        record.pullRequestObservationId !== batch.pullRequestObservationId ||
+        record.observedAt !== batch.observedAt ||
+        (record.kind === 'manual' ? 'manual' : 'automatic') !== expectedKind,
+    )
+  )
+    return false
+  const sources = [...new Set(records.flatMap(record => record.sourceObservationIds))].sort()
+  if (canonicalJson(sources) !== canonicalJson(batch.sourceObservationIds)) return false
+  const byId = new Map(records.map(record => [record.evidenceId, record]))
+  return batch.evidence.every(entry => {
+    const record = byId.get(entry.evidenceId)
+    if (record === undefined) return false
+    try {
+      validatePublicRecord(
+        makeOwnedPath('pull-requests', [
+          'github',
+          batch.repositoryKey,
+          String(batch.number),
+          'associations',
+          batch.pullRequestObservationId,
+          `${record.evidenceId}.json`,
+        ]),
+        record,
+      )
+    } catch {
+      return false
+    }
+    return hash(canonicalJson(record)) === entry.sha256
+  })
+}

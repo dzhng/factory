@@ -39,6 +39,21 @@
       "name": "@factory/contract",
       "version": "0.0.0",
     },
+    "packages/domain": {
+      "name": "@factory/domain",
+      "version": "0.0.0",
+      "dependencies": {
+        "@factory/contract": "workspace:*",
+      },
+    },
+    "packages/github": {
+      "name": "@factory/github",
+      "version": "0.0.0",
+      "dependencies": {
+        "@factory/contract": "workspace:*",
+        "@factory/repository": "workspace:*",
+      },
+    },
     "packages/repository": {
       "name": "@factory/repository",
       "version": "0.0.0",
@@ -61,6 +76,9 @@
       "name": "@factory/test-harness",
       "version": "0.0.0",
       "dependencies": {
+        "@factory/contract": "workspace:*",
+        "@factory/domain": "workspace:*",
+        "@factory/github": "workspace:*",
         "@factory/reviewer": "workspace:*",
       },
     },
@@ -71,6 +89,10 @@
     "@factory/cli": ["@factory/cli@workspace:packages/cli"],
 
     "@factory/contract": ["@factory/contract@workspace:packages/contract"],
+
+    "@factory/domain": ["@factory/domain@workspace:packages/domain"],
+
+    "@factory/github": ["@factory/github@workspace:packages/github"],
 
     "@factory/repository": ["@factory/repository@workspace:packages/repository"],
 

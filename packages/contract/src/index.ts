@@ -10,6 +10,10 @@ export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue
 export type RepositoryId = `repo_${string}`
 /** Stable GitHub/GHES host plus provider repository identity, safe as one path segment. */
 export type GithubRepositoryKey = `ghr_${string}`
+/** GitHub owner/name locator grammar shared by provider parsing and public validation. */
+export function isGithubRepositoryLocator(value: string): boolean {
+  return /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/.test(value)
+}
 /** Canonical stable GitHub identity: normalized host plus provider repository node ID. */
 export function githubRepositoryKey(
   hostname: string,
@@ -226,6 +230,7 @@ type AvailablePullRequestObservationBase = PullRequestObservationBase & {
   state: 'open' | 'closed' | 'merged'
   providerUpdatedAt: string
   raw: readonly ObjectRef[]
+  codeAvailability: 'captured' | 'unavailable' | 'not-requested'
   codeManifest?: ObjectRef
   diff: ObjectRef
 }
@@ -267,7 +272,9 @@ export type PullRequestUnavailableReason =
 export type UnavailablePullRequestObservation = PullRequestObservationBase & {
   availability: 'unavailable'
   reason: PullRequestUnavailableReason
-  raw?: readonly ObjectRef[]
+  hostname: string
+  base: Pick<PullRequestGitRef, 'repositoryKey' | 'externalId' | 'repository'>
+  raw: readonly [ObjectRef, ...ObjectRef[]]
 }
 
 export type PullRequestObservation =
@@ -759,6 +766,7 @@ const RECORD_KEYS = {
     'observedAt',
     'providerUpdatedAt',
     'raw',
+    'codeAvailability',
     'codeManifest',
     'diff',
     'reason',
@@ -1486,6 +1494,7 @@ function validateRecordShape(
             'commitMembership',
             'providerUpdatedAt',
             'raw',
+            'codeAvailability',
             'diff',
           ],
           'pullRequestObservation',
@@ -1518,7 +1527,11 @@ function validateRecordShape(
         }
         if (
           providerUrl.protocol !== 'https:' ||
-          providerUrl.hostname.toLowerCase() !== (value.hostname as string).toLowerCase()
+          providerUrl.hostname.toLowerCase() !== (value.hostname as string).toLowerCase() ||
+          providerUrl.username !== '' ||
+          providerUrl.password !== '' ||
+          providerUrl.search !== '' ||
+          providerUrl.hash !== ''
         ) {
           throw new TypeError('pullRequestObservation.url does not match hostname')
         }
@@ -1558,6 +1571,9 @@ function validateRecordShape(
           for (const field of ['repository', 'ref'] as const) {
             if (field in ref) assertString(ref[field], `pullRequestObservation.${key}.${field}`)
           }
+          if ('repository' in ref && !isGithubRepositoryLocator(ref.repository as string)) {
+            throw new TypeError(`pullRequestObservation.${key}.repository is invalid`)
+          }
           if ('sha' in ref) assertGitObjectIds([ref.sha], `pullRequestObservation.${key}.sha`)
           if (key === 'head' && value.completeness === 'partial') {
             const identityFields = ['repositoryKey', 'externalId', 'repository']
@@ -1571,6 +1587,14 @@ function validateRecordShape(
         }
         if ((value.base as Record<string, unknown>).repositoryKey !== value.repositoryKey) {
           throw new TypeError('pullRequestObservation base repository must match its owned path')
+        }
+        if (
+          providerUrl.pathname.replace(/\/$/, '') !==
+            `/${(value.base as Record<string, unknown>).repository}/pull/${value.number}` ||
+          providerUrl.search !== '' ||
+          providerUrl.hash !== ''
+        ) {
+          throw new TypeError('pullRequestObservation.url does not match its PR locator')
         }
         if (
           value.repositoryKey !==
@@ -1595,6 +1619,11 @@ function validateRecordShape(
           throw new TypeError('complete pullRequestObservation membership must contain head')
         }
         assertTimestamp(value.providerUpdatedAt, 'pullRequestObservation.providerUpdatedAt')
+        assertEnum(
+          value.codeAvailability,
+          ['captured', 'unavailable', 'not-requested'],
+          'pullRequestObservation.codeAvailability',
+        )
         assertObjectRefs(value.raw, 'pullRequestObservation.raw')
         if ((value.raw as ObjectRef[]).length === 0) {
           throw new TypeError('pullRequestObservation raw evidence must not be empty')
@@ -1633,13 +1662,15 @@ function validateRecordShape(
             'number',
             'availability',
             'reason',
+            'hostname',
+            'base',
             'observedAt',
             'raw',
             'limitations',
           ],
           'pullRequestObservation',
         )
-        requireFields(value, ['reason'], 'pullRequestObservation')
+        requireFields(value, ['reason', 'hostname', 'base', 'raw'], 'pullRequestObservation')
         assertEnum(
           value.reason,
           [
@@ -1654,27 +1685,44 @@ function validateRecordShape(
           ],
           'pullRequestObservation.reason',
         )
-        if ('raw' in value) assertObjectRefs(value.raw, 'pullRequestObservation.raw')
+        assertString(value.hostname, 'pullRequestObservation.hostname')
+        assertRecord(value.base, 'pullRequestObservation.base')
+        assertExactKeys(
+          value.base,
+          ['repositoryKey', 'externalId', 'repository'],
+          'pullRequestObservation.base',
+        )
+        requireFields(
+          value.base,
+          ['repositoryKey', 'externalId', 'repository'],
+          'pullRequestObservation.base',
+        )
+        for (const key of ['repositoryKey', 'externalId', 'repository']) {
+          assertString(value.base[key], `pullRequestObservation.base.${key}`)
+        }
+        if (!isGithubRepositoryLocator(value.base.repository as string)) {
+          throw new TypeError('pullRequestObservation.base.repository is invalid')
+        }
+        if (value.base.repositoryKey !== value.repositoryKey) {
+          throw new TypeError('pullRequestObservation base repository must match its owned path')
+        }
+        if (
+          value.repositoryKey !==
+          githubRepositoryKey(value.hostname as string, value.base.externalId as string)
+        ) {
+          throw new TypeError('pullRequestObservation.repositoryKey is not canonical')
+        }
+        assertObjectRefs(value.raw, 'pullRequestObservation.raw')
+        if (
+          (value.raw as ObjectRef[]).length === 0 ||
+          !(value.raw as ObjectRef[]).some(
+            ref => ref.mediaType === 'application/json' && ref.role === 'github-pr-metadata',
+          )
+        ) {
+          throw new TypeError('unavailable pullRequestObservation requires raw GitHub metadata')
+        }
       }
       assertLimitations(value.limitations, 'pullRequestObservation.limitations')
-      if (
-        value.availability === 'available' &&
-        !('codeManifest' in value) &&
-        !(value.limitations as Limitation[]).some(
-          item => item.code === 'unavailable-pull-request-code',
-        )
-      ) {
-        throw new TypeError('pullRequestObservation missing code manifest requires a limitation')
-      }
-      if (
-        value.availability === 'available' &&
-        value.commitMembership === 'prefix' &&
-        !(value.limitations as Limitation[]).some(
-          item => item.code === 'incomplete-pull-request-commits',
-        )
-      ) {
-        throw new TypeError('partial commit membership requires an explicit limitation')
-      }
       if (value.availability === 'available' && value.completeness === 'partial') {
         const hasAllRefs = ['base', 'head'].every(key => {
           const ref = value[key] as Record<string, unknown>
@@ -1685,14 +1733,6 @@ function validateRecordShape(
         if (hasAllRefs && value.commitMembership === 'complete') {
           throw new TypeError('partial pullRequestObservation must identify what is incomplete')
         }
-        if (
-          !hasAllRefs &&
-          !(value.limitations as Limitation[]).some(
-            item => item.code === 'incomplete-pull-request-refs',
-          )
-        ) {
-          throw new TypeError('partial refs require an explicit limitation')
-        }
       }
       if (value.availability === 'available' && value.completeness === 'complete') {
         if (
@@ -1701,6 +1741,33 @@ function validateRecordShape(
           )
         ) {
           throw new TypeError('complete pullRequestObservation cannot claim incomplete evidence')
+        }
+      }
+      if (value.availability === 'available') {
+        const limitationCodes = new Set((value.limitations as Limitation[]).map(item => item.code))
+        if (
+          (value.commitMembership === 'prefix') !==
+          limitationCodes.has('incomplete-pull-request-commits')
+        ) {
+          throw new TypeError('commit membership and its limitation must agree')
+        }
+        const refsComplete = ['base', 'head'].every(key => {
+          const ref = value[key] as Record<string, unknown>
+          return ['repositoryKey', 'externalId', 'repository', 'ref', 'sha'].every(
+            field => field in ref,
+          )
+        })
+        if (!refsComplete !== limitationCodes.has('incomplete-pull-request-refs')) {
+          throw new TypeError('pull-request refs and their limitation must agree')
+        }
+        const hasCode = 'codeManifest' in value
+        const hasCodeLimitation = limitationCodes.has('unavailable-pull-request-code')
+        if (
+          (value.codeAvailability === 'captured' && (!hasCode || hasCodeLimitation)) ||
+          (value.codeAvailability === 'unavailable' && (hasCode || !hasCodeLimitation)) ||
+          (value.codeAvailability === 'not-requested' && (hasCode || hasCodeLimitation))
+        ) {
+          throw new TypeError('pull-request code availability and its evidence must agree')
         }
       }
       if (
@@ -1736,6 +1803,9 @@ function validateRecordShape(
       for (const key of ['externalId', 'hostname', 'repository', 'url']) {
         assertString(value[key], `githubRepositoryMapping.${key}`)
       }
+      if (!isGithubRepositoryLocator(value.repository as string)) {
+        throw new TypeError('githubRepositoryMapping.repository is invalid')
+      }
       if (!/^[A-Za-z0-9.-]+$/.test(value.hostname as string)) {
         throw new TypeError('githubRepositoryMapping.hostname is invalid')
       }
@@ -1747,9 +1817,20 @@ function validateRecordShape(
       }
       if (
         url.protocol !== 'https:' ||
-        url.hostname.toLowerCase() !== (value.hostname as string).toLowerCase()
+        url.hostname.toLowerCase() !== (value.hostname as string).toLowerCase() ||
+        url.username !== '' ||
+        url.password !== '' ||
+        url.search !== '' ||
+        url.hash !== ''
       ) {
         throw new TypeError('githubRepositoryMapping.url does not match hostname')
+      }
+      if (
+        url.pathname.replace(/\/$/, '') !== `/${value.repository}` ||
+        url.search !== '' ||
+        url.hash !== ''
+      ) {
+        throw new TypeError('githubRepositoryMapping.url does not match repository locator')
       }
       if (
         value.repositoryKey !==
@@ -1816,6 +1897,7 @@ function validateRecordShape(
           throw new TypeError('manual association shape is invalid')
         }
       } else if (value.kind === 'invalidation') {
+        const invalidatedShas = value.shas as string[]
         if (
           value.strength !== 'verified' ||
           !('invalidates' in value) ||
@@ -1825,6 +1907,12 @@ function validateRecordShape(
           (value.sourceObservationIds as unknown[]).length !== 0
         ) {
           throw new TypeError('invalidation association shape is invalid')
+        }
+        if (
+          new Set(invalidatedShas).size !== invalidatedShas.length ||
+          invalidatedShas.join('\0') !== [...invalidatedShas].sort().join('\0')
+        ) {
+          throw new TypeError('invalidation SHAs must be unique and canonically ordered')
         }
       } else if (
         value.strength !== 'verified' ||

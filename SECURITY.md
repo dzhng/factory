@@ -52,6 +52,14 @@ authentication files into the ephemeral container. These mounts are read-only.
 Credentials must never be copied into a container image, review bundle, trace,
 generated artifact, log, or committed file.
 
+GitHub observation follows the same ownership rule: Factory invokes an
+already-authenticated `gh` executable and never reads, copies, or stores its
+token. GitHub is optional; missing or unauthenticated `gh` produces typed
+unavailability without disabling local capture or workspace review. Commands
+use a fixed argv-only vocabulary with output and time bounds. Successful
+selected response bytes may become plaintext repository evidence under
+`.factory`, but credentials and transient command error output do not.
+
 Read-only mounting limits accidental mutation; it does not stop software in the
 container from reading a credential. The reviewer container and the selected
 provider CLI therefore form one trust domain for the duration of the review.

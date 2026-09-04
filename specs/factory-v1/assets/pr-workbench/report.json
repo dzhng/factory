@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 1,
+  "scenarios": [
+    {
+      "scenario": "exact-commit",
+      "result": "associated",
+      "reason": "exact-pr-commit"
+    },
+    {
+      "scenario": "fork-head",
+      "result": "associated",
+      "reason": "exact-pr-head"
+    },
+    {
+      "scenario": "ambiguous-context",
+      "result": "not associated",
+      "reason": "git-object-not-in-pr"
+    },
+    {
+      "scenario": "one-pr-many-sessions",
+      "result": "two exact Sessions associated",
+      "reason": "each Session is gated independently against one immutable PR observation"
+    },
+    {
+      "scenario": "force-pushed",
+      "result": "history retained; invalidation appended",
+      "reason": "old exact SHA absent from new complete set"
+    },
+    {
+      "scenario": "base-changed",
+      "result": "association retained; full PR subject changed",
+      "reason": "exact contribution commit remains"
+    },
+    {
+      "scenario": "renamed-repository",
+      "result": "same identity",
+      "reason": "host plus provider repository ID, not owner/name"
+    },
+    {
+      "scenario": "GHES",
+      "result": "separate identity",
+      "reason": "hostname is part of the identity digest"
+    },
+    {
+      "scenario": "unauthenticated",
+      "result": "authentication-required",
+      "reason": "no exact fields published"
+    },
+    {
+      "scenario": "missing-gh",
+      "result": "gh-missing",
+      "reason": "local capture and workspace review remain available"
+    },
+    {
+      "scenario": "commit-cap",
+      "result": "partial review remains eligible",
+      "reason": "bounded prefix disables commit membership but preserves coherent diff"
+    },
+    {
+      "scenario": "deleted-fork",
+      "result": "partial review remains eligible",
+      "reason": "readable coherent diff survives missing head repository identity"
+    },
+    {
+      "scenario": "deleted-ref",
+      "result": "partial review remains eligible; no automatic association",
+      "reason": "the diff remains reviewable while exact head proof is absent"
+    },
+    {
+      "scenario": "one-session-many-prs",
+      "result": "two independently scoped associations",
+      "reason": "the same exact Git object may contribute to more than one PR"
+    },
+    {
+      "scenario": "association-crash-prefix",
+      "result": "orphan ignored; retry committed both batches",
+      "reason": "only immutable completion markers publish association evidence"
+    },
+    {
+      "scenario": "closed / merged / reopened",
+      "result": "closed / merged / open",
+      "reason": "provider state is never rewritten"
+    }
+  ]
+}

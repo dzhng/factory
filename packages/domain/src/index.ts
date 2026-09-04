@@ -24,12 +24,16 @@ export type ManualAssociation = {
   reason: string
   observedAt: string
 }
+export type PriorAssociationEvidence = {
+  pullRequest: AvailablePullRequestObservation
+  association: SessionPullRequestAssociation
+}
 export type AssociationInputs = {
   pullRequest: AvailablePullRequestObservation
   sessions: readonly SessionCodeEvidence[]
   repositoryMappings: readonly GithubRepositoryMappingObservation[]
   manual?: readonly ManualAssociation[]
-  previous?: readonly SessionPullRequestAssociation[]
+  previous?: readonly PriorAssociationEvidence[]
 }
 export type AssociationExplanation = {
   sessionKey: string
@@ -98,16 +102,38 @@ function matchingMapping(
   )
   const identities = new Set(candidates.map(mapping => mapping.repositoryKey))
   if (identities.size !== 1) return undefined
-  const identity = [...identities][0]!
-  if (
-    identity !== input.pullRequest.repositoryKey &&
-    identity !== input.pullRequest.head.repositoryKey
-  ) {
-    return undefined
-  }
   return [...candidates].sort((left, right) =>
     left.observationId.localeCompare(right.observationId),
   )[0]
+}
+function validatePrevious(
+  current: AvailablePullRequestObservation,
+  previous: PriorAssociationEvidence,
+): void {
+  validatePullRequest(previous.pullRequest)
+  validatePublicRecord(
+    makeOwnedPath('pull-requests', [
+      'github',
+      previous.pullRequest.repositoryKey,
+      String(previous.pullRequest.number),
+      'associations',
+      previous.pullRequest.observationId,
+      `${previous.association.evidenceId}.json`,
+    ]),
+    previous.association,
+  )
+  if (
+    previous.pullRequest.repositoryKey !== current.repositoryKey ||
+    previous.pullRequest.number !== current.number
+  ) {
+    throw new TypeError('prior association belongs to another pull request')
+  }
+  if (previous.pullRequest.observationId === current.observationId) {
+    throw new TypeError('prior association must precede the current observation')
+  }
+  if (Date.parse(previous.pullRequest.observedAt) >= Date.parse(current.observedAt)) {
+    throw new TypeError('prior association observation time must precede current observation')
+  }
 }
 
 /** Explain the exact Git-evidence gate used by derivation, including every rejection. */
@@ -161,9 +187,9 @@ export function deriveAssociations(
     const repositoryIdentity =
       mapping?.repositoryKey === input.pullRequest.repositoryKey
         ? 'same'
-        : mapping?.repositoryKey === input.pullRequest.head.repositoryKey
-          ? 'different'
-          : 'unavailable'
+        : mapping === undefined
+          ? 'unavailable'
+          : 'different'
     const body = {
       sessionKey: session.turn.sessionKey,
       pullRequestObservationId: input.pullRequest.observationId,
@@ -202,7 +228,9 @@ export function deriveAssociations(
       observedAt: manual.observedAt,
     })
   }
-  for (const previous of input.previous ?? []) {
+  for (const prior of input.previous ?? []) {
+    validatePrevious(input.pullRequest, prior)
+    const previous = prior.association
     if (!['commit', 'head', 'code-state-continuity'].includes(previous.kind)) continue
     if (input.pullRequest.commitMembership !== 'complete') continue
     const absent = [...new Set(previous.shas.filter(sha => !commits.has(sha)))].sort()

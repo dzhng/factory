@@ -2,8 +2,8 @@
 
 ## Contract
 
-When `gh` is available, freeze one exact PR observation—repository identity,
-number, state, base, head, commit evidence, diff/code snapshot, availability,
+When `gh` is available, freeze one coherent PR observation—repository identity,
+number, state, available base/head/commit facts, diff/code snapshot, completeness,
 and provider update facts—and append direct Session-to-PR association evidence.
 Absence or failure of `gh` is typed unavailability and never disables capture or
 workspace review. Branch, time, path overlap, and worktree identity remain weak
@@ -13,20 +13,24 @@ workspace context, never PR association evidence.
 
 ```ts
 interface PrObserver {
-  observe(ref: PullRequestRef): Promise<PrObservation | PrUnavailable>;
+  observe(ref: PullRequestRef): Promise<CompletePrObservation | PartialPrObservation | PrUnavailable>;
 }
 
 type AssociationEvidence =
   | ExactCommitAssociation
   | ExactHeadAssociation
   | VerifiedCodeStateContinuityAssociation
-  | ManualAssociation;
+  | ManualAssociation
+  | AssociationInvalidation;
 
 deriveAssociations(input: AssociationInputs): readonly AssociationEvidence[];
 ```
 
-Every association is scoped to an exact immutable PR observation. Later
-invalidation is another append-only fact.
+Automatic derivation consumes a Turn joined to its immutable
+RepositoryObservation; repository mappings classify rather than gate exact Git
+proof. Every association is scoped to one immutable PR observation. Completion
+batches publish logical groups; orphan prefixes remain inert. Later invalidation
+is another append-only fact and requires a newer complete membership observation.
 
 ## Runnable artifact
 
@@ -62,3 +66,13 @@ store, checkout mutation, or direct GitHub prerequisite for local behavior.
 Review explanations for exact, ambiguous, and force-pushed cases. Too few exact
 associations triggers a separate continuity-proof slice; it does not authorize
 heuristic inference.
+
+## Implementation evidence
+
+Implemented by the `github` provider boundary and the pure `domain`
+association fold. The deterministic Docker workbench and its human-readable
+result are promoted under `../assets/pr-workbench/`. It proves bounded command
+termination, coherent paginated snapshots, typed failures, stable rename/fork/
+GHES identity, exact many-to-many association, append-only invalidation, and
+the absence of heuristic association. Verified code-state continuity remains
+disabled pending its separate false-positive corpus.

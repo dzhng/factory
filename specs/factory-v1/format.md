@@ -162,17 +162,56 @@ readable paths are also checked individually against their post-capture state.
 pull-requests/github/<repository-key>/<number>/
   observations/<observation-id>.json
   associations/<observation-id>/<evidence-id>.json
+  associations/<observation-id>/batches/<batch-id>.json
+
+pull-requests/github/<repository-key>/
+  repository-mappings/<repository-id>/<observation-id>.json
 ```
 
-An observation freezes provider identity, external PR identity, state, base,
-head, commit set, timestamps, availability, and exact diff/code-manifest
-references. Unavailable observations record typed reasons rather than partial
-facts masquerading as exact.
+The repository key is a digest of the lowercase GitHub hostname and GitHub's
+stable repository node identity. Owner and repository names are locators, not
+identity: renames keep one history, forks keep distinct identities, and equal
+provider IDs on different GitHub Enterprise hosts remain distinct.
+An observation attempt freezes the first provider-stable base identity it
+receives. A later conflicting identity makes the attempt unavailable under that
+first key; it never moves already-seen evidence into a last-seen repository.
+
+An available observation freezes provider and PR identity, state, the facts
+shared by two coherent metadata views, raw evidence, and the exact diff. Its
+discriminator distinguishes complete commit/ref evidence from a readable
+partial subject. A bounded commit prefix is labeled as a prefix, and deleted
+fork/ref fields remain explicitly absent; neither can be used as negative
+membership proof. Optional code capture records whether it was captured,
+failed, or was not requested. Provider errors, races, malformed responses, and
+missing foundational diff evidence are typed unavailable. Before GitHub reveals
+its stable base repository identity, an unavailable attempt remains runtime-only;
+Factory does not disguise a mutable owner/name locator as a durable repository
+key. After identity is known, a durable unavailable record carries only that
+base identity and nonempty raw metadata proof; it never promotes untrusted
+state, head, or commit fields as exact.
+
+Automatic evidence joins a validated Turn to the RepositoryObservation it
+names. Exact head equality or membership in a complete PR commit set is the
+only automatic gate. A provider-derived local-repository mapping can classify
+the source as the PR base or a different repository; missing or conflicting
+mappings leave classification unavailable without weakening the SHA proof.
 
 An association freezes Session, PR observation, evidence kind (`commit`,
-`head`, or verified `code-state-continuity`), strength, relevant SHAs,
-repository-identity result, and source observation IDs. Invalidation is a new
-record associated with a later PR observation.
+`head`, verified `code-state-continuity`, `manual`, or `invalidation`),
+strength, relevant SHAs, repository-identity result, and source observation
+IDs. Exact evidence must name nonempty SHA and source-observation proof. Manual
+evidence is visibly asserted and carries its actor and reason; it is never
+called verified. Invalidation is a new record associated with a later PR
+observation and names the old evidence record instead of editing it. The later
+observation's local time orders this proof. Association records become visible
+only through an immutable completion batch that pins their hashes, sources,
+timestamp, and policy. A crash may leave physical prefixes, but projections
+ignore any record not named by a valid completed batch.
+
+The same acquisition deadline covers provider calls and content-addressed
+evidence writes. A write that finishes after its deadline can leave only an
+unreferenced content object, which is inert because no observation or batch
+marker names it.
 
 ## Review triggers
 

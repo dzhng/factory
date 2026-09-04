@@ -282,6 +282,7 @@ describe('public repository contract', () => {
           repositoryKey: githubRepositoryKey('github.com', 'R_fixture'),
           number: 42,
           availability: 'available',
+          codeAvailability: 'unavailable',
           externalId: 'PR_42',
           hostname: 'github.com',
           url: 'https://github.com/owner/repo/pull/42',
@@ -535,7 +536,7 @@ describe('public repository contract', () => {
     const observedAt = '2026-09-04T00:00:00Z'
     const sha = '0'.repeat(40)
     const observationId = recordId('pr-observation')
-    const repositoryKey = 'ghr_b3duZXIvcmVwbw'
+    const repositoryKey = githubRepositoryKey('github.com', 'R_base')
     const path = makeOwnedPath('pull-requests', [
       'github',
       repositoryKey,
@@ -551,7 +552,18 @@ describe('public repository contract', () => {
       number: 42,
       availability: 'unavailable',
       reason: 'authentication-required',
+      hostname: 'github.com',
+      base: { repositoryKey, externalId: 'R_base', repository: 'owner/repo' },
       observedAt,
+      raw: [
+        {
+          algorithm: 'sha256',
+          sha256: '0'.repeat(64),
+          bytes: 1,
+          mediaType: 'application/json',
+          role: 'github-pr-metadata',
+        },
+      ],
       limitations: [{ code: 'unavailable-pull-request', detail: 'gh is not authenticated' }],
     }
     expect(() => validatePublicRecord(path, unavailable)).not.toThrow()
@@ -561,6 +573,30 @@ describe('public repository contract', () => {
         head: { repositoryKey, ref: 'feature', sha },
       }),
     ).toThrow('unknown fields')
+    expect(() => validatePublicRecord(path, { ...unavailable, raw: [] })).toThrow('raw GitHub')
+    expect(() =>
+      validatePublicRecord(path, {
+        ...unavailable,
+        raw: [{ ...unavailable.raw[0], role: 'wrong' }],
+      }),
+    ).toThrow('raw GitHub')
+    const inventedKey = githubRepositoryKey('github.com', 'R_invented')
+    expect(() =>
+      validatePublicRecord(
+        makeOwnedPath('pull-requests', [
+          'github',
+          inventedKey,
+          '42',
+          'observations',
+          `${observationId}.json`,
+        ]),
+        {
+          ...unavailable,
+          repositoryKey: inventedKey,
+          base: { ...unavailable.base, repositoryKey: inventedKey },
+        },
+      ),
+    ).toThrow('not canonical')
   })
 
   test('validates manual PR association evidence without calling it verified', () => {
@@ -618,6 +654,7 @@ describe('public repository contract', () => {
       repositoryKey,
       number: 42,
       availability: 'available',
+      codeAvailability: 'unavailable',
       externalId: 'PR_42',
       hostname: 'github.com',
       url: 'https://github.com/owner/repo/pull/42',
@@ -651,6 +688,16 @@ describe('public repository contract', () => {
     expect(() =>
       validatePublicRecord(path, {
         ...valid,
+        codeAvailability: 'not-requested',
+        limitations: [],
+      }),
+    ).not.toThrow()
+    expect(() => validatePublicRecord(path, { ...valid, codeAvailability: 'captured' })).toThrow(
+      'code availability',
+    )
+    expect(() =>
+      validatePublicRecord(path, {
+        ...valid,
         base: {
           ...valid.base,
           repositoryKey: githubRepositoryKey('github.com', 'R_other'),
@@ -660,13 +707,39 @@ describe('public repository contract', () => {
     ).toThrow('base repository')
     expect(() => validatePublicRecord(path, { ...valid, raw: [] })).toThrow('raw evidence')
     expect(() => validatePublicRecord(path, { ...valid, diff: object })).toThrow('diff semantics')
+    for (const url of [
+      'https://github.com/other/repo/pull/42',
+      'https://github.com/owner/repo/pull/41',
+      'https://user:secret@github.com/owner/repo/pull/42',
+      'https://github.com/owner/repo/pull/42?view=files',
+      'https://github.com/owner/repo/pull/42#discussion',
+    ]) {
+      expect(() => validatePublicRecord(path, { ...valid, url })).toThrow()
+    }
+    expect(() =>
+      validatePublicRecord(path, {
+        ...valid,
+        head: { ...valid.head, repository: 'contributor/repo/extra' },
+      }),
+    ).toThrow('head.repository is invalid')
     expect(() =>
       validatePublicRecord(path, {
         ...valid,
         completeness: 'partial',
         commitMembership: 'prefix',
       }),
-    ).toThrow('explicit limitation')
+    ).toThrow('must agree')
+    expect(() =>
+      validatePublicRecord(path, {
+        ...valid,
+        completeness: 'partial',
+        commitMembership: 'prefix',
+        limitations: [
+          ...valid.limitations,
+          { code: 'incomplete-pull-request-commits', detail: 'bounded prefix' },
+        ],
+      }),
+    ).not.toThrow()
     expect(() =>
       validatePublicRecord(path, {
         ...valid,
@@ -723,30 +796,42 @@ describe('public repository contract', () => {
       mediaType: 'application/json',
       role: 'github-repository-metadata',
     }
+    const mappingPath = makeOwnedPath('pull-requests', [
+      'github',
+      repositoryKey,
+      'repository-mappings',
+      repositoryId,
+      `${mappingId}.json`,
+    ])
+    const mapping = {
+      schemaVersion: 1,
+      observationId: mappingId,
+      provider: 'github',
+      repositoryId,
+      repositoryKey,
+      externalId: 'R_base',
+      hostname: 'github.com',
+      repository: 'owner/repo',
+      url: 'https://github.com/owner/repo',
+      observedAt,
+      raw: [raw],
+    }
+    expect(() => validatePublicRecord(mappingPath, mapping)).not.toThrow()
+    for (const url of [
+      'https://github.com/other/repo',
+      'https://user:secret@github.com/owner/repo',
+      'https://github.com/owner/repo?view=files',
+      'https://github.com/owner/repo#readme',
+    ]) {
+      expect(() => validatePublicRecord(mappingPath, { ...mapping, url })).toThrow()
+    }
     expect(() =>
-      validatePublicRecord(
-        makeOwnedPath('pull-requests', [
-          'github',
-          repositoryKey,
-          'repository-mappings',
-          repositoryId,
-          `${mappingId}.json`,
-        ]),
-        {
-          schemaVersion: 1,
-          observationId: mappingId,
-          provider: 'github',
-          repositoryId,
-          repositoryKey,
-          externalId: 'R_base',
-          hostname: 'github.com',
-          repository: 'owner/repo',
-          url: 'https://github.com/owner/repo',
-          observedAt,
-          raw: [raw],
-        },
-      ),
-    ).not.toThrow()
+      validatePublicRecord(mappingPath, {
+        ...mapping,
+        repository: 'owner/repo/extra',
+        url: 'https://github.com/owner/repo/extra',
+      }),
+    ).toThrow('repository is invalid')
 
     const observationId = recordId('pr-observation')
     const evidenceId = recordId('association')
@@ -864,6 +949,7 @@ describe('public repository contract', () => {
           repositoryKey: githubRepositoryKey('github.com', 'R_other'),
           number: 43,
           availability: 'available',
+          codeAvailability: 'unavailable',
           externalId: 'PR_43',
           hostname: 'github.com',
           url: 'https://github.com/other/repo/pull/43',

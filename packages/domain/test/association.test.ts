@@ -93,6 +93,7 @@ const observation = {
   repositoryKey: repositoryKey('base'),
   number: 42,
   availability: 'available' as const,
+  codeAvailability: 'unavailable' as const,
   completeness: 'complete' as const,
   commitMembership: 'complete' as const,
   state: 'open' as const,
@@ -179,6 +180,7 @@ describe('direct Session-to-PR association fold', () => {
     const moved = {
       ...observation,
       observationId: id('pr-observation', '1'),
+      observedAt: '2026-09-05T02:00:00Z',
       head: { ...observation.head, sha: sha('4') },
       commits: [sha('4')] as [string, ...string[]],
     }
@@ -186,7 +188,7 @@ describe('direct Session-to-PR association fold', () => {
       pullRequest: moved,
       sessions: [],
       repositoryMappings: mappings,
-      previous: [previous],
+      previous: [{ pullRequest: observation, association: previous }],
       manual: [
         {
           sessionKey: 'manual',
@@ -242,6 +244,8 @@ describe('direct Session-to-PR association fold', () => {
   test('allows exact head only for partial commit membership and never invalidates by absence', () => {
     const partial = {
       ...observation,
+      observationId: id('pr-observation', '4'),
+      observedAt: '2026-09-05T03:00:00Z',
       completeness: 'partial' as const,
       commitMembership: 'prefix' as const,
       commits: [sha('2')],
@@ -265,7 +269,7 @@ describe('direct Session-to-PR association fold', () => {
         session('prefix-is-not-membership', baseRepositoryId, id('observation', '6'), sha('2')),
       ],
       repositoryMappings: mappings,
-      previous: [prior],
+      previous: [{ pullRequest: observation, association: prior }],
     })
     expect(records.map(record => record.sessionKey)).toEqual(['head'])
   })
@@ -279,6 +283,7 @@ describe('direct Session-to-PR association fold', () => {
     const normalPush = {
       ...observation,
       observationId: id('pr-observation', '6'),
+      observedAt: '2026-09-05T04:00:00Z',
       head: { ...observation.head, sha: sha('4') },
       commits: [sha('2'), sha('3'), sha('4')] as [string, ...string[]],
     }
@@ -287,7 +292,7 @@ describe('direct Session-to-PR association fold', () => {
         pullRequest: normalPush,
         sessions: [],
         repositoryMappings: mappings,
-        previous: [prior],
+        previous: [{ pullRequest: observation, association: prior }],
       }),
     ).toEqual([])
     const forcePush = {
@@ -299,8 +304,199 @@ describe('direct Session-to-PR association fold', () => {
         pullRequest: forcePush,
         sessions: [],
         repositoryMappings: mappings,
-        previous: [prior],
+        previous: [{ pullRequest: observation, association: prior }],
       })[0]?.kind,
     ).toBe('invalidation')
+  })
+
+  test('treats missing or conflicting mappings only as unavailable classification', () => {
+    const exact = session('base', baseRepositoryId, id('observation', '1'), sha('2'))
+    const unrelated = mapping(baseRepositoryId, repositoryKey('other'), '6', 'R_other')
+    for (const repositoryMappings of [
+      [],
+      [unrelated],
+      [mappings[0]!, mappings[1]!, unrelated],
+      [mappings[0]!, mappings[1]!],
+    ]) {
+      const records = deriveAssociations({
+        pullRequest: observation,
+        sessions: [exact],
+        repositoryMappings,
+      })
+      expect(records[0]?.kind).toBe('commit')
+      expect(records[0]?.repositoryIdentity).toBe(
+        repositoryMappings.length === 2
+          ? 'same'
+          : repositoryMappings.length === 1
+            ? 'different'
+            : 'unavailable',
+      )
+      if (repositoryMappings.length === 1) {
+        expect(records[0]?.sourceObservationIds).toContain(unrelated.observationId)
+      }
+    }
+  })
+
+  test('refuses mismatched or raced immutable session evidence', () => {
+    const valid = session('base', baseRepositoryId, id('observation', '1'), sha('2'))
+    const mismatched = {
+      ...valid,
+      turn: { ...valid.turn, repositoryObservationId: id('observation', '2') },
+    }
+    expect(() =>
+      deriveAssociations({
+        pullRequest: observation,
+        sessions: [mismatched],
+        repositoryMappings: mappings,
+      }),
+    ).toThrow('does not reference')
+    const raced = {
+      ...valid,
+      repositoryObservation: {
+        ...valid.repositoryObservation,
+        endState: '2'.repeat(64) as Sha256,
+      },
+    }
+    expect(
+      explainAssociations({
+        pullRequest: observation,
+        sessions: [raced],
+        repositoryMappings: mappings,
+      })[0]?.reason,
+    ).toBe('unstable-repository-observation')
+  })
+
+  test('derives byte-identical automatic evidence without a wall-clock input', () => {
+    const input = {
+      pullRequest: observation,
+      sessions: [session('base', baseRepositoryId, id('observation', '1'), sha('2'))],
+      repositoryMappings: mappings,
+    }
+    expect(deriveAssociations(input)).toEqual(deriveAssociations(input))
+  })
+
+  test('associates one immutable Session source independently to two PRs', () => {
+    const source = session('shared', baseRepositoryId, id('observation', '1'), sha('2'))
+    const secondPr = {
+      ...observation,
+      number: 77,
+      observationId: id('pr-observation', '5'),
+      externalId: 'PR_77',
+      url: 'https://github.com/owner/repo/pull/77',
+    }
+    const first = deriveAssociations({
+      pullRequest: observation,
+      sessions: [source],
+      repositoryMappings: mappings,
+    })
+    const second = deriveAssociations({
+      pullRequest: secondPr,
+      sessions: [source],
+      repositoryMappings: mappings,
+    })
+    expect(first[0]?.sessionKey).toBe('shared')
+    expect(second[0]?.sessionKey).toBe('shared')
+    expect(first[0]?.pullRequestObservationId).not.toBe(second[0]?.pullRequestObservationId)
+  })
+
+  test('does not turn matching branch, time, or worktree context into PR proof', () => {
+    const contextualOnly = session(
+      'contextual-only',
+      baseRepositoryId,
+      id('observation', '3'),
+      sha('9'),
+    )
+    contextualOnly.turn.branch = observation.head.ref
+    contextualOnly.repositoryObservation.git.branch = observation.head.ref
+    expect(
+      deriveAssociations({
+        pullRequest: observation,
+        sessions: [contextualOnly],
+        repositoryMappings: mappings,
+      }),
+    ).toEqual([])
+  })
+
+  test('requires owned prior evidence from an earlier observation of the same PR', () => {
+    const prior = deriveAssociations({
+      pullRequest: observation,
+      sessions: [session('base', baseRepositoryId, id('observation', '1'), sha('2'))],
+      repositoryMappings: mappings,
+    })[0]!
+    expect(() =>
+      deriveAssociations({
+        pullRequest: observation,
+        sessions: [],
+        repositoryMappings: mappings,
+        previous: [{ pullRequest: observation, association: prior }],
+      }),
+    ).toThrow('must precede')
+    const current = {
+      ...observation,
+      observationId: id('pr-observation', '6'),
+      observedAt: '2026-09-05T04:00:00Z',
+      commits: [sha('3')] as [string, ...string[]],
+    }
+    expect(() =>
+      deriveAssociations({
+        pullRequest: current,
+        sessions: [],
+        repositoryMappings: mappings,
+        previous: [
+          {
+            pullRequest: observation,
+            association: {
+              ...prior,
+              pullRequestObservationId: id('pr-observation', '2'),
+            },
+          },
+        ],
+      }),
+    ).toThrow('owned path')
+    const anotherPr = {
+      ...observation,
+      number: 77,
+      observationId: id('pr-observation', '5'),
+      externalId: 'PR_77',
+      url: 'https://github.com/owner/repo/pull/77',
+    }
+    const anotherAssociation = deriveAssociations({
+      pullRequest: anotherPr,
+      sessions: [session('base', baseRepositoryId, id('observation', '1'), sha('2'))],
+      repositoryMappings: mappings,
+    })[0]!
+    expect(() =>
+      deriveAssociations({
+        pullRequest: current,
+        sessions: [],
+        repositoryMappings: mappings,
+        previous: [{ pullRequest: anotherPr, association: anotherAssociation }],
+      }),
+    ).toThrow('another pull request')
+    for (const priorObservedAt of [current.observedAt, '2026-09-05T05:00:00Z']) {
+      const outOfOrderObservation = {
+        ...observation,
+        observationId: id('pr-observation', priorObservedAt.endsWith('05:00:00Z') ? '3' : '2'),
+        observedAt: priorObservedAt,
+      }
+      const outOfOrderAssociation = deriveAssociations({
+        pullRequest: outOfOrderObservation,
+        sessions: [session('base', baseRepositoryId, id('observation', '1'), sha('2'))],
+        repositoryMappings: mappings,
+      })[0]!
+      expect(() =>
+        deriveAssociations({
+          pullRequest: current,
+          sessions: [],
+          repositoryMappings: mappings,
+          previous: [
+            {
+              pullRequest: outOfOrderObservation,
+              association: outOfOrderAssociation,
+            },
+          ],
+        }),
+      ).toThrow('time must precede')
+    }
   })
 })

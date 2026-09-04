@@ -752,3 +752,89 @@ second normative schema; the master specification and format own mechanics.
 - **Verdict:** Sound. Repository ownership stays singular while portable
   evidence remains beside the exact code state it describes.
 - **Confidence:** High.
+
+### Group GitHub history by provider identity, not its current name
+
+- **When:** Slice 07 pull-request identity design.
+- **The choice:** A repository key hashes the lowercase GitHub hostname with
+  GitHub's stable repository node ID. If `owner/widget` is renamed to
+  `company/widget`, both observations keep one key; a fork has another node ID,
+  and an enterprise server with the same ID has another hostname and therefore
+  another key. The observation also freezes the human-readable owner/name and
+  PR URL from that moment. One attempt keeps the first stable base identity it
+  observes; a later conflicting identity fails under that first key instead of
+  moving evidence to the last value. Before `gh` reveals a node ID—because it
+  is missing or unauthenticated—the failed attempt stays a typed runtime result
+  instead of being filed under a name-derived key that merely looks stable.
+- **The gap:** The plan required stable repository identity, rename, fork, and
+  GHES behavior but did not choose its path-safe representation or say where a
+  pre-identity failure belongs.
+- **The reach:** PR reviews and the UI group immutable history across renames
+  without conflating forks or GitHub installations. A missing-`gh` attempt is
+  diagnosable but cannot create misleading portable identity.
+- **Verdict:** Sound. Provider identity owns grouping while observed locators
+  keep committed evidence understandable offline.
+- **Confidence:** High.
+
+### Preserve a coherent PR diff when bounded metadata is partial
+
+- **When:** Slice 07 bounded GitHub observation.
+- **The choice:** Factory reads metadata and every commit page, reads the exact
+  patch, then repeats the same bounded metadata/commit read. Matching views
+  publish their shared exact facts and readable patch. Complete membership is
+  distinct from a bounded prefix, and deleted fork/ref facts are explicitly
+  absent. Optional code capture separately records captured, unavailable, or
+  not-requested state. Provider errors, mutation, malformed responses, and a
+  missing coherent diff remain unavailable.
+- **The gap:** The slice delegated bounded `gh` mechanics but did not define a
+  coherent read across several provider calls or what a capped commit list
+  means for exactness.
+- **The reach:** Association and bundle planning may trust every available
+  observation as one coherent provider snapshot. Large PRs and deleted forks
+  remain reviewable now, while their explicit limits disable unsafe membership
+  and absence inference.
+- **Verdict:** Sound. The type preserves best-effort review without allowing a
+  partial commit list to look complete.
+- **Confidence:** High.
+
+### Treat exact fork commits as proof and manual inclusion as an assertion
+
+- **When:** Slice 07 association fold.
+- **The choice:** A Session is automatically associated when its observed Git
+  head is exactly the PR head or one member of a complete PR commit set. The
+  source is a validated Turn joined to its named
+  stable RepositoryObservation, never caller-supplied Session/HEAD fields. A
+  provider-derived repository mapping classifies base versus different when it
+  is unique, but never gates an exact SHA match. A branch name, nearby time,
+  matching paths, or worktree never substitutes for proof. A human may include
+  a Session manually, but the record says `asserted`, names the actor and
+  reason, and is never called verified. If a force-push later removes the proof
+  SHA, Factory appends an
+  invalidation that points at the old evidence; the old record remains.
+- **The gap:** The initial schema had no manual variant, a vague `strong`
+  strength, and no representable invalidation fact. The plan also did not say
+  whether exact evidence captured in a fork should survive the repository
+  identity check.
+- **The reach:** One Session can contribute to several PRs and one PR can carry
+  several Sessions without an Epic or branch grouping. Future continuity work
+  must add a separately proven evidence kind; it cannot broaden this exact fold
+  by stealth.
+- **Verdict:** Sound. The record tells downstream readers which facts were
+  machine-proved, human-asserted, or later invalidated.
+- **Confidence:** High.
+
+### Publish association evidence through immutable completion batches
+
+- **When:** Slice 07 crash-consistency review.
+- **The choice:** Association records are physical prefixes until a final
+  immutable batch pins their hashes, PR observation, source observations,
+  timestamp, and policy. Automatic evidence and each manual action time publish
+  as separate deterministic batches. Readers validate every named record and
+  ignore uncommitted prefixes.
+- **The gap:** Append-only files prevent partial overwrite but do not make a
+  multi-record derivation logically atomic across a process crash.
+- **The reach:** Retry converges without deletion. Orphans remain inspectable
+  yet cannot silently enter review planning.
+- **Verdict:** Sound. It uses the same explicit commit-point principle as Turn
+  capture while preserving immutable history.
+- **Confidence:** High.
