@@ -1,22 +1,27 @@
 # Factory v1 specification
 
-Status: **planned; implementation has not started**
+Status: **in implementation; Slices 01 and 02 are complete**
 
 ## Next Agent Prompt
 
 > Continue Factory v1 from this spec. Current status (2026-09-04): the shared
-> workspace is bootstrapped and Slice 01's provider/reference oracle is
-> implemented. Integrate Slice 02, then reconcile both feasibility reports
-> before Slice 03 freezes the public format. Read `AGENTS.md`, `SECURITY.md`,
-> this README, `choices.md`, `format.md`, and each selected slice in full.
-> Current evidence gap: Docker registry DNS prevented the pinned current-client
-> refresh, and no dedicated provider test credentials exist, so current live
-> hook inventories are explicitly unavailable. Do not reuse a developer login
-> or treat this as a pass. Global TODOs: rerun that refresh when the registry is
-> reachable; choose the journal engine from measured crash/latency results;
-> define verified code-state continuity before enabling it; choose the release
-> channel before Slice 12. After every pass, update this prompt with the
-> completed commit, exact next pickup, blockers, and changed gates.
+> workspace is bootstrapped; Slice 01's provider/reference oracle is implemented
+> at `ec8dae8`, and Slice 02's provider-independent reviewer-isolation oracle is
+> implemented at `b669b63`. Begin Slice 03 to freeze the public format and
+> repository store. Read `AGENTS.md`, `SECURITY.md`, this README, `choices.md`,
+> `format.md`, and Slice 03 in full. Current evidence gaps: Docker registry DNS
+> prevented the pinned current-client refresh; no dedicated provider test
+> credentials exist; and native `linux/amd64` isolation was not run. These are
+> explicit unavailable authorities, not passes. Real Codex and Claude execution
+> is a Slice 09 release gate through the packaged production path; never borrow
+> a developer login. Changed gates: both Docker labs pass, cross-process
+> sequencing is contiguous and unique for 200 records, and the combined
+> workspace passes build, formatting, lint, types, and 11 tests. Global TODOs:
+> rerun current-client authority when the registry is reachable; choose the
+> journal engine from Slice 04 crash/latency evidence; define verified code-state
+> continuity before enabling it; choose the release channel before Slice 12.
+> After every pass, update this prompt with the completed commit, exact next
+> pickup, blockers, and changed gates.
 
 This specification defines Factory's first release: a local CLI that captures
 coding-harness Sessions, stores portable evidence with the repository, reviews
