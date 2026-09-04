@@ -49,6 +49,30 @@ describe('ConfinedWriter', () => {
     )
   })
 
+  test('filters root namespaces before charging inventory bounds', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'factory-confined-roots-'))
+    roots.push(root)
+    await mkdir(join(root, 'review-triggers'))
+    await writeFile(join(root, 'review-triggers', 'one.json'), '{}\n')
+    for (let index = 0; index < 20; index += 1) {
+      const foreign = join(root, `foreign-${index}`)
+      await mkdir(foreign)
+      await writeFile(join(foreign, 'large'), 'x'.repeat(1024))
+    }
+    expect(
+      await inventoryConfinedTree(root, {
+        maximumEntries: 2,
+        maximumFileBytes: 3,
+        maximumBytes: 3,
+        maximumDepth: 2,
+        rootNames: ['review-triggers'],
+      }),
+    ).toEqual([
+      { kind: 'directory', path: 'review-triggers' },
+      { kind: 'file', path: 'review-triggers/one.json' },
+    ])
+  })
+
   test('confined inventory rejects symlinks and directory swaps', async () => {
     const base = await mkdtemp(join(tmpdir(), 'factory-confined-inventory-'))
     roots.push(base)

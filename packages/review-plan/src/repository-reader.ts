@@ -53,27 +53,15 @@ export async function openReviewRepositoryReader(
     'reviews',
     'decisions',
   ] as const
-  const tree: Array<{ kind: 'directory' | 'file' | 'symlink'; path: string }> = []
-  for (const area of ownedRoots) {
-    const root = join(factoryRoot, area)
-    try {
-      const state = await lstat(root, { bigint: true })
-      if (state.isSymbolicLink() || !state.isDirectory())
-        throw new Error(`review owned root is unsafe: ${area}`)
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue
-      throw error
-    }
-    const entries = await inventoryConfinedTree(root, {
-      maximumEntries: 200_000 - tree.length,
-      maximumFileBytes: 4 * 1024 * 1024,
-      maximumBytes: 64 * 1024 * 1024,
-      maximumDepth: 15,
-      allowSymlinks: true,
-    })
-    tree.push(...entries.map(entry => ({ ...entry, path: `${area}/${entry.path}` })))
-    if (tree.length > 200_000) throw new Error('review repository inventory exceeds bound')
-  }
+  const inventoryBounds = {
+    maximumEntries: 200_000,
+    maximumFileBytes: 4 * 1024 * 1024,
+    maximumBytes: 64 * 1024 * 1024,
+    maximumDepth: 16,
+    allowSymlinks: true,
+    rootNames: ownedRoots,
+  } as const
+  const tree = await inventoryConfinedTree(factoryRoot, inventoryBounds)
   const after = await lstat(factoryRoot, { bigint: true })
   if (!after.isDirectory() || before.dev !== after.dev || before.ino !== after.ino)
     throw new Error('review repository root changed during inventory')
@@ -113,6 +101,9 @@ export async function openReviewRepositoryReader(
       throw new Error('review repository records exceed aggregate bound')
     recordBytes.set(path, value)
   }
+  const verifiedTree = await inventoryConfinedTree(factoryRoot, inventoryBounds)
+  if (JSON.stringify(verifiedTree) !== JSON.stringify(tree))
+    throw new Error('review repository records changed while snapshotting')
   const reader: ReviewRepositoryReader = Object.freeze({
     inventory: async () => [...paths],
     read: async (path: string) => {

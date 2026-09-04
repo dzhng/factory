@@ -309,6 +309,7 @@ export class ConfinedWriter {
       maximumBytes: number
       maximumDepth?: number
       afterEntryOpen?: (path: readonly Uint8Array[]) => Promise<void>
+      rootNames?: readonly string[]
     },
   ): Promise<readonly { kind: 'directory' | 'file' | 'symlink'; path: string }[]> {
     const backend = await loadBackend()
@@ -322,6 +323,11 @@ export class ConfinedWriter {
         bounds.maximumFileBytes,
         bounds.maximumBytes,
         bounds.maximumDepth,
+        { bytes: 0 },
+        writer.root.fd,
+        [],
+        [],
+        bounds.rootNames === undefined ? undefined : new Set(bounds.rootNames),
       )
       return inventory.map(item => {
         const [kind, encodedPath] = item.split(':', 2)
@@ -415,7 +421,11 @@ export class ConfinedWriter {
     }
   }
 
-  private directoryEntries(descriptor: number, maximumEntries: number): Buffer[] {
+  private directoryEntries(
+    descriptor: number,
+    maximumEntries: number,
+    allowedNames?: ReadonlySet<string>,
+  ): Buffer[] {
     const enumeration = this.backend.library.symbols.openat(
       descriptor,
       this.backend.ptr(cString(Buffer.from('.'))),
@@ -447,6 +457,7 @@ export class ConfinedWriter {
         if (end < 0) throw new Error('invalid native directory entry')
         const name = Buffer.from(field.subarray(0, end))
         if (name.equals(Buffer.from('.')) || name.equals(Buffer.from('..'))) continue
+        if (allowedNames !== undefined && !allowedNames.has(name.toString('utf8'))) continue
         entries.push(name)
         if (entries.length > maximumEntries) {
           throw new Error('reconstruction inventory exceeds the expected tree')
@@ -467,11 +478,16 @@ export class ConfinedWriter {
     descriptor = this.root.fd,
     prefix: Buffer[] = [],
     inventory: string[] = [],
+    rootNames?: ReadonlySet<string>,
   ): Promise<string[]> {
     const directoryBefore = descriptorIdentity(descriptor)
     if (directoryBefore.kind !== 'directory')
       throw new Error('reconstruction entry changed during inventory')
-    const entries = this.directoryEntries(descriptor, maximumEntries - inventory.length)
+    const entries = this.directoryEntries(
+      descriptor,
+      maximumEntries - inventory.length,
+      prefix.length === 0 ? rootNames : undefined,
+    )
     for (const name of entries) {
       const path = [...prefix, name]
       if (path.length > maximumDepth)
@@ -639,6 +655,7 @@ export class ConfinedWriter {
           child,
           path,
           inventory,
+          undefined,
         )
         const after = descriptorIdentity(child)
         const current = this.currentIdentity(
@@ -654,7 +671,11 @@ export class ConfinedWriter {
       }
     }
     const directoryAfter = descriptorIdentity(descriptor)
-    const finalEntries = this.directoryEntries(descriptor, entries.length)
+    const finalEntries = this.directoryEntries(
+      descriptor,
+      entries.length,
+      prefix.length === 0 ? rootNames : undefined,
+    )
     if (
       !sameNativeState(directoryBefore, directoryAfter) ||
       finalEntries.length !== entries.length ||
@@ -807,6 +828,7 @@ export async function inventoryConfinedTree(
     maximumDepth?: number
     afterEntryOpen?: (path: readonly Uint8Array[]) => Promise<void>
     allowSymlinks?: boolean
+    rootNames?: readonly string[]
   },
 ) {
   const inventory = await ConfinedWriter.inspectTree(path, bounds)
