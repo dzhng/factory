@@ -6,6 +6,7 @@ import {
   encodeGitPath,
   makeOwnedPath,
   newRecordId,
+  parseCodeManifest,
   parseRepositoryConfig,
   parseRepositoryManifest,
   UnsupportedRepositoryVersionError,
@@ -59,6 +60,84 @@ describe('public repository contract', () => {
         limitations: [],
       }),
     ).toThrow('sortable Factory record ID')
+  })
+
+  test('validates reconstructable code manifests as byte-sorted public data', () => {
+    const object = {
+      algorithm: 'sha256' as const,
+      sha256: '0'.repeat(64),
+      bytes: 1,
+      mediaType: 'application/octet-stream',
+      role: 'workspace-file',
+    }
+    const valid = {
+      schemaVersion: 1 as const,
+      entries: [
+        {
+          path: encodeGitPath(Buffer.from('a')),
+          mode: '100644' as const,
+          kind: 'file' as const,
+          object,
+        },
+        {
+          path: encodeGitPath(Buffer.from([0x62, 0xff])),
+          mode: '100755' as const,
+          kind: 'file' as const,
+          object,
+        },
+      ],
+      limitations: [],
+    }
+    expect(parseCodeManifest(valid)).toEqual(valid)
+    expect(() => parseCodeManifest({ ...valid, entries: [...valid.entries].reverse() })).toThrow(
+      'byte-sorted',
+    )
+    expect(() =>
+      parseCodeManifest({
+        ...valid,
+        entries: [{ ...valid.entries[0], path: encodeGitPath(Buffer.from('../escape')) }],
+      }),
+    ).toThrow('traversal')
+    expect(() =>
+      parseCodeManifest({
+        ...valid,
+        entries: [
+          { path: encodeGitPath(Buffer.from('sub')), mode: '160000', kind: 'gitlink', object },
+        ],
+      }),
+    ).toThrow('gitlink shape')
+    expect(() =>
+      parseCodeManifest({
+        ...valid,
+        entries: [
+          valid.entries[0],
+          { ...valid.entries[1], path: encodeGitPath(Buffer.from('a/child')) },
+        ],
+      }),
+    ).toThrow('ancestor path collision')
+    expect(() =>
+      parseCodeManifest({
+        ...valid,
+        entries: [
+          {
+            ...valid.entries[0],
+            object: { ...object, role: 'git-lfs-pointer' },
+          },
+        ],
+      }),
+    ).toThrow('file object semantics')
+    expect(() =>
+      parseCodeManifest({
+        ...valid,
+        entries: [{ ...valid.entries[0]!, path: { ...valid.entries[0]!.path, display: 42 } }],
+      }),
+    ).toThrow('display')
+    expect(() =>
+      parseCodeManifest({
+        ...valid,
+        entries: [{ ...valid.entries[0]!, path: encodeGitPath(Buffer.from('.git/config')) }],
+      }),
+    ).toThrow('reserved repository namespace')
   })
 
   test('stops at a too-new manifest before broader parsing', () => {

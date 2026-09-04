@@ -33,6 +33,9 @@ import {
   type RepositoryManifest,
 } from '@factory/contract'
 
+export * from './git-observer'
+export { ReconstructionUnavailableError } from './confined-writer'
+
 export type RecordRef = {
   path: OwnedPath
   sha256: string

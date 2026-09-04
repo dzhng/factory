@@ -142,6 +142,30 @@ export type RepositoryObservation = {
   endState: Sha256
 }
 
+/** Exact workspace bytes captured without Git worktree conversion. */
+export type CodeManifestEntry =
+  | {
+      path: EncodedGitPath
+      mode: '100644' | '100755'
+      kind: 'file' | 'lfs-pointer'
+      object: ObjectRef
+    }
+  | { path: EncodedGitPath; mode: '120000'; kind: 'symlink'; object: ObjectRef }
+  | {
+      path: EncodedGitPath
+      mode: '160000'
+      kind: 'gitlink'
+      /** Git object identity for a submodule pointer; no checkout is fetched. */
+      gitObject: string
+    }
+
+/** Reconstructable workspace inventory stored as a content-addressed object. */
+export type CodeManifest = {
+  schemaVersion: 1
+  entries: readonly CodeManifestEntry[]
+  limitations: readonly Limitation[]
+}
+
 export type PullRequestObservation = {
   schemaVersion: 1
   observationId: RecordId
@@ -907,6 +931,95 @@ function assertLimitations(value: unknown, label: string): asserts value is Limi
     assertString(entry.detail, `${itemLabel}.detail`)
     if ('object' in entry) assertObjectRef(entry.object, `${itemLabel}.object`)
   })
+}
+
+/** Validate the canonical object payload used to reconstruct a workspace. */
+export function parseCodeManifest(value: unknown): CodeManifest {
+  assertRecord(value, 'code manifest')
+  assertExactKeys(value, ['schemaVersion', 'entries', 'limitations'], 'code manifest')
+  requireFields(value, ['schemaVersion', 'entries', 'limitations'], 'code manifest')
+  if (value.schemaVersion !== 1) throw new TypeError('code manifest schemaVersion must be 1')
+  assertArray(value.entries, 'code manifest entries')
+  let previous: Buffer | undefined
+  const seen = new Set<string>()
+  value.entries.forEach((entry, index) => {
+    const label = `code manifest entries[${index}]`
+    assertRecord(entry, label)
+    assertExactKeys(entry, ['path', 'mode', 'kind', 'object', 'gitObject'], label)
+    requireFields(entry, ['path', 'mode', 'kind'], label)
+    assertRecord(entry.path, `${label}.path`)
+    assertExactKeys(entry.path, ['encoding', 'bytes', 'display'], `${label}.path`)
+    requireFields(entry.path, ['encoding', 'bytes'], `${label}.path`)
+    if ('display' in entry.path) assertString(entry.path.display, `${label}.path.display`)
+    const path = decodeGitPath(entry.path as EncodedGitPath)
+    if (path.byteLength === 0 || path[0] === 47 || path.includes(0)) {
+      throw new TypeError(`${label}.path is unsafe`)
+    }
+    const segments = Buffer.from(path).toString('binary').split('/')
+    if (segments.some(segment => segment === '' || segment === '.' || segment === '..')) {
+      throw new TypeError(`${label}.path contains traversal`)
+    }
+    if (segments.includes('.git') || segments[0] === '.factory') {
+      throw new TypeError(`${label}.path enters a reserved repository namespace`)
+    }
+    if (previous !== undefined && Buffer.compare(previous, Buffer.from(path)) >= 0) {
+      throw new TypeError('code manifest entries must be uniquely byte-sorted')
+    }
+    previous = Buffer.from(path)
+    const key = Buffer.from(path).toString('base64')
+    if (seen.has(key)) throw new TypeError('code manifest contains duplicate paths')
+    const pathBytes = Buffer.from(path)
+    for (let index = 0; index < pathBytes.byteLength; index += 1) {
+      if (pathBytes[index] === 47 && seen.has(pathBytes.subarray(0, index).toString('base64'))) {
+        throw new TypeError('code manifest contains a file/ancestor path collision')
+      }
+    }
+    seen.add(key)
+    assertEnum(entry.mode, ['100644', '100755', '120000', '160000'], `${label}.mode`)
+    assertEnum(entry.kind, ['file', 'symlink', 'gitlink', 'lfs-pointer'], `${label}.kind`)
+    if (entry.kind === 'gitlink') {
+      if (entry.mode !== '160000' || 'object' in entry || !('gitObject' in entry)) {
+        throw new TypeError(`${label} gitlink shape is invalid`)
+      }
+      if (
+        typeof entry.gitObject !== 'string' ||
+        !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(entry.gitObject)
+      ) {
+        throw new TypeError(`${label}.gitObject is invalid`)
+      }
+    } else {
+      if (!('object' in entry) || 'gitObject' in entry)
+        throw new TypeError(`${label} object shape is invalid`)
+      assertObjectRef(entry.object, `${label}.object`)
+      const object = entry.object as ObjectRef
+      if (entry.kind === 'symlink') {
+        if (entry.mode !== '120000') throw new TypeError(`${label} symlink mode is invalid`)
+        if (
+          object.mediaType !== 'application/vnd.factory.symlink-target' ||
+          object.role !== 'workspace-file'
+        ) {
+          throw new TypeError(`${label} symlink object semantics are invalid`)
+        }
+      }
+      if (
+        entry.kind === 'lfs-pointer' &&
+        (object.mediaType !== 'application/octet-stream' || object.role !== 'git-lfs-pointer')
+      ) {
+        throw new TypeError(`${label} LFS object semantics are invalid`)
+      }
+      if (
+        entry.kind === 'file' &&
+        (object.mediaType !== 'application/octet-stream' || object.role !== 'workspace-file')
+      ) {
+        throw new TypeError(`${label} file object semantics are invalid`)
+      }
+      if (entry.kind !== 'symlink' && !['100644', '100755'].includes(entry.mode as string)) {
+        throw new TypeError(`${label} file mode is invalid`)
+      }
+    }
+  })
+  assertLimitations(value.limitations, 'code manifest limitations')
+  return value as CodeManifest
 }
 
 function assertReviewer(value: unknown, label: string): asserts value is ReviewerSettings {
