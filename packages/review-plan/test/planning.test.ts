@@ -9,7 +9,7 @@ import type {
   TurnManifest,
 } from '@factory/contract'
 
-import { foldCoverage, planReview, type ReviewInputs } from '../src'
+import { foldCoverage, planReviewForTesting as planReview, type ReviewInputs } from '../src'
 
 const firstReviewId = newRecordId('review', 0, new Uint8Array(10))
 const secondReviewId = newRecordId('review', 1, new Uint8Array(10))
@@ -285,7 +285,7 @@ describe('review planning', () => {
       ]),
     ).toEqual([
       [1, 'included'],
-      [2, 'previously-reviewed-range'],
+      [2, 'previously-analyzed-complete'],
     ])
     expect(plan.triggerIds).toEqual([trigger(1).triggerId])
   })
@@ -542,7 +542,7 @@ describe('review planning', () => {
     expect(plan.selections[0]).toEqual(
       expect.objectContaining({
         kind: 'opaque-problem',
-        coverageEffect: 'previously-analyzed',
+        coverageEffect: 'settled',
       }),
     )
     expect(plan.status).toBe('already-reviewed')
@@ -622,5 +622,82 @@ describe('review planning', () => {
     const recovered = planReview(input)
     expect(recovered.status).toBe('ready')
     expect(recovered.fullReviewReason).toBe('limitations-changed')
+  })
+
+  test('does not replay unchanged readable partial evidence but retries it after recovery', () => {
+    const input = inputs()
+    const partialCandidate = candidate(2)
+    partialCandidate.trigger = {
+      ...partialCandidate.trigger,
+      materialization: 'partial',
+      limitations: [{ code: 'missing-transcript-range', detail: 'tail missing' }],
+    }
+    input.candidates = [partialCandidate]
+    const first = planReview(input)
+    input.reviews = [
+      {
+        reviewId: firstReviewId,
+        subject: input.subject,
+        subjectFingerprint: first.subjectFingerprint,
+        subjectAttempt: settledSubject(first.subjectFingerprint),
+        sessionWatermarks: first.sessionWatermarks,
+        coverageTargetWatermarks: first.coverageTargetWatermarks,
+        selections: first.selections,
+        triggerIds: first.triggerIds,
+        disposition: 'partial',
+        policies: input.policies,
+      },
+    ]
+    const unchanged = planReview(input)
+    expect(unchanged.status).toBe('pending-partial')
+    expect(unchanged.triggerIds).toEqual([])
+    expect(unchanged.selections[0]?.coverageEffect).toBe('previously-analyzed-partial')
+    input.candidates = [candidate(2)]
+    const recovered = planReview(input)
+    expect(recovered.status).toBe('ready')
+    expect(recovered.triggerIds).toEqual([trigger(2).triggerId])
+  })
+
+  test('retries an unreviewed acquisition gap until explicit acceptance', () => {
+    const input = inputs()
+    const initial = planReview(input)
+    const unavailableSelection = {
+      ...initial.selections[0]!,
+      selectedForReview: false,
+      coverageEffect: 'eligible-gap' as const,
+      classification: 'unavailable' as const,
+      reason: 'missing',
+      limitations: [{ code: 'missing-event-range' as const, detail: 'missing' }],
+    }
+    input.reviews = [
+      {
+        reviewId: firstReviewId,
+        subject: input.subject,
+        subjectFingerprint: initial.subjectFingerprint,
+        subjectAttempt: settledSubject(initial.subjectFingerprint),
+        sessionWatermarks: initial.sessionWatermarks,
+        coverageTargetWatermarks: initial.coverageTargetWatermarks,
+        selections: [unavailableSelection],
+        triggerIds: initial.triggerIds,
+        disposition: 'partial',
+        policies: input.policies,
+      },
+    ]
+    input.candidates = [
+      {
+        kind: 'range',
+        sessionKey: 'session-a',
+        triggerId: trigger(2).triggerId,
+        turnId: turn(2).turnId,
+        evidenceWatermark: 2,
+        scopeProof: { kind: 'workspace-store', repositoryId: 'repo_test' },
+        availability: 'unavailable',
+        limitations: [{ code: 'missing-event-range', detail: 'missing' }],
+      },
+    ]
+    const retry = planReview(input)
+    expect(retry.status).toBe('pending-partial')
+    expect(retry.triggerIds).toEqual([trigger(2).triggerId])
+    expect(retry.selections[0]?.coverageEffect).toBe('eligible-gap')
   })
 })

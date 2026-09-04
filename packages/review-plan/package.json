@@ -3,7 +3,10 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "exports": "./src/index.ts",
+  "exports": {
+    ".": "./src/public.ts",
+    "./testing": "./src/index.ts"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "check-types": "tsc --noEmit",
@@ -11,6 +14,7 @@
     "test": "bun test"
   },
   "dependencies": {
+    "@factory/capture": "workspace:*",
     "@factory/contract": "workspace:*",
     "@factory/github": "workspace:*",
     "@factory/repository": "workspace:*"

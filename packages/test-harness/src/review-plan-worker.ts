@@ -19,7 +19,12 @@ import {
   type TurnManifest,
 } from '@factory/contract'
 import { deriveAssociations } from '@factory/domain'
-import { buildBundle, planReview, verifyBundle, type ReviewInputs } from '@factory/review-plan'
+import {
+  buildBundle,
+  planReviewForTesting as planReview,
+  verifyBundle,
+  type ReviewInputs,
+} from '@factory/review-plan/testing'
 
 const output = process.env.FACTORY_REVIEW_PLAN_OUTPUT ?? '/output'
 await mkdir(output, { recursive: true })
@@ -107,7 +112,9 @@ const candidate = (n: number, partial = false) => {
       : [],
     captureAdapterVersion: 'lab',
     formatVersion: 1,
-    inventory: [code, raw],
+    inventory: [code, raw, file].sort((left, right) =>
+      canonicalJson(left).localeCompare(canonicalJson(right)),
+    ),
   }
   const trigger: ReviewTrigger = {
     schemaVersion: 1,

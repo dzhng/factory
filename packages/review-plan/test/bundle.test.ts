@@ -19,7 +19,10 @@ import {
 import {
   buildBundle,
   loadCandidateEvidence,
-  planReview,
+  loadReviewHistory,
+  loadReviewInputs,
+  planReview as planLoadedReview,
+  planReviewForTesting as planReview,
   verifyBundle,
   type PortableRecordReader,
   type ReviewInputs,
@@ -96,7 +99,9 @@ function fixture(): { input: ReviewInputs; objects: Map<string, Uint8Array> } {
     limitations: [],
     captureAdapterVersion: 'capture-v1',
     formatVersion: 1,
-    inventory: [code, raw],
+    inventory: [code, raw, file].sort((left, right) =>
+      canonicalJson(left).localeCompare(canonicalJson(right)),
+    ),
   }
   const trigger: ReviewTrigger = {
     schemaVersion: 1,
@@ -153,6 +158,87 @@ function fixture(): { input: ReviewInputs; objects: Map<string, Uint8Array> } {
 }
 
 describe('verified review bundles', () => {
+  test('plans and bundles from immutable loaded history without old subject object closure', async () => {
+    const value = fixture()
+    const initial = planReview({ ...value.input, candidates: [] })
+    const reviewId = newRecordId('review', 1, new Uint8Array(10))
+    const manifestPath = makeOwnedPath('reviews', ['workspace', reviewId, 'manifest.json'])
+    const ledgerPath = makeOwnedPath('reviews', ['workspace', reviewId, 'ledger.json'])
+    const subjectPath = makeOwnedPath('repository-observations', [
+      `${value.input.subject.observation.observationId}.json`,
+    ])
+    const manifest = {
+      schemaVersion: 1,
+      reviewId,
+      subject: {
+        kind: 'workspace' as const,
+        repositoryObservationId: value.input.subject.observation.observationId,
+      },
+      patches: [],
+      sessionWatermarks: {},
+      coverageTargetWatermarks: {},
+      subjectFingerprint: initial.subjectFingerprint,
+      subjectAttempt: initial.subjectAttempt,
+      evidenceSelections: [],
+      triggerIds: [],
+      associationBatchIds: [],
+      limitations: [],
+      reviewer: { provider: 'codex' as const },
+      analyzerVersion: 'analyzer-v1',
+      promptVersion: 'prompt-v1',
+      policyVersion: 'policy-v1',
+      formatVersion: 1 as const,
+      bundleSha256: 'a'.repeat(64),
+      containerImageDigest: `sha256:${'b'.repeat(64)}`,
+      providerCliVersion: '1',
+      hostPlatform: 'linux/arm64',
+      startedAt: '2026-09-05T00:00:00Z',
+      completedAt: '2026-09-05T00:00:01Z',
+      disposition: 'complete' as const,
+    }
+    const records = new Map<string, Uint8Array>([
+      [manifestPath, new TextEncoder().encode(canonicalJson(manifest))],
+      [
+        ledgerPath,
+        new TextEncoder().encode(canonicalJson({ schemaVersion: 1, reviewId, entries: [] })),
+      ],
+      [subjectPath, new TextEncoder().encode(canonicalJson(value.input.subject.observation))],
+    ])
+    const reader: PortableRecordReader = {
+      read: async path => {
+        const bytes = records.get(path)
+        return bytes === undefined ? { kind: 'missing', detail: path } : { kind: 'readable', bytes }
+      },
+      getObject: async ref => ({ kind: 'readable', bytes: value.objects.get(ref.sha256)! }),
+    }
+    const history = await loadReviewHistory(reader, {
+      reviews: [{ manifestPath }],
+      coverageActionPaths: [],
+    })
+    const loaded = await loadReviewInputs(reader, {
+      mode: 'incremental',
+      subjectPath,
+      candidateTriggerIds: [],
+      associationBatchPaths: [],
+      history,
+      policies: { ...value.input.policies, policyVersion: 'policy-v2' },
+    })
+    records.set(subjectPath, new TextEncoder().encode('{}\n'))
+    const plan = planLoadedReview(loaded)
+    expect(plan.status).toBe('ready')
+    expect(plan.historySources.map(source => source.path)).toEqual(
+      [subjectPath, ledgerPath, manifestPath].sort(),
+    )
+    const parent = await mkdtemp(join(tmpdir(), 'factory-review-history-bundle-'))
+    roots.push(parent)
+    const built = await buildBundle(
+      plan,
+      { getObject: async ref => value.objects.get(ref.sha256)! },
+      join(parent, 'bundle'),
+    )
+    expect((await verifyBundle(built.path, built.sha256)).valid).toBe(true)
+  })
+
   test('copies portable records and transitive objects into a no-Git directory', async () => {
     const value = fixture()
     const parent = await mkdtemp(join(tmpdir(), 'factory-review-bundle-'))

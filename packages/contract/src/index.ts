@@ -385,7 +385,9 @@ type ReviewEvidenceSelectionBase = {
     | 'eligible-included'
     | 'eligible-gap'
     | 'context-only'
-    | 'previously-analyzed'
+    | 'previously-analyzed-complete'
+    | 'previously-analyzed-partial'
+    | 'settled'
     | 'out-of-scope'
     | 'deferred-by-limit'
   classification:
@@ -2192,7 +2194,9 @@ function validateRecordShape(
             'eligible-included',
             'eligible-gap',
             'context-only',
-            'previously-analyzed',
+            'previously-analyzed-complete',
+            'previously-analyzed-partial',
+            'settled',
             'out-of-scope',
             'deferred-by-limit',
           ],
@@ -2274,9 +2278,13 @@ function validateRecordShape(
             selection.coverageEffect === 'context-only') ||
           (selection.classification === 'excluded' &&
             selection.selectedForReview === false &&
-            ['previously-analyzed', 'out-of-scope', 'deferred-by-limit'].includes(
-              selection.coverageEffect as string,
-            ))
+            [
+              'previously-analyzed-complete',
+              'previously-analyzed-partial',
+              'settled',
+              'out-of-scope',
+              'deferred-by-limit',
+            ].includes(selection.coverageEffect as string))
         if (!legalState) throw new TypeError(`${label} has a contradictory selection state`)
         if (
           selection.kind === 'opaque-problem' &&
@@ -2287,6 +2295,26 @@ function validateRecordShape(
         }
       })
       const evidenceSelections = value.evidenceSelections as unknown as ReviewEvidenceSelection[]
+      for (const selection of evidenceSelections) {
+        if (value.subject.kind === 'workspace' && selection.association !== undefined) {
+          throw new TypeError('workspace review selection forbids PR association provenance')
+        }
+        if (
+          value.subject.kind === 'pull-request' &&
+          selection.kind === 'range' &&
+          ['eligible-included', 'eligible-gap'].includes(selection.coverageEffect) &&
+          selection.association === undefined
+        ) {
+          throw new TypeError('PR coverage-eligible range requires association provenance')
+        }
+        if (
+          selection.association?.proofs.some(
+            proof => !(value.associationBatchIds as unknown as string[]).includes(proof.batchId),
+          )
+        ) {
+          throw new TypeError('review selection association proof names an unpinned batch')
+        }
+      }
       const orderedSelections = [...evidenceSelections].sort(
         (left, right) =>
           left.triggerId.localeCompare(right.triggerId) || left.kind.localeCompare(right.kind),
@@ -2329,9 +2357,13 @@ function validateRecordShape(
         ): selection is ReviewEvidenceSelectionBase &
           Extract<ReviewEvidenceSelection, { kind: 'range' }> =>
           selection.kind === 'range' &&
-          ['eligible-included', 'eligible-gap', 'previously-analyzed'].includes(
-            selection.coverageEffect,
-          ),
+          [
+            'eligible-included',
+            'eligible-gap',
+            'previously-analyzed-complete',
+            'previously-analyzed-partial',
+            'settled',
+          ].includes(selection.coverageEffect),
       )
       const coverageTargets = Object.fromEntries(
         [...new Set(targetSelections.map(selection => selection.sessionKey))]

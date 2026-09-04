@@ -65,6 +65,7 @@
       "name": "@factory/review-plan",
       "version": "0.0.0",
       "dependencies": {
+        "@factory/capture": "workspace:*",
         "@factory/contract": "workspace:*",
         "@factory/github": "workspace:*",
         "@factory/repository": "workspace:*",

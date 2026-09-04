@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
+import { verifyTurnEvidenceGraph } from '@factory/capture'
 import {
   assertOwnedRecordPath,
   canonicalJson,
@@ -23,6 +24,7 @@ import {
   type RepositoryObservation,
   type SessionIdentity,
   type ReviewLedger,
+  type ReviewManifest,
   type ReviewEvidenceSelection as ContractReviewEvidenceSelection,
   type ReviewerSettings,
   type ReviewTrigger,
@@ -30,7 +32,11 @@ import {
   type TurnManifest,
 } from '@factory/contract'
 import { verifyAssociationBatch } from '@factory/github'
-import { inventoryConfinedTree, readConfinedFile } from '@factory/repository'
+import {
+  inventoryConfinedTree,
+  loadCodeManifestObject,
+  readConfinedFile,
+} from '@factory/repository'
 
 export type ReviewSubject =
   | { kind: 'workspace'; observation: RepositoryObservation }
@@ -129,46 +135,6 @@ class CandidateObjectClassificationError extends Error {
     message: string,
   ) {
     super(message)
-  }
-}
-
-async function verifyCandidateObjects(reader: PortableRecordReader, candidate: CandidateEvidence) {
-  const refs = new Map<string, ObjectRef>()
-  collectObjectRefs(candidate, refs)
-  const pending = [...refs.values()]
-  const visited = new Set<string>()
-  while (pending.length > 0) {
-    const ref = pending.shift()!
-    const key = canonicalJson(ref)
-    if (visited.has(key)) continue
-    visited.add(key)
-    const result = await reader.getObject(ref)
-    if (result.kind !== 'readable') {
-      throw new CandidateObjectClassificationError(
-        result.kind === 'unsafe'
-          ? 'unsafe'
-          : result.kind === 'excluded-by-limit'
-            ? 'excluded'
-            : 'unavailable',
-        result.kind === 'excluded-by-limit' ? 'excluded-by-limit' : 'unverified-object',
-        result.detail,
-      )
-    }
-    const bytes = result.bytes
-    if (bytes.byteLength !== ref.bytes || sha256(bytes) !== ref.sha256) {
-      throw new Error(`candidate object failed verification: ${ref.sha256}`)
-    }
-    if (
-      ref.mediaType === 'application/vnd.factory.code-manifest+json' &&
-      ref.role === 'workspace-code-manifest'
-    ) {
-      const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
-      if (canonicalJson(JSON.parse(text)) !== text)
-        throw new Error('code manifest is not canonical')
-      const nested = new Map<string, ObjectRef>()
-      collectObjectRefs(parseCodeManifest(JSON.parse(text)), nested)
-      pending.push(...nested.values())
-    }
   }
 }
 
@@ -324,23 +290,21 @@ export async function loadCandidateEvidence(
       events,
       transcript,
     }
-    const raw = new Set(turn.rawObjects.map(ref => canonicalJson(ref)))
-    const transcriptRefs = new Set(turn.transcriptObservations.map(ref => canonicalJson(ref)))
-    if (events.some(event => !raw.has(canonicalJson(event.raw))))
-      return problem(
-        'corrupt',
-        'event envelope raw object is absent from its Turn',
-        undefined,
-        exact,
-      )
-    if (transcript.some(event => !transcriptRefs.has(canonicalJson(event.raw))))
-      return problem(
-        'corrupt',
-        'transcript envelope raw object is absent from its Turn',
-        undefined,
-        exact,
-      )
-    await verifyCandidateObjects(reader, candidate)
+    await verifyTurnEvidenceGraph(candidate, async reference => {
+      const result = await reader.getObject(reference)
+      if (result.kind !== 'readable') {
+        throw new CandidateObjectClassificationError(
+          result.kind === 'unsafe'
+            ? 'unsafe'
+            : result.kind === 'excluded-by-limit'
+              ? 'excluded'
+              : 'unavailable',
+          result.kind === 'excluded-by-limit' ? 'excluded-by-limit' : 'unverified-object',
+          result.detail,
+        )
+      }
+      return result.bytes
+    })
     return candidate
   } catch (error) {
     if (error instanceof CandidateObjectClassificationError) {
@@ -385,6 +349,32 @@ export type FrozenPriorLedger = {
   object: ObjectRef
 }
 
+export type ReviewHistoryDescriptor = {
+  manifestPath: OwnedPath
+}
+
+export type LoadedHistorySource = {
+  path: OwnedPath
+  bytes: Uint8Array
+  sha256: string
+  kind: 'review-manifest' | 'review-ledger' | 'coverage-action' | 'subject-observation'
+}
+
+type LoadedReviewHistoryState = {
+  reviews: readonly PriorReview[]
+  coverageActions: readonly CoverageAction[]
+  sources: readonly LoadedHistorySource[]
+}
+
+declare const loadedReviewHistoryBrand: unique symbol
+export type LoadedReviewHistory = { readonly [loadedReviewHistoryBrand]: true }
+const loadedHistories = new WeakMap<object, LoadedReviewHistoryState>()
+
+export type ReviewHistoryLoadRequest = {
+  reviews: readonly ReviewHistoryDescriptor[]
+  coverageActionPaths: readonly OwnedPath[]
+}
+
 export type ReviewPolicies = {
   reviewer: ReviewerSettings
   analyzerVersion: string
@@ -410,6 +400,24 @@ export type ReviewInputs = {
   policies: ReviewPolicies
   sessionKey?: string
   reviewLimits?: { maxBundleBytes?: number; maxSessions?: number }
+  /** Internal/testing seam; public callers receive this from loadReviewHistory. */
+  historySources?: readonly LoadedHistorySource[]
+  subjectLimitations?: readonly Limitation[]
+}
+
+declare const loadedReviewInputsBrand: unique symbol
+export type LoadedReviewInputs = { readonly [loadedReviewInputsBrand]: true }
+const loadedReviewInputs = new WeakMap<object, ReviewInputs>()
+
+export type ReviewInputLoadRequest = {
+  mode: ReviewInputs['mode']
+  subjectPath: OwnedPath
+  candidateTriggerIds: readonly RecordId[]
+  associationBatchPaths: readonly OwnedPath[]
+  history: LoadedReviewHistory
+  policies: ReviewPolicies
+  sessionKey?: string
+  reviewLimits?: ReviewInputs['reviewLimits']
 }
 
 export type EffectiveReviewLimits = {
@@ -424,7 +432,8 @@ export type EffectiveReviewLimits = {
 export type CoverageView = {
   settledWatermarks: Readonly<Record<string, number>>
   reviewedWatermarks: Readonly<Record<string, readonly number[]>>
-  acceptedOpaqueTriggerIds: readonly RecordId[]
+  acceptedTriggerIds: readonly RecordId[]
+  priorSelections: Readonly<Record<string, ReviewEvidenceSelection>>
   subject?: ReviewSubjectAttempt
 }
 
@@ -463,6 +472,7 @@ export type ReviewPlan = {
   policies: ReviewPolicies
   limits: EffectiveReviewLimits
   objectInventory: readonly ObjectRef[]
+  historySources: readonly LoadedHistorySource[]
 }
 
 function effectiveLimits(configured: ReviewInputs['reviewLimits']): EffectiveReviewLimits {
@@ -571,6 +581,277 @@ function freezePriorLedger(review: PriorReview | undefined): FrozenPriorLedger |
   }
 }
 
+async function readRequiredRecord(
+  reader: PortableRecordReader,
+  path: OwnedPath,
+): Promise<{ value: unknown; bytes: Uint8Array }> {
+  const result = await reader.read(path)
+  if (result.kind !== 'readable')
+    throw new Error(`history ${result.kind}: ${path}: ${result.detail}`)
+  const bytes = new Uint8Array(result.bytes)
+  return { value: decodeCanonicalRecord(path, bytes), bytes }
+}
+
+/** Load restart-safe review history only from validated immutable repository bytes. */
+export async function loadReviewHistory(
+  reader: PortableRecordReader,
+  request: ReviewHistoryLoadRequest,
+): Promise<LoadedReviewHistory> {
+  const reviewDescriptors = [...request.reviews].sort((left, right) =>
+    left.manifestPath.localeCompare(right.manifestPath),
+  )
+  if (
+    new Set(reviewDescriptors.map(item => item.manifestPath)).size !== reviewDescriptors.length ||
+    new Set(request.coverageActionPaths).size !== request.coverageActionPaths.length
+  ) {
+    throw new TypeError('review history descriptors must be unique')
+  }
+  const reviews: PriorReview[] = []
+  const sources: LoadedHistorySource[] = []
+  const reviewIds = new Set<string>()
+  for (const descriptor of reviewDescriptors) {
+    const manifestRecord = await readRequiredRecord(reader, descriptor.manifestPath)
+    const manifest = manifestRecord.value as ReviewManifest
+    if (reviewIds.has(manifest.reviewId)) throw new TypeError('review IDs must be globally unique')
+    reviewIds.add(manifest.reviewId)
+    sources.push({
+      path: descriptor.manifestPath,
+      bytes: manifestRecord.bytes,
+      sha256: sha256(manifestRecord.bytes),
+      kind: 'review-manifest',
+    })
+    const subjectPath =
+      manifest.subject.kind === 'workspace'
+        ? makeOwnedPath('repository-observations', [
+            `${manifest.subject.repositoryObservationId}.json`,
+          ])
+        : makeOwnedPath('pull-requests', [
+            manifest.subject.provider,
+            manifest.subject.repositoryKey,
+            String(manifest.subject.number),
+            'observations',
+            `${manifest.subject.observationId}.json`,
+          ])
+    const subjectSource = await readRequiredRecord(reader, subjectPath)
+    const subjectRecord = subjectSource.value
+    sources.push({
+      path: subjectPath,
+      bytes: subjectSource.bytes,
+      sha256: sha256(subjectSource.bytes),
+      kind: 'subject-observation',
+    })
+    const subject: ReviewSubject =
+      manifest.subject.kind === 'workspace'
+        ? { kind: 'workspace', observation: subjectRecord as RepositoryObservation }
+        : {
+            kind: 'pull-request',
+            observation: subjectRecord as AvailablePullRequestObservation,
+          }
+    if (subjectFingerprint(subject) !== manifest.subjectFingerprint) {
+      throw new TypeError('history review fingerprint differs from its exact subject bytes')
+    }
+    let ledger: ReviewLedger | undefined
+    const ledgerPath = descriptor.manifestPath.endsWith('/manifest.json')
+      ? makeOwnedPath(
+          'reviews',
+          descriptor.manifestPath
+            .slice('reviews/'.length, -'/manifest.json'.length)
+            .split('/')
+            .concat('ledger.json'),
+        )
+      : undefined
+    if (ledgerPath === undefined)
+      throw new TypeError('review manifest path must end in manifest.json')
+    const ledgerRead = await reader.read(ledgerPath)
+    if (manifest.disposition === 'failed') {
+      if (ledgerRead.kind === 'readable')
+        throw new TypeError('failed history review must not have a ledger')
+      if (ledgerRead.kind !== 'missing') throw new TypeError('failed history ledger path is unsafe')
+    } else {
+      if (ledgerRead.kind !== 'readable')
+        throw new Error(`history ${ledgerRead.kind}: ${ledgerPath}: ${ledgerRead.detail}`)
+      ledger = decodeCanonicalRecord(ledgerPath, ledgerRead.bytes) as ReviewLedger
+      if (ledger.reviewId !== manifest.reviewId)
+        throw new TypeError('history ledger names another review')
+      sources.push({
+        path: ledgerPath,
+        bytes: ledgerRead.bytes,
+        sha256: sha256(ledgerRead.bytes),
+        kind: 'review-ledger',
+      })
+    }
+    reviews.push({
+      reviewId: manifest.reviewId,
+      subject,
+      subjectFingerprint: manifest.subjectFingerprint,
+      subjectAttempt: manifest.subjectAttempt,
+      sessionWatermarks: manifest.sessionWatermarks,
+      coverageTargetWatermarks: manifest.coverageTargetWatermarks,
+      selections: manifest.evidenceSelections,
+      triggerIds: manifest.triggerIds,
+      disposition: manifest.disposition,
+      policies: {
+        reviewer: manifest.reviewer,
+        analyzerVersion: manifest.analyzerVersion,
+        promptVersion: manifest.promptVersion,
+        policyVersion: manifest.policyVersion,
+        formatVersion: manifest.formatVersion,
+      },
+      ...(manifest.head === undefined ? {} : { head: manifest.head }),
+      ...(manifest.codeManifest === undefined ? {} : { codeManifest: manifest.codeManifest }),
+      ...(ledger === undefined ? {} : { ledger }),
+    })
+  }
+  const actionRecords = await Promise.all(
+    [...request.coverageActionPaths]
+      .sort()
+      .map(async path => ({ path, record: await readRequiredRecord(reader, path) })),
+  )
+  const actions = actionRecords.map(item => item.record.value as CoverageAction)
+  sources.push(
+    ...actionRecords.map(item => ({
+      path: item.path,
+      bytes: item.record.bytes,
+      sha256: sha256(item.record.bytes),
+      kind: 'coverage-action' as const,
+    })),
+  )
+  const reviewsById = new Map(reviews.map(review => [review.reviewId, review]))
+  for (const action of actions) {
+    const review = reviewsById.get(action.reviewId)
+    if (review === undefined || review.disposition !== 'partial') {
+      throw new TypeError('history coverage action does not join a partial review')
+    }
+  }
+  const sourcesByPath = new Map<OwnedPath, LoadedHistorySource>()
+  for (const source of sources) {
+    const prior = sourcesByPath.get(source.path)
+    if (prior !== undefined && prior.sha256 !== source.sha256)
+      throw new TypeError('history path has conflicting immutable bytes')
+    sourcesByPath.set(source.path, source)
+  }
+  const state: LoadedReviewHistoryState = {
+    reviews,
+    coverageActions: actions,
+    sources: [...sourcesByPath.values()].sort((left, right) => left.path.localeCompare(right.path)),
+  }
+  const history = Object.freeze({}) as LoadedReviewHistory
+  loadedHistories.set(history, state)
+  return history
+}
+
+/** Load and defensively freeze every repository-owned input before planning. */
+export async function loadReviewInputs(
+  reader: PortableRecordReader,
+  request: ReviewInputLoadRequest,
+): Promise<LoadedReviewInputs> {
+  const history = loadedHistories.get(request.history)
+  if (history === undefined)
+    throw new TypeError('review history was not produced by loadReviewHistory')
+  if (
+    new Set(request.candidateTriggerIds).size !== request.candidateTriggerIds.length ||
+    new Set(request.associationBatchPaths).size !== request.associationBatchPaths.length
+  ) {
+    throw new TypeError('loaded review input descriptors must be unique')
+  }
+  const subjectRecord = (await readRequiredRecord(reader, request.subjectPath)).value
+  const subject: ReviewSubject = request.subjectPath.startsWith('repository-observations/')
+    ? { kind: 'workspace', observation: subjectRecord as RepositoryObservation }
+    : request.subjectPath.startsWith('pull-requests/github/')
+      ? { kind: 'pull-request', observation: subjectRecord as AvailablePullRequestObservation }
+      : (() => {
+          throw new TypeError('review subject path has an unsupported lineage')
+        })()
+  const readSubjectObject = async (reference: ObjectRef): Promise<Uint8Array> => {
+    const result = await reader.getObject(reference)
+    if (result.kind !== 'readable')
+      throw new Error(`foundational subject object is ${result.kind}: ${result.detail}`)
+    if (result.bytes.byteLength !== reference.bytes || sha256(result.bytes) !== reference.sha256)
+      throw new Error(`foundational subject object is corrupt: ${reference.sha256}`)
+    return result.bytes
+  }
+  let subjectLimitations: readonly Limitation[] = subject.observation.limitations
+  if (subject.kind === 'workspace') {
+    if (subject.observation.codeManifest === undefined)
+      throw new Error('workspace review requires a foundational code manifest')
+    const manifest = await loadCodeManifestObject(
+      subject.observation.codeManifest,
+      readSubjectObject,
+    )
+    subjectLimitations = [...subjectLimitations, ...manifest.limitations]
+  } else {
+    await readSubjectObject(subject.observation.diff)
+    if (subject.observation.codeManifest !== undefined) {
+      try {
+        const manifest = await loadCodeManifestObject(
+          subject.observation.codeManifest,
+          readSubjectObject,
+        )
+        subjectLimitations = [...subjectLimitations, ...manifest.limitations]
+      } catch (error) {
+        subjectLimitations = [
+          ...subjectLimitations,
+          {
+            code: 'unverified-object',
+            detail: `optional PR code snapshot unavailable: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ]
+      }
+    }
+  }
+  const candidates = await Promise.all(
+    [...request.candidateTriggerIds].sort().map(triggerId =>
+      loadCandidateEvidence(reader, {
+        triggerId,
+        scopeProof:
+          subject.kind === 'workspace'
+            ? { kind: 'workspace-store', repositoryId: subject.observation.repositoryId }
+            : { kind: 'diagnostic-only' },
+      }),
+    ),
+  )
+  const associations: CompletedAssociationGroup[] = []
+  if (subject.kind === 'pull-request') {
+    for (const batchPath of [...request.associationBatchPaths].sort()) {
+      const batch = (await readRequiredRecord(reader, batchPath)).value as AssociationBatch
+      const markerIndex = batchPath.lastIndexOf('/batches/')
+      if (markerIndex < 0) throw new TypeError('association batch path is invalid')
+      const root = batchPath.slice(0, markerIndex)
+      const evidence = await Promise.all(
+        batch.evidence.map(
+          async reference =>
+            (await readRequiredRecord(reader, `${root}/${reference.evidenceId}.json` as OwnedPath))
+              .value as SessionPullRequestAssociation,
+        ),
+      )
+      if (!verifyAssociationBatch(batch, subject.observation, evidence))
+        throw new TypeError('association batch does not verify against the exact PR observation')
+      associations.push({ batch, evidence })
+    }
+  } else if (request.associationBatchPaths.length > 0) {
+    throw new TypeError('workspace planning forbids PR association batches')
+  }
+  const snapshot = structuredClone({
+    mode: request.mode,
+    subject,
+    candidates,
+    reviews: history.reviews,
+    coverageActions: history.coverageActions,
+    associations,
+    policies: request.policies,
+    ...(request.sessionKey === undefined ? {} : { sessionKey: request.sessionKey }),
+    ...(request.reviewLimits === undefined ? {} : { reviewLimits: request.reviewLimits }),
+    historySources: history.sources.map(source => ({
+      ...source,
+      bytes: new Uint8Array(source.bytes),
+    })),
+    subjectLimitations,
+  }) satisfies ReviewInputs
+  const loaded = Object.freeze({}) as LoadedReviewInputs
+  loadedReviewInputs.set(loaded, snapshot)
+  return loaded
+}
+
 function acceptedReviewWatermarks(review: PriorReview): Map<string, Set<number>> {
   const accepted = new Map<string, Set<number>>()
   if (review.disposition === 'failed') return accepted
@@ -623,9 +904,13 @@ function assertExactAttemptMetadata(review: PriorReview): void {
         review.selections
           .filter(selection => selection.kind === 'range')
           .filter(selection =>
-            ['eligible-included', 'eligible-gap', 'previously-analyzed'].includes(
-              selection.coverageEffect,
-            ),
+            [
+              'eligible-included',
+              'eligible-gap',
+              'previously-analyzed-complete',
+              'previously-analyzed-partial',
+              'settled',
+            ].includes(selection.coverageEffect),
           )
           .map(selection => (selection.kind === 'range' ? selection.sessionKey : '')),
       ),
@@ -640,9 +925,13 @@ function assertExactAttemptMetadata(review: PriorReview): void {
               (selection): selection is ReviewEvidenceSelection & { kind: 'range' } =>
                 selection.kind === 'range' &&
                 selection.sessionKey === sessionKey &&
-                ['eligible-included', 'eligible-gap', 'previously-analyzed'].includes(
-                  selection.coverageEffect,
-                ),
+                [
+                  'eligible-included',
+                  'eligible-gap',
+                  'previously-analyzed-complete',
+                  'previously-analyzed-partial',
+                  'settled',
+                ].includes(selection.coverageEffect),
             )
             .map(selection => selection.evidenceWatermark),
         ),
@@ -685,6 +974,7 @@ export function foldCoverage(
   const settled: Record<string, number> = {}
   const reviewed = new Map<string, Set<number>>()
   const acceptedOpaque = new Set<RecordId>()
+  const priorSelections = new Map<RecordId, ReviewEvidenceSelection>()
   let subjectCoverage: ReviewSubjectAttempt | undefined
   const allReviews = [...input.reviews].sort((left, right) =>
     left.reviewId.localeCompare(right.reviewId),
@@ -708,6 +998,14 @@ export function foldCoverage(
             ? 'settled'
             : review.subjectAttempt.effect,
       }
+      for (const selection of review.selections) {
+        if (
+          selection.selectedForReview &&
+          ['eligible-included', 'eligible-gap'].includes(selection.coverageEffect)
+        ) {
+          priorSelections.set(selection.triggerId, selection)
+        }
+      }
     }
     if (review.disposition === 'complete') {
       for (const [sessionKey, watermark] of Object.entries(review.coverageTargetWatermarks)) {
@@ -724,7 +1022,7 @@ export function foldCoverage(
             item =>
               item.coverageEffect !== 'eligible-included' &&
               !(
-                item.coverageEffect === 'previously-analyzed' &&
+                ['previously-analyzed-complete', 'settled'].includes(item.coverageEffect) &&
                 (item.evidenceWatermark <= (settled[sessionKey] ?? 0) ||
                   priorReviewed.has(item.evidenceWatermark))
               ),
@@ -733,6 +1031,11 @@ export function foldCoverage(
           throw new TypeError('complete review contains an unsettled evidence selection')
         }
         settled[sessionKey] = Math.max(settled[sessionKey] ?? 0, watermark)
+        for (const selection of selections) {
+          if (selection.coverageEffect === 'eligible-included') {
+            acceptedOpaque.add(selection.triggerId)
+          }
+        }
       }
       if (
         review.selections.some(
@@ -769,10 +1072,15 @@ export function foldCoverage(
             selection.kind === 'range' &&
             selection.sessionKey === sessionKey &&
             selection.evidenceWatermark === watermark &&
-            ['eligible-included', 'eligible-gap'].includes(selection.coverageEffect),
+            [
+              'eligible-included',
+              'eligible-gap',
+              'previously-analyzed-complete',
+              'settled',
+            ].includes(selection.coverageEffect),
         )
       ) {
-        throw new TypeError('coverage action watermark must name an exact attempted boundary')
+        throw new TypeError('coverage action watermark must name an exact eligible boundary')
       }
     }
     const opaqueBlocking = review.selections
@@ -795,6 +1103,15 @@ export function foldCoverage(
       settled[sessionKey] = Math.max(settled[sessionKey] ?? 0, watermark)
     }
     acceptedIds.forEach(id => acceptedOpaque.add(id))
+    for (const selection of review.selections) {
+      if (
+        selection.kind === 'range' &&
+        selection.coverageEffect === 'eligible-gap' &&
+        selection.evidenceWatermark <= (action.settledWatermarks[selection.sessionKey] ?? -1)
+      ) {
+        acceptedOpaque.add(selection.triggerId)
+      }
+    }
     if (action.acceptedSubject !== undefined) {
       if (
         action.acceptedSubject.fingerprint !== review.subjectAttempt.fingerprint ||
@@ -819,7 +1136,10 @@ export function foldCoverage(
         .sort(([left], [right]) => left.localeCompare(right))
         .map(([key, values]) => [key, [...values].sort((left, right) => left - right)]),
     ),
-    acceptedOpaqueTriggerIds: [...acceptedOpaque].sort(),
+    acceptedTriggerIds: [...acceptedOpaque].sort(),
+    priorSelections: Object.fromEntries(
+      [...priorSelections].sort(([left], [right]) => left.localeCompare(right)),
+    ),
     ...(subjectCoverage === undefined ? {} : { subject: subjectCoverage }),
   }
 }
@@ -1070,7 +1390,7 @@ function assertVerifiedInputs(input: ReviewInputs): void {
 }
 
 /** Freeze deterministic selection from already-validated append-only evidence. */
-export function planReview(input: ReviewInputs): ReviewPlan {
+function planVerifiedReview(input: ReviewInputs): ReviewPlan {
   assertVerifiedInputs(input)
   const limits = effectiveLimits(input.reviewLimits)
   const fingerprint = subjectFingerprint(input.subject)
@@ -1085,6 +1405,10 @@ export function planReview(input: ReviewInputs): ReviewPlan {
       if (
         'trigger' in candidate &&
         candidate.repositoryObservation !== undefined &&
+        candidate.repositoryObservation.startState === candidate.repositoryObservation.endState &&
+        !candidate.repositoryObservation.limitations.some(
+          limitation => limitation.code === 'repository-race',
+        ) &&
         candidate.identity.repositoryId === input.subject.observation.repositoryId &&
         subjectFingerprint({ kind: 'workspace', observation: candidate.repositoryObservation }) ===
           fingerprint
@@ -1100,7 +1424,9 @@ export function planReview(input: ReviewInputs): ReviewPlan {
     }
   }
   const priorLedger = freezePriorLedger(prior)
-  const subjectLimitations = [...input.subject.observation.limitations]
+  const subjectLimitations = [
+    ...(input.subjectLimitations ?? input.subject.observation.limitations),
+  ]
     .filter(
       (item, index, all) =>
         all.findIndex(other => canonicalJson(other) === canonicalJson(item)) === index,
@@ -1128,7 +1454,6 @@ export function planReview(input: ReviewInputs): ReviewPlan {
   const replayCoveredEvidence = input.mode === 'full' || input.mode === 'force'
   const priorSubjectAttempt =
     coverage.subject?.coverageId === coverageId ? coverage.subject : undefined
-  const previouslyReviewed = coverage.reviewedWatermarks
   const selections: ReviewEvidenceSelection[] = []
   const includedCandidates: CandidateEvidence[] = []
   const admittedSessions = new Set<string>()
@@ -1164,6 +1489,19 @@ export function planReview(input: ReviewInputs): ReviewPlan {
     let classification =
       'trigger' in candidate ? candidateClassification(candidate) : candidate.availability
     let reason: string = classification
+    const candidateLimitations = [
+      ...('trigger' in candidate ? candidate.trigger.limitations : []),
+      ...('trigger' in candidate ? candidate.turn.limitations : []),
+      ...(candidate.limitations ?? []),
+    ]
+      .filter(
+        (item, index, all) =>
+          all.findIndex(other => canonicalJson(other) === canonicalJson(item)) === index,
+      )
+      .sort(
+        (left, right) =>
+          left.code.localeCompare(right.code) || left.detail.localeCompare(right.detail),
+      )
     if (scope === 'out-of-scope') {
       classification = 'excluded'
       reason = 'unproven-subject-scope'
@@ -1183,17 +1521,24 @@ export function planReview(input: ReviewInputs): ReviewPlan {
       reason = 'no-completed-exact-association'
     } else if (
       !replayCoveredEvidence &&
-      coverage.acceptedOpaqueTriggerIds.includes(identity.triggerId)
+      (coverage.acceptedTriggerIds.includes(identity.triggerId) ||
+        (identity.kind === 'range' &&
+          identity.evidenceWatermark <= (coverage.settledWatermarks[identity.sessionKey] ?? -1)))
     ) {
       classification = 'excluded'
-      reason = 'previously-accepted-opaque-problem'
+      reason = 'settled-trigger'
     } else if (
-      identity.kind === 'range' &&
       !replayCoveredEvidence &&
-      (previouslyReviewed[identity.sessionKey] ?? []).includes(identity.evidenceWatermark)
+      coverage.priorSelections[identity.triggerId] !== undefined &&
+      coverage.priorSelections[identity.triggerId]!.classification === classification &&
+      canonicalJson(coverage.priorSelections[identity.triggerId]!.limitations) ===
+        canonicalJson(candidateLimitations)
     ) {
       classification = 'excluded'
-      reason = 'previously-reviewed-range'
+      reason =
+        coverage.priorSelections[identity.triggerId]!.coverageEffect === 'eligible-included'
+          ? 'previously-analyzed-complete'
+          : 'previously-analyzed-partial'
     } else if (
       identity.kind === 'range' &&
       !admittedSessions.has(identity.sessionKey) &&
@@ -1207,16 +1552,20 @@ export function planReview(input: ReviewInputs): ReviewPlan {
       reason === 'no-completed-exact-association' ||
       reason === 'unproven-subject-scope'
         ? 'out-of-scope'
-        : reason === 'previously-reviewed-range' || reason === 'previously-accepted-opaque-problem'
-          ? 'previously-analyzed'
-          : reason === 'session-limit' ||
-              candidate.limitations?.some(item => item.code === 'excluded-by-limit')
-            ? 'deferred-by-limit'
-            : scope === 'weak' || classification === 'weak-context'
-              ? 'context-only'
-              : classification === 'included'
-                ? 'eligible-included'
-                : 'eligible-gap'
+        : reason === 'previously-analyzed-complete'
+          ? 'previously-analyzed-complete'
+          : reason === 'previously-analyzed-partial'
+            ? 'previously-analyzed-partial'
+            : reason === 'settled-trigger'
+              ? 'settled'
+              : reason === 'session-limit' ||
+                  candidate.limitations?.some(item => item.code === 'excluded-by-limit')
+                ? 'deferred-by-limit'
+                : scope === 'weak' || classification === 'weak-context'
+                  ? 'context-only'
+                  : classification === 'included'
+                    ? 'eligible-included'
+                    : 'eligible-gap'
     if (scope === 'weak' && classification !== 'excluded') classification = 'weak-context'
     const selectedForReview =
       ['included', 'readable-partial', 'weak-context'].includes(classification) &&
@@ -1228,9 +1577,7 @@ export function planReview(input: ReviewInputs): ReviewPlan {
       classification,
       reason,
       limitations: [
-        ...('trigger' in candidate ? candidate.trigger.limitations : []),
-        ...('trigger' in candidate ? candidate.turn.limitations : []),
-        ...(candidate.limitations ?? []),
+        ...candidateLimitations,
         ...(reason === 'session-limit'
           ? [{ code: 'excluded-by-limit' as const, detail: 'review Session limit reached' }]
           : []),
@@ -1312,9 +1659,13 @@ export function planReview(input: ReviewInputs): ReviewPlan {
   const targetRangeSelections = selections.filter(
     (selection): selection is ReviewEvidenceSelection & { kind: 'range' } =>
       selection.kind === 'range' &&
-      ['eligible-included', 'eligible-gap', 'previously-analyzed'].includes(
-        selection.coverageEffect,
-      ),
+      [
+        'eligible-included',
+        'eligible-gap',
+        'previously-analyzed-complete',
+        'previously-analyzed-partial',
+        'settled',
+      ].includes(selection.coverageEffect),
   )
   const coverageTargetWatermarks = Object.fromEntries(
     [...new Set(targetRangeSelections.map(selection => selection.sessionKey))]
@@ -1376,16 +1727,22 @@ export function planReview(input: ReviewInputs): ReviewPlan {
       : !hasReviewableEvidence &&
           selections.some(selection => selection.coverageEffect === 'eligible-gap')
         ? 'pending-partial'
-        : !hasReviewableEvidence && subjectAttempt.effect === 'previously-analyzed-unsettled'
+        : !hasReviewableEvidence &&
+            selections.some(selection => selection.coverageEffect === 'previously-analyzed-partial')
           ? 'pending-partial'
-          : !hasReviewableEvidence && prior?.subjectFingerprint === fingerprint && !policyChanged
-            ? 'already-reviewed'
-            : 'ready'
+          : !hasReviewableEvidence && subjectAttempt.effect === 'previously-analyzed-unsettled'
+            ? 'pending-partial'
+            : !hasReviewableEvidence && prior?.subjectFingerprint === fingerprint && !policyChanged
+              ? 'already-reviewed'
+              : 'ready'
   const limitations = [
-    ...subjectLimitations,
+    ...(subjectAttempt.effect === 'reviewed-partial' ||
+    subjectAttempt.effect === 'previously-analyzed-unsettled'
+      ? subjectLimitations
+      : []),
     ...selections
-      .filter(
-        selection => !['eligible-included', 'context-only'].includes(selection.coverageEffect),
+      .filter(selection =>
+        ['eligible-gap', 'previously-analyzed-partial'].includes(selection.coverageEffect),
       )
       .flatMap(selection => selection.limitations),
   ]
@@ -1422,7 +1779,21 @@ export function planReview(input: ReviewInputs): ReviewPlan {
     policies: input.policies,
     limits,
     objectInventory: [...refs.values()].sort(compareCanonical),
+    historySources: [...(input.historySources ?? [])],
   }
+}
+
+/** Public planning entry: every nested input comes from the immutable repository loader. */
+export function planReview(input: LoadedReviewInputs): ReviewPlan {
+  const snapshot = loadedReviewInputs.get(input)
+  if (snapshot === undefined)
+    throw new TypeError('review inputs were not produced by loadReviewInputs')
+  return planVerifiedReview(structuredClone(snapshot))
+}
+
+/** Test-only pure fold seam. Production package exports do not expose it. */
+export function planReviewForTesting(input: ReviewInputs): ReviewPlan {
+  return planVerifiedReview(input)
 }
 
 export type ReviewBundleManifest = {
@@ -1438,9 +1809,53 @@ export type ReviewBundleManifest = {
   }[]
 }
 
+function validateReviewBundleManifest(value: unknown): asserts value is ReviewBundleManifest {
+  if (value === null || Array.isArray(value) || typeof value !== 'object')
+    throw new TypeError('bundle manifest must be an object')
+  const record = value as Record<string, unknown>
+  const keys = Object.keys(record).sort()
+  if (
+    canonicalJson(keys) !== canonicalJson(['files', 'format', 'inventory', 'plan', 'schemaVersion'])
+  )
+    throw new TypeError('bundle manifest has unknown or missing fields')
+  if (record.schemaVersion !== 1 || record.format !== 'factory-review-bundle')
+    throw new TypeError('bundle manifest discriminator is invalid')
+  if (!Array.isArray(record.files) || !Array.isArray(record.inventory))
+    throw new TypeError('bundle manifest inventories must be arrays')
+  for (const entry of record.files) {
+    if (entry === null || Array.isArray(entry) || typeof entry !== 'object')
+      throw new TypeError('bundle file entry must be an object')
+    const file = entry as Record<string, unknown>
+    if (
+      canonicalJson(Object.keys(file).sort()) !==
+        canonicalJson(['bytes', 'kind', 'path', 'sha256']) ||
+      !['record', 'object'].includes(file.kind as string) ||
+      typeof file.path !== 'string' ||
+      file.path.startsWith('/') ||
+      file.path.split('/').some(segment => segment === '' || segment === '.' || segment === '..') ||
+      typeof file.sha256 !== 'string' ||
+      !/^[a-f0-9]{64}$/.test(file.sha256) ||
+      !Number.isSafeInteger(file.bytes) ||
+      (file.bytes as number) < 0
+    ) {
+      throw new TypeError('bundle file entry is invalid')
+    }
+    if (file.kind === 'record' && !(file.path as string).startsWith('.factory/'))
+      throw new TypeError('bundle record path is outside mirrored .factory')
+    if (
+      file.kind === 'object' &&
+      file.path !== `.factory/${objectOwnedPath(file.sha256 as string)}`
+    ) {
+      throw new TypeError('bundle object path is not its exact CAS path')
+    }
+  }
+  validateReviewPlanRecord(record.plan as ReviewPlanRecord)
+  ;(record.inventory as unknown[]).forEach(item => validateObjectRef(item as ObjectRef))
+}
+
 export type ReviewPlanRecord = Omit<
   ReviewPlan,
-  'subject' | 'evidence' | 'associations' | 'priorLedger' | 'objectInventory'
+  'subject' | 'evidence' | 'associations' | 'priorLedger' | 'objectInventory' | 'historySources'
 > & {
   subject:
     | { kind: 'workspace'; repositoryId: string; observationId: string }
@@ -1452,6 +1867,12 @@ export type ReviewPlanRecord = Omit<
         observationId: string
       }
   priorLedger?: { path: string; object: ObjectRef }
+  historySources: readonly {
+    path: OwnedPath
+    sha256: string
+    bytes: number
+    kind: LoadedHistorySource['kind']
+  }[]
 }
 
 /** Runtime authority for compact plans crossing process or bundle boundaries. */
@@ -1475,6 +1896,7 @@ export function validateReviewPlanRecord(plan: ReviewPlanRecord): void {
     'limitations',
     'policies',
     'limits',
+    'historySources',
   ]
   const keys = Object.keys(plan)
   if (keys.some(key => !exactKeys.includes(key)))
@@ -1559,6 +1981,24 @@ export function validateReviewPlanRecord(plan: ReviewPlanRecord): void {
   if (canonicalJson(canonicalSessions) !== canonicalJson(plan.sessions)) {
     throw new TypeError('review plan Session ranges are not canonical and unique')
   }
+  const canonicalHistory = [...plan.historySources].sort((left, right) =>
+    left.path.localeCompare(right.path),
+  )
+  if (
+    canonicalJson(canonicalHistory) !== canonicalJson(plan.historySources) ||
+    new Set(plan.historySources.map(source => source.path)).size !== plan.historySources.length ||
+    plan.historySources.some(
+      source =>
+        !Number.isSafeInteger(source.bytes) ||
+        source.bytes < 0 ||
+        !/^[a-f0-9]{64}$/.test(source.sha256) ||
+        !['review-manifest', 'review-ledger', 'coverage-action', 'subject-observation'].includes(
+          source.kind,
+        ),
+    )
+  ) {
+    throw new TypeError('review plan history sources are invalid or noncanonical')
+  }
   if (
     canonicalJson(plan.limits) !==
     canonicalJson(
@@ -1607,6 +2047,12 @@ function compactPlan(plan: ReviewPlan): ReviewPlanRecord {
     limitations: plan.limitations,
     policies: plan.policies,
     limits: plan.limits,
+    historySources: plan.historySources.map(source => ({
+      path: source.path,
+      sha256: source.sha256,
+      bytes: source.bytes.byteLength,
+      kind: source.kind,
+    })),
   }
   validateReviewPlanRecord(compact)
   return compact
@@ -1738,6 +2184,17 @@ function portableRecords(plan: ReviewPlan): Map<string, Uint8Array> {
     validatePublicRecord(plan.priorLedger.path, plan.priorLedger.ledger)
     addPortableRecord(records, plan.priorLedger.path, plan.priorLedger.ledger)
   }
+  for (const source of plan.historySources) {
+    assertOwnedRecordPath(source.path)
+    if (sha256(source.bytes) !== source.sha256) {
+      throw new TypeError(`history source bytes changed after loading: ${source.path}`)
+    }
+    const prior = records.get(source.path)
+    if (prior !== undefined && sha256(prior) !== source.sha256) {
+      throw new TypeError(`history source conflicts with current bundle record: ${source.path}`)
+    }
+    records.set(source.path, new Uint8Array(source.bytes))
+  }
   return new Map([...records].sort(([left], [right]) => left.localeCompare(right)))
 }
 
@@ -1865,7 +2322,7 @@ export async function buildBundle(
   return { path: destination, sha256: digest }
 }
 
-/** Verify a copied bundle in a fresh directory; `.git` and `.factory` are neither read nor needed. */
+/** Verify using only the bundle's mirrored `.factory`; no live checkout or Git metadata is read. */
 const splitPortablePath = (path: string) =>
   path.split('/').map(segment => new TextEncoder().encode(segment))
 
@@ -1879,15 +2336,12 @@ export async function verifyBundle(
         maximumBytes: 4 * 1024 * 1024,
       }),
     )
-    const manifest = JSON.parse(text) as ReviewBundleManifest
-    if (
-      canonicalJson(manifest) !== text ||
-      manifest.schemaVersion !== 1 ||
-      manifest.format !== 'factory-review-bundle'
-    ) {
+    const decoded = JSON.parse(text) as unknown
+    if (canonicalJson(decoded) !== text) {
       throw new Error('bundle manifest is invalid or noncanonical')
     }
-    validateReviewPlanRecord(manifest.plan)
+    validateReviewBundleManifest(decoded)
+    const manifest = decoded
     if (
       canonicalJson(manifest.plan.limits) !==
       canonicalJson(
@@ -1954,6 +2408,8 @@ export async function verifyBundle(
     const recordValues = new Map<string, unknown[]>()
     const recordBytes = new Map<string, Uint8Array>()
     for (const file of manifest.files) {
+      if (file.kind === 'record' && !file.path.startsWith('.factory/'))
+        throw new Error('bundle record path is outside its mirrored .factory')
       if (file.kind === 'object' && file.path !== `.factory/${objectOwnedPath(file.sha256)}`)
         throw new Error('bundle object path is invalid')
       const bytes = await readConfinedFile(path, splitPortablePath(file.path), {
@@ -1974,14 +2430,38 @@ export async function verifyBundle(
         recordBytes.set(ownedPath, bytes)
       }
     }
-    const referenced = new Map<string, ObjectRef>()
-    collectObjectRefs([...recordValues.values()], referenced)
-    if (manifest.plan.priorLedger !== undefined)
-      collectObjectRefs(manifest.plan.priorLedger.object, referenced)
-    for (const ref of referenced.values()) {
+    const canonicalHistorySources = [...manifest.plan.historySources].sort((left, right) =>
+      left.path.localeCompare(right.path),
+    )
+    if (
+      canonicalJson(canonicalHistorySources) !== canonicalJson(manifest.plan.historySources) ||
+      new Set(manifest.plan.historySources.map(source => source.path)).size !==
+        manifest.plan.historySources.length
+    ) {
+      throw new Error('bundle history sources are not canonical and unique')
+    }
+    for (const source of manifest.plan.historySources) {
+      const bytes = recordBytes.get(source.path)
+      if (
+        bytes === undefined ||
+        bytes.byteLength !== source.bytes ||
+        sha256(bytes) !== source.sha256
+      ) {
+        throw new Error('bundle omits or changes a pinned history source')
+      }
+    }
+    const readBundleObject = async (ref: ObjectRef): Promise<Uint8Array> => {
       if (!manifest.inventory.some(item => canonicalJson(item) === canonicalJson(ref))) {
         throw new Error(`bundle inventory omits referenced object: ${ref.sha256}`)
       }
+      const bytes = await readConfinedFile(
+        path,
+        splitPortablePath(`.factory/${objectOwnedPath(ref.sha256)}`),
+        { maximumBytes: manifest.plan.limits.maxBundleBytes },
+      )
+      if (bytes.byteLength !== ref.bytes || sha256(bytes) !== ref.sha256)
+        throw new Error(`bundle referenced object failed verification: ${ref.sha256}`)
+      return bytes
     }
     const subjectPath =
       manifest.plan.subject.kind === 'workspace'
@@ -2001,6 +2481,30 @@ export async function verifyBundle(
     if (subjectFingerprint(bundledSubject) !== manifest.plan.subjectFingerprint) {
       throw new Error('bundle subject fingerprint differs from its subject bytes')
     }
+    if (bundledSubject.kind === 'workspace') {
+      const observation = bundledSubject.observation
+      if (observation.codeManifest === undefined)
+        throw new Error('bundle workspace subject lacks foundational code manifest')
+      await loadCodeManifestObject(observation.codeManifest, readBundleObject)
+      for (const reference of [observation.stagedPatch, observation.unstagedPatch])
+        if (reference !== undefined) await readBundleObject(reference)
+    } else {
+      await readBundleObject(bundledSubject.observation.diff)
+      if (bundledSubject.observation.codeManifest !== undefined)
+        await loadCodeManifestObject(bundledSubject.observation.codeManifest, readBundleObject)
+    }
+    if (manifest.plan.priorLedger !== undefined) {
+      await readBundleObject(manifest.plan.priorLedger.object)
+      const ledger = recordValues.get(manifest.plan.priorLedger.path)?.[0]
+      if (ledger === undefined) throw new Error('bundle omits chosen prior ledger record')
+      const citations = new Map<string, ObjectRef>()
+      collectObjectRefs(ledger, citations)
+      for (const reference of citations.values()) await readBundleObject(reference)
+    }
+    const bundledAssociationProofs = new Map<
+      string,
+      { evidence: SessionPullRequestAssociation; batchId: RecordId }
+    >()
     if (manifest.plan.subject.kind === 'pull-request') {
       const observation = recordValues.get(subjectPath)?.[0] as AvailablePullRequestObservation
       const associationRoot = `pull-requests/github/${manifest.plan.subject.repositoryKey}/${manifest.plan.subject.number}/associations/${manifest.plan.subject.observationId}`
@@ -2013,6 +2517,10 @@ export async function verifyBundle(
           namedEvidence.add(reference.evidenceId)
           const value = recordValues.get(`${associationRoot}/${reference.evidenceId}.json`)?.[0]
           if (value === undefined) throw new Error('bundle omits batch-named association evidence')
+          bundledAssociationProofs.set(`${batchId}\0${reference.evidenceId}`, {
+            evidence: value as SessionPullRequestAssociation,
+            batchId,
+          })
           return value as SessionPullRequestAssociation
         })
         if (!verifyAssociationBatch(batch, observation, evidence)) {
@@ -2030,6 +2538,19 @@ export async function verifyBundle(
     const compactWorkspaceRepositoryId =
       manifest.plan.subject.kind === 'workspace' ? manifest.plan.subject.repositoryId : undefined
     for (const selection of manifest.plan.selections) {
+      for (const proof of selection.association?.proofs ?? []) {
+        const bundled = bundledAssociationProofs.get(`${proof.batchId}\0${proof.evidenceId}`)
+        if (
+          bundled === undefined ||
+          bundled.evidence.kind === 'invalidation' ||
+          selection.kind !== 'range' ||
+          bundled.evidence.sessionKey !== selection.sessionKey ||
+          proof.authority !==
+            (bundled.evidence.kind === 'manual' ? 'manual-asserted' : 'verified-exact')
+        ) {
+          throw new Error('bundle selection association proof is forged or cross-wired')
+        }
+      }
       if (!selection.selectedForReview) continue
       if (selection.kind !== 'range')
         throw new Error('bundle cannot include an opaque problem as readable evidence')

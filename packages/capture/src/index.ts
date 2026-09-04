@@ -368,8 +368,105 @@ function materializationIdentity(claim: MaterializationClaim) {
 
 function uniqueRefs(refs: readonly ObjectRef[]): ObjectRef[] {
   const values = new Map<string, ObjectRef>()
-  for (const ref of refs) values.set(`${ref.sha256}\0${ref.role}\0${ref.mediaType}`, ref)
-  return [...values.values()].sort((left, right) => left.sha256.localeCompare(right.sha256))
+  for (const ref of refs) values.set(canonicalJson(ref), ref)
+  return [...values.values()].sort((left, right) =>
+    canonicalJson(left).localeCompare(canonicalJson(right)),
+  )
+}
+
+export type TurnEvidenceGraph = {
+  identity: SessionIdentity
+  trigger: ReviewTrigger
+  turn: TurnManifest
+  repositoryObservation?: RepositoryObservation
+  events: readonly EvidenceEnvelope[]
+  transcript: readonly EvidenceEnvelope[]
+}
+
+/**
+ * Verify the exact portable evidence closure for one Turn. This is the shared
+ * semantic owner used both while recovering capture materialization and while
+ * loading an offline review bundle.
+ */
+export async function verifyTurnEvidenceGraph(
+  graph: TurnEvidenceGraph,
+  getObject: (reference: ObjectRef) => Promise<Uint8Array>,
+): Promise<void> {
+  const { identity, trigger, turn, repositoryObservation, events, transcript } = graph
+  const verifiedObject = async (reference: ObjectRef): Promise<Uint8Array> => {
+    const bytes = await getObject(reference)
+    if (bytes.byteLength !== reference.bytes || sha256(bytes) !== reference.sha256) {
+      throw new Error(`Turn object failed digest verification: ${reference.sha256}`)
+    }
+    return bytes
+  }
+  if (
+    identity.provider !== trigger.provider ||
+    identity.sessionKey !== trigger.sessionKey ||
+    turn.sessionKey !== trigger.sessionKey ||
+    turn.turnId !== trigger.turnId ||
+    trigger.evidenceWatermark !== turn.eventRange.last ||
+    turn.repositoryObservationId !== trigger.repositoryObservationId ||
+    canonicalJson(trigger.limitations) !== canonicalJson(turn.limitations) ||
+    trigger.materialization !== (turn.limitations.length === 0 ? 'complete' : 'partial')
+  ) {
+    throw new Error('trigger, Session identity, and Turn identities do not join')
+  }
+  if ((repositoryObservation === undefined) !== (turn.repositoryObservationId === undefined)) {
+    throw new Error('Turn repository observation closure is incomplete')
+  }
+  if (
+    repositoryObservation !== undefined &&
+    (repositoryObservation.observationId !== turn.repositoryObservationId ||
+      repositoryObservation.repositoryId !== identity.repositoryId ||
+      canonicalJson(turn.codeManifest ?? null) !==
+        canonicalJson(repositoryObservation.codeManifest ?? null) ||
+      canonicalJson(turn.stagedPatch ?? null) !==
+        canonicalJson(repositoryObservation.stagedPatch ?? null) ||
+      canonicalJson(turn.unstagedPatch ?? null) !==
+        canonicalJson(repositoryObservation.unstagedPatch ?? null))
+  ) {
+    throw new Error('Turn repository observation does not join its Session or code state')
+  }
+  const expectedEventSequences = Array.from(
+    { length: turn.eventRange.last - turn.eventRange.first + 1 },
+    (_, index) => turn.eventRange.first + index,
+  )
+  if (
+    canonicalJson(events.map(event => event.sequence)) !== canonicalJson(expectedEventSequences) ||
+    canonicalJson(events.map(event => event.raw)) !== canonicalJson(turn.rawObjects) ||
+    canonicalJson(transcript.map(event => event.sequence)) !==
+      canonicalJson(transcript.map((_, index) => index)) ||
+    canonicalJson(transcript.map(event => event.raw)) !== canonicalJson(turn.transcriptObservations)
+  ) {
+    throw new Error('Turn envelope order and raw-object arrays must match exactly')
+  }
+  const codeObjects: ObjectRef[] = []
+  if (repositoryObservation?.codeManifest !== undefined) {
+    if (repositoryObservation.worktreeFingerprint !== repositoryObservation.codeManifest.sha256) {
+      throw new Error('Repository observation fingerprint does not match its code manifest')
+    }
+    const manifest = await loadCodeManifestObject(
+      repositoryObservation.codeManifest,
+      verifiedObject,
+    )
+    for (const entry of manifest.entries) if ('object' in entry) codeObjects.push(entry.object)
+  }
+  const observationRefs = [
+    repositoryObservation?.codeManifest,
+    repositoryObservation?.stagedPatch,
+    repositoryObservation?.unstagedPatch,
+  ].filter((reference): reference is ObjectRef => reference !== undefined)
+  const expectedInventory = uniqueRefs([
+    ...turn.rawObjects,
+    ...turn.transcriptObservations,
+    ...observationRefs,
+    ...codeObjects,
+  ])
+  if (canonicalJson(turn.inventory) !== canonicalJson(expectedInventory)) {
+    throw new Error('Turn inventory must equal its exact transitive evidence closure')
+  }
+  for (const reference of expectedInventory) await verifiedObject(reference)
 }
 
 /** Purely derive every public byte and path from the frozen Stop claim. */
@@ -929,6 +1026,28 @@ async function verifyMaterializedTurnGraph(
   ) {
     throw new Error('Interrupted materialization graph does not match its durable claim')
   }
+  await verifyTurnEvidenceGraph(
+    {
+      identity: session,
+      trigger: {
+        schemaVersion: 1,
+        triggerId: identity.triggerId,
+        sessionKey: identity.sessionKey,
+        turnId: identity.turnId,
+        repositoryObservationId: identity.observationId,
+        evidenceWatermark: options.claim.throughSequence,
+        provider: options.claim.stop.provider,
+        createdAt: options.claim.claimedAt,
+        materialization: manifest.limitations.length === 0 ? 'complete' : 'partial',
+        limitations: manifest.limitations,
+      },
+      turn: manifest,
+      repositoryObservation: observation,
+      events: eventEnvelopes,
+      transcript: transcriptEnvelopes,
+    },
+    async reference => await options.store.getObject(reference),
+  )
   for (let index = 0; index < eventEnvelopes.length; index += 1) {
     const envelope = eventEnvelopes[index]!
     const durable = claimed[index]
@@ -972,45 +1091,6 @@ async function verifyMaterializedTurnGraph(
       throw new Error('Interrupted Turn transcript inventory does not match its durable claim')
     }
     transcriptObjectBytes.push(await options.store.getObject(envelope.raw))
-  }
-  const observationRefs = [
-    observation.codeManifest,
-    observation.stagedPatch,
-    observation.unstagedPatch,
-  ].filter((reference): reference is ObjectRef => reference !== undefined)
-  const patchRefs = [observation.stagedPatch, observation.unstagedPatch].filter(
-    (reference): reference is ObjectRef => reference !== undefined,
-  )
-  const codeObjects: ObjectRef[] = []
-  if (observation.codeManifest !== undefined) {
-    if (observation.worktreeFingerprint !== observation.codeManifest.sha256) {
-      throw new Error('Repository observation fingerprint does not match its code manifest')
-    }
-    const codeManifest = await loadCodeManifestObject(
-      observation.codeManifest,
-      async reference => await options.store.getObject(reference),
-    )
-    for (const entry of codeManifest.entries) {
-      if ('object' in entry) codeObjects.push(entry.object)
-    }
-  }
-  for (const reference of [...patchRefs, ...codeObjects]) {
-    await options.store.getObject(reference)
-  }
-  const rawObjects = eventEnvelopes.map(envelope => envelope.raw)
-  const transcriptObjects = transcriptEnvelopes.map(envelope => envelope.raw)
-  const expectedInventory = uniqueRefs([
-    ...rawObjects,
-    ...transcriptObjects,
-    ...observationRefs,
-    ...codeObjects,
-  ])
-  if (
-    canonicalJson(manifest.rawObjects) !== canonicalJson(rawObjects) ||
-    canonicalJson(manifest.transcriptObservations) !== canonicalJson(transcriptObjects) ||
-    canonicalJson(manifest.inventory) !== canonicalJson(expectedInventory)
-  ) {
-    throw new Error('Interrupted Turn dependency inventory does not match its durable graph')
   }
   const expectedLimitations = await materializationLimitations(
     options,
