@@ -12,8 +12,8 @@ Status: **in implementation; Slices 01–06 are complete**
 > journal and Slice 05's safe Git observation plus exact confined reconstruction
 > are implemented through milestone `e4a92a5`. Slice 06 connects provider hooks
 > through the journal, Git observer, and sole repository writer into immutable
-> per-Stop Turns at milestones `0cfee90` and
-> `52d488d`. Begin Slice 07: observe pull requests and associate Sessions only
+> per-Stop Turns through milestones `0cfee90`, `52d488d`, `52731b9`, and
+> `f7d5299`. Begin Slice 07: observe pull requests and associate Sessions only
 > when exact code-state continuity proves the relationship. Read `AGENTS.md`,
 > `SECURITY.md`, this README, `choices.md`, `format.md`, and Slice 07 in full.
 > Slice 06's packaged networkless Docker vertical passes both provider fixtures,
