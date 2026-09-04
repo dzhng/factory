@@ -12,10 +12,14 @@ import {
   objectOwnedPath,
   reviewInputProblemId,
   reviewSubjectCoverageId,
+  githubRepositoryKey,
+  type AssociationBatch,
+  type AvailablePullRequestObservation,
   type ObjectRef,
   type RepositoryObservation,
   type ReviewTrigger,
   type SessionIdentity,
+  type SessionPullRequestAssociation,
   type TurnManifest,
 } from '@factory/contract'
 
@@ -262,6 +266,187 @@ describe('verified review bundles', () => {
     expect(named.limitations).toEqual([])
   })
 
+  test('PR acquisition admits associated Sessions before invalidation-only Sessions at the cap', async () => {
+    const value = fixture()
+    const base = value.input.candidates[0]!
+    if (!('trigger' in base) || value.input.subject.kind !== 'workspace')
+      throw new Error('expected readable fixture')
+    const root = await mkdtemp(join(tmpdir(), 'factory-review-pr-acquisition-'))
+    roots.push(root)
+    const put = async (path: string, bytes: Uint8Array) => {
+      const destination = join(root, path)
+      await mkdir(join(destination, '..'), { recursive: true })
+      await writeFile(destination, bytes)
+    }
+    const writeCandidate = async (sessionKey: string, n: number) => {
+      const turnId = newRecordId('turn', n, new Uint8Array(10))
+      const triggerId = newRecordId('trigger', n, new Uint8Array(10))
+      const identity: SessionIdentity = {
+        ...base.identity,
+        sessionKey,
+        nativeSessionId: `native-${sessionKey}`,
+      }
+      const turn: TurnManifest = { ...base.turn, turnId, sessionKey }
+      const trigger: ReviewTrigger = { ...base.trigger, triggerId, turnId, sessionKey }
+      const turnRoot = `sessions/codex/${sessionKey}/turns/${turnId}`
+      await put(
+        makeOwnedPath('sessions', ['codex', sessionKey, 'identity.json']),
+        new TextEncoder().encode(canonicalJson(identity)),
+      )
+      await put(`${turnRoot}/manifest.json`, new TextEncoder().encode(canonicalJson(turn)))
+      await put(
+        `${turnRoot}/events.jsonl`,
+        new TextEncoder().encode(base.events.map(canonicalJson).join('')),
+      )
+      await put(`${turnRoot}/transcript.jsonl`, new Uint8Array())
+      await put(
+        makeOwnedPath('review-triggers', [`${triggerId}.json`]),
+        new TextEncoder().encode(canonicalJson(trigger)),
+      )
+      return trigger
+    }
+    const unrelated = await writeCandidate('session-a', 30)
+    const associated = await writeCandidate('session-z', 31)
+    const repositoryKey = githubRepositoryKey('github.com', 'R_pr_acquisition')
+    const diffBytes = new TextEncoder().encode('diff --git a/a.ts b/a.ts\n')
+    const diff = object(diffBytes, 'text/x-diff', 'pull-request-diff')
+    const rawBytes = new TextEncoder().encode(canonicalJson({ number: 42 }))
+    const raw = object(rawBytes, 'application/json', 'github-pr-metadata')
+    const pr: AvailablePullRequestObservation = {
+      schemaVersion: 1,
+      observationId: newRecordId('pr-observation', 30, new Uint8Array(10)),
+      provider: 'github',
+      repositoryKey,
+      number: 42,
+      availability: 'available',
+      completeness: 'complete',
+      commitMembership: 'complete',
+      codeAvailability: 'captured',
+      externalId: 'PR_42',
+      hostname: 'github.com',
+      url: 'https://github.com/owner/repo/pull/42',
+      state: 'open',
+      observedAt: base.trigger.createdAt,
+      providerUpdatedAt: base.trigger.createdAt,
+      base: {
+        repositoryKey,
+        externalId: 'R_pr_acquisition',
+        repository: 'owner/repo',
+        ref: 'main',
+        sha: 'a'.repeat(40),
+      },
+      head: {
+        repositoryKey,
+        externalId: 'R_pr_acquisition',
+        repository: 'owner/repo',
+        ref: 'feature',
+        sha: 'b'.repeat(40),
+      },
+      commits: ['b'.repeat(40)],
+      raw: [raw],
+      diff,
+      codeManifest: value.input.subject.observation.codeManifest,
+      limitations: [],
+    }
+    const subjectPath = makeOwnedPath('pull-requests', [
+      'github',
+      repositoryKey,
+      '42',
+      'observations',
+      `${pr.observationId}.json`,
+    ])
+    await put(subjectPath, new TextEncoder().encode(canonicalJson(pr)))
+    await put(
+      makeOwnedPath('repository-observations', [
+        `${value.input.subject.observation.observationId}.json`,
+      ]),
+      new TextEncoder().encode(canonicalJson(value.input.subject.observation)),
+    )
+    const evidence: SessionPullRequestAssociation = {
+      schemaVersion: 1,
+      evidenceId: newRecordId('association', 30, new Uint8Array(10)),
+      sessionKey: associated.sessionKey,
+      pullRequestObservationId: pr.observationId,
+      kind: 'manual',
+      strength: 'asserted',
+      shas: [],
+      repositoryIdentity: 'unavailable',
+      sourceObservationIds: [],
+      assertion: { actor: 'developer', reason: 'paired during review' },
+      observedAt: pr.observedAt,
+    }
+    const evidenceBytes = new TextEncoder().encode(canonicalJson(evidence))
+    const batch: AssociationBatch = {
+      schemaVersion: 1,
+      batchId: newRecordId('association-batch', 30, new Uint8Array(10)),
+      provider: 'github',
+      repositoryKey,
+      number: 42,
+      pullRequestObservationId: pr.observationId,
+      kind: 'manual',
+      evidence: [{ evidenceId: evidence.evidenceId, sha256: digest(evidenceBytes) }],
+      sourceObservationIds: [],
+      observedAt: pr.observedAt,
+      policyVersion: 'manual-v1',
+    }
+    const associationRoot = `pull-requests/github/${repositoryKey}/42/associations/${pr.observationId}`
+    await put(`${associationRoot}/${evidence.evidenceId}.json`, evidenceBytes)
+    await put(
+      `${associationRoot}/batches/${batch.batchId}.json`,
+      new TextEncoder().encode(canonicalJson(batch)),
+    )
+    const invalidation: SessionPullRequestAssociation = {
+      schemaVersion: 1,
+      evidenceId: newRecordId('association', 31, new Uint8Array(10)),
+      sessionKey: unrelated.sessionKey,
+      pullRequestObservationId: pr.observationId,
+      kind: 'invalidation',
+      strength: 'verified',
+      shas: ['b'.repeat(40)],
+      repositoryIdentity: 'unavailable',
+      sourceObservationIds: [],
+      invalidates: newRecordId('association', 29, new Uint8Array(10)),
+      observedAt: pr.observedAt,
+    }
+    const invalidationBytes = new TextEncoder().encode(canonicalJson(invalidation))
+    const invalidationBatch: AssociationBatch = {
+      ...batch,
+      batchId: newRecordId('association-batch', 31, new Uint8Array(10)),
+      kind: 'automatic',
+      evidence: [{ evidenceId: invalidation.evidenceId, sha256: digest(invalidationBytes) }],
+      policyVersion: 'factory-v1-exact-git-v1',
+    }
+    await put(`${associationRoot}/${invalidation.evidenceId}.json`, invalidationBytes)
+    await put(
+      `${associationRoot}/batches/${invalidationBatch.batchId}.json`,
+      new TextEncoder().encode(canonicalJson(invalidationBatch)),
+    )
+    for (const [hash, bytes] of value.objects) await put(objectOwnedPath(hash), bytes)
+    await put(objectOwnedPath(diff.sha256), diffBytes)
+    await put(objectOwnedPath(raw.sha256), rawBytes)
+    const reader = await openReviewRepositoryReader(root)
+    const history = await loadReviewHistory(reader)
+    const plan = planLoadedReview(
+      await loadReviewInputs(reader, {
+        mode: 'incremental',
+        subjectPath,
+        history,
+        policies: value.input.policies,
+        reviewLimits: { maxSessions: 1 },
+      }),
+    )
+    expect(plan.selections).toContainEqual(
+      expect.objectContaining({
+        triggerId: associated.triggerId,
+        sessionKey: associated.sessionKey,
+        coverageEffect: 'eligible-included',
+      }),
+    )
+    expect(plan.selections.some(selection => selection.triggerId === unrelated.triggerId)).toBe(
+      false,
+    )
+  })
+
   test('history limitation problems must name an object owned by the exact code manifest', async () => {
     const value = fixture()
     if (value.input.subject.kind !== 'workspace') throw new Error('expected workspace fixture')
@@ -425,10 +610,25 @@ describe('verified review bundles', () => {
       join(parent, 'bundle'),
     )
     expect((await verifyBundle(built.path, built.sha256)).valid).toBe(true)
+    const overlappingPlan = planLoadedReview(
+      await loadReviewInputsForTesting(historicalReader, {
+        mode: 'force',
+        subjectPath: historicalSubjectPath,
+        history,
+        policies: value.input.policies,
+      }),
+    )
+    const overlapping = await buildBundle(
+      overlappingPlan,
+      { getObject: async reference => value.objects.get(reference.sha256)! },
+      join(parent, 'overlapping-current-and-history'),
+    )
+    expect((await verifyBundle(overlapping.path, overlapping.sha256)).valid).toBe(true)
   })
 
   test('plans and bundles from immutable loaded history without old subject object closure', async () => {
     const value = fixture()
+    if (value.input.subject.kind !== 'workspace') throw new Error('expected workspace fixture')
     const initial = planReview({ ...value.input, candidates: [] })
     const reviewId = newRecordId('review', 1, new Uint8Array(10))
     const manifestPath = makeOwnedPath('reviews', ['workspace', reviewId, 'manifest.json'])
@@ -474,6 +674,48 @@ describe('verified review bundles', () => {
       ],
       [subjectPath, new TextEncoder().encode(canonicalJson(value.input.subject.observation))],
     ])
+    const otherObservation = {
+      ...value.input.subject.observation,
+      observationId: newRecordId('observation', 12, new Uint8Array(10)),
+      repositoryId: 'repo_unrelated' as const,
+    }
+    const otherPlan = planReview({
+      ...value.input,
+      subject: { kind: 'workspace', observation: otherObservation },
+      candidates: [],
+    })
+    const otherReviewId = newRecordId('review', 12, new Uint8Array(10))
+    const otherManifestPath = makeOwnedPath('reviews', [
+      'workspace',
+      otherReviewId,
+      'manifest.json',
+    ])
+    const otherLedgerPath = makeOwnedPath('reviews', ['workspace', otherReviewId, 'ledger.json'])
+    const otherSubjectPath = makeOwnedPath('repository-observations', [
+      `${otherObservation.observationId}.json`,
+    ])
+    records.set(
+      otherManifestPath,
+      new TextEncoder().encode(
+        canonicalJson({
+          ...manifest,
+          reviewId: otherReviewId,
+          subject: {
+            kind: 'workspace' as const,
+            repositoryObservationId: otherObservation.observationId,
+          },
+          subjectFingerprint: otherPlan.subjectFingerprint,
+          subjectAttempt: otherPlan.subjectAttempt,
+        }),
+      ),
+    )
+    records.set(
+      otherLedgerPath,
+      new TextEncoder().encode(
+        canonicalJson({ schemaVersion: 1, reviewId: otherReviewId, entries: [] }),
+      ),
+    )
+    records.set(otherSubjectPath, new TextEncoder().encode(canonicalJson(otherObservation)))
     const reader: ReviewRepositoryReader = {
       inventory: async () => [...records.keys()].sort() as ReturnType<typeof makeOwnedPath>[],
       read: async path => {
@@ -484,7 +726,7 @@ describe('verified review bundles', () => {
     }
     await expect(loadReviewHistory(reader)).rejects.toThrow('confined tree snapshot')
     const history = await loadReviewHistoryForTesting(reader, {
-      reviews: [{ manifestPath }],
+      reviews: [{ manifestPath }, { manifestPath: otherManifestPath }],
       coverageActionPaths: [],
     })
     await expect(

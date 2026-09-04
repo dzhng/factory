@@ -35,7 +35,7 @@ import {
   type ReviewCandidate,
 } from './candidate-loader'
 import { foldCoverage } from './coverage'
-import { getLoadedReviewHistoryState } from './history-loader'
+import { getLoadedReviewHistoryState, selectReviewHistory } from './history-loader'
 import {
   isTrustedReviewRepositoryReader,
   type PortableRecordReader,
@@ -315,10 +315,10 @@ async function loadReviewInputsFromReader(
   reader: ReviewRepositoryReader,
   request: ReviewInputLoadRequest,
 ): Promise<LoadedReviewInputs> {
-  const history = getLoadedReviewHistoryState(request.history)
-  if (history === undefined)
+  const loadedHistory = getLoadedReviewHistoryState(request.history)
+  if (loadedHistory === undefined)
     throw new TypeError('review history was not produced by loadReviewHistory')
-  if (history.reader !== reader)
+  if (loadedHistory.reader !== reader)
     throw new TypeError('review history and current inputs must share one confined snapshot')
   const inventory = [...(await reader.inventory())]
   if (inventory.length > 200_000) throw new TypeError('review repository inventory exceeds bound')
@@ -337,6 +337,7 @@ async function loadReviewInputsFromReader(
       : (() => {
           throw new TypeError('review subject path has an unsupported lineage')
         })()
+  const history = selectReviewHistory(loadedHistory, subject)
   const readSubjectObject = async (reference: ObjectRef): Promise<Uint8Array> => {
     const result = await reader.getObject(reference)
     if (result.kind !== 'readable')
@@ -485,6 +486,58 @@ async function loadReviewInputsFromReader(
           ),
         )
       : []
+  // PR visibility is established before candidate admission so unrelated repository
+  // Sessions cannot consume the bounded acquisition budget ahead of exact/manual evidence.
+  const associations: CompletedAssociationGroup[] = []
+  if (subject.kind === 'pull-request') {
+    for (const batchPath of associationBatchPaths) {
+      try {
+        const batch = (await readRequiredRecord(reader, batchPath)).value as AssociationBatch
+        const markerIndex = batchPath.lastIndexOf('/batches/')
+        if (markerIndex < 0) throw new TypeError('association batch path is invalid')
+        const root = batchPath.slice(0, markerIndex)
+        const evidence = await Promise.all(
+          batch.evidence.map(
+            async reference =>
+              (
+                await readRequiredRecord(
+                  reader,
+                  `${root}/${reference.evidenceId}.json` as OwnedPath,
+                )
+              ).value as SessionPullRequestAssociation,
+          ),
+        )
+        if (!verifyAssociationBatch(batch, subject.observation, evidence))
+          throw new TypeError('association batch does not verify against the exact PR observation')
+        associations.push({ batch, evidence })
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error)
+        const classification = detail.startsWith('history missing:')
+          ? 'unavailable'
+          : detail.startsWith('history unsafe:')
+            ? 'unsafe'
+            : 'corrupt'
+        const limitation: Limitation = {
+          code: classification === 'corrupt' ? 'corrupt-input' : 'unverified-object',
+          detail: `association batch unavailable or invalid: ${detail}`,
+        }
+        const problem = {
+          kind: 'association-batch',
+          path: batchPath,
+          classification,
+          limitation,
+        } as const
+        inputProblems.push({ ...problem, problemId: reviewInputProblemId(problem) })
+      }
+    }
+  }
+  const associatedSessionKeys = new Set(
+    associations.flatMap(group =>
+      group.evidence.flatMap(evidence =>
+        evidence.kind === 'invalidation' ? [] : [evidence.sessionKey],
+      ),
+    ),
+  )
   const discoveredTriggers = await Promise.all(
     candidateTriggerIds.map(async triggerId => {
       try {
@@ -505,8 +558,8 @@ async function loadReviewInputsFromReader(
   const requestedTriggers = discoveredTriggers.filter(
     item =>
       item.trigger === undefined ||
-      request.sessionKey === undefined ||
-      item.trigger.sessionKey === request.sessionKey,
+      ((request.sessionKey === undefined || item.trigger.sessionKey === request.sessionKey) &&
+        (subject.kind === 'workspace' || associatedSessionKeys.has(item.trigger.sessionKey))),
   )
   const sessionLimit = effectiveLimits(request.reviewLimits).maxSessions
   const acquisitionRanks = new Map<string, number>()
@@ -604,49 +657,6 @@ async function loadReviewInputsFromReader(
       })
     }),
   )
-  const associations: CompletedAssociationGroup[] = []
-  if (subject.kind === 'pull-request') {
-    for (const batchPath of associationBatchPaths) {
-      try {
-        const batch = (await readRequiredRecord(reader, batchPath)).value as AssociationBatch
-        const markerIndex = batchPath.lastIndexOf('/batches/')
-        if (markerIndex < 0) throw new TypeError('association batch path is invalid')
-        const root = batchPath.slice(0, markerIndex)
-        const evidence = await Promise.all(
-          batch.evidence.map(
-            async reference =>
-              (
-                await readRequiredRecord(
-                  reader,
-                  `${root}/${reference.evidenceId}.json` as OwnedPath,
-                )
-              ).value as SessionPullRequestAssociation,
-          ),
-        )
-        if (!verifyAssociationBatch(batch, subject.observation, evidence))
-          throw new TypeError('association batch does not verify against the exact PR observation')
-        associations.push({ batch, evidence })
-      } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error)
-        const classification = detail.startsWith('history missing:')
-          ? 'unavailable'
-          : detail.startsWith('history unsafe:')
-            ? 'unsafe'
-            : 'corrupt'
-        const limitation: Limitation = {
-          code: classification === 'corrupt' ? 'corrupt-input' : 'unverified-object',
-          detail: `association batch unavailable or invalid: ${detail}`,
-        }
-        const problem = {
-          kind: 'association-batch',
-          path: batchPath,
-          classification,
-          limitation,
-        } as const
-        inputProblems.push({ ...problem, problemId: reviewInputProblemId(problem) })
-      }
-    }
-  }
   const snapshot = structuredClone({
     mode: request.mode,
     subject,

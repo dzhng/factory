@@ -34,7 +34,133 @@ export type LoadedReviewHistoryState = {
   coverageActions: readonly CoverageAction[]
   sources: readonly LoadedHistorySource[]
   validationObjects: readonly ObjectRef[]
+  validationObjectsByReviewId: ReadonlyMap<string, readonly ObjectRef[]>
   reader?: ReviewRepositoryReader
+}
+
+function sameLogicalSubject(review: PriorReview, subject: ReviewSubject): boolean {
+  if (review.subject.kind !== subject.kind) return false
+  if (subject.kind === 'workspace')
+    return (
+      review.subject.kind === 'workspace' &&
+      review.subject.observation.repositoryId === subject.observation.repositoryId
+    )
+  return (
+    review.subject.kind === 'pull-request' &&
+    review.subject.observation.repositoryKey === subject.observation.repositoryKey &&
+    review.subject.observation.number === subject.observation.number
+  )
+}
+
+function reviewRecordPaths(review: PriorReview): readonly OwnedPath[] {
+  const root =
+    review.subject.kind === 'workspace'
+      ? ['workspace', review.reviewId]
+      : [
+          'pull-requests',
+          'github',
+          review.subject.observation.repositoryKey,
+          String(review.subject.observation.number),
+          review.reviewId,
+        ]
+  const subjectPath =
+    review.subject.kind === 'workspace'
+      ? makeOwnedPath('repository-observations', [
+          `${review.subject.observation.observationId}.json`,
+        ])
+      : makeOwnedPath('pull-requests', [
+          review.subject.observation.provider,
+          review.subject.observation.repositoryKey,
+          String(review.subject.observation.number),
+          'observations',
+          `${review.subject.observation.observationId}.json`,
+        ])
+  return [
+    makeOwnedPath('reviews', [...root, 'manifest.json']),
+    ...(review.disposition === 'failed'
+      ? []
+      : [makeOwnedPath('reviews', [...root, 'ledger.json'])]),
+    subjectPath,
+  ]
+}
+
+/** Select only immutable history that can influence one logical review subject. */
+export function selectReviewHistory(
+  history: LoadedReviewHistoryState,
+  subject: ReviewSubject,
+): LoadedReviewHistoryState {
+  const reviews = history.reviews.filter(review => sameLogicalSubject(review, subject))
+  const reviewIds = new Set(reviews.map(review => review.reviewId))
+  const coverageActions = history.coverageActions.filter(action => reviewIds.has(action.reviewId))
+  const paths = new Set(reviews.flatMap(reviewRecordPaths))
+  for (const action of coverageActions)
+    paths.add(makeOwnedPath('reviews', ['coverage-actions', `${action.actionId}.json`]))
+  const validationObjects = reviews
+    .flatMap(review => history.validationObjectsByReviewId.get(review.reviewId) ?? [])
+    .sort(compareCanonical)
+  return {
+    reviews,
+    coverageActions,
+    sources: history.sources.filter(source => paths.has(source.path)),
+    validationObjects,
+    validationObjectsByReviewId: new Map(
+      reviews.map(review => [
+        review.reviewId,
+        history.validationObjectsByReviewId.get(review.reviewId) ?? [],
+      ]),
+    ),
+    ...(history.reader === undefined ? {} : { reader: history.reader }),
+  }
+}
+
+/** Code manifests read only to validate a historical limitation-object ownership claim. */
+export function deriveHistoryValidationRoots(
+  sources: readonly LoadedHistorySource[],
+): readonly ObjectRef[] {
+  const byPath = new Map(sources.map(source => [source.path, source]))
+  const roots = new Map<string, ObjectRef>()
+  for (const source of sources) {
+    if (source.kind !== 'review-manifest') continue
+    const manifest = decodeCanonicalRecord(source.path, source.bytes) as ReviewManifest
+    if (manifest.codeManifest === undefined) continue
+    const subjectPath =
+      manifest.subject.kind === 'workspace'
+        ? makeOwnedPath('repository-observations', [
+            `${manifest.subject.repositoryObservationId}.json`,
+          ])
+        : makeOwnedPath('pull-requests', [
+            manifest.subject.provider,
+            manifest.subject.repositoryKey,
+            String(manifest.subject.number),
+            'observations',
+            `${manifest.subject.observationId}.json`,
+          ])
+    const subjectSource = byPath.get(subjectPath)
+    if (subjectSource === undefined) continue
+    const subject = decodeCanonicalRecord(subjectSource.path, subjectSource.bytes) as
+      | RepositoryObservation
+      | AvailablePullRequestObservation
+    if (
+      subject.codeManifest === undefined ||
+      canonicalJson(subject.codeManifest) !== canonicalJson(manifest.codeManifest)
+    )
+      continue
+    const directLimitationObjects = new Set(
+      subject.limitations.flatMap(limitation =>
+        limitation.object === undefined ? [] : [canonicalJson(limitation.object)],
+      ),
+    )
+    if (
+      manifest.inputProblems.some(
+        problem =>
+          problem.kind === 'subject-object' &&
+          problem.field === 'limitation' &&
+          !directLimitationObjects.has(canonicalJson(problem.object)),
+      )
+    )
+      roots.set(canonicalJson(manifest.codeManifest), manifest.codeManifest)
+  }
+  return [...roots.values()].sort(compareCanonical)
 }
 
 const loadedHistories = new WeakMap<object, LoadedReviewHistoryState>()
@@ -78,6 +204,7 @@ export async function loadReviewHistoryFromRequest(
   const reviews: PriorReview[] = []
   const sources: LoadedHistorySource[] = []
   const validationObjects = new Map<string, ObjectRef>()
+  const validationObjectsByReviewId = new Map<string, Map<string, ObjectRef>>()
   const reviewIds = new Set<string>()
   for (const descriptor of reviewDescriptors) {
     const manifestRecord = await readRequiredRecord(reader, descriptor.manifestPath)
@@ -174,6 +301,10 @@ export async function loadReviewHistoryFromRequest(
         )
           throw new TypeError('history limitation object is not owned by its code manifest')
         validationObjects.set(canonicalJson(manifest.codeManifest), manifest.codeManifest)
+        const reviewValidationObjects =
+          validationObjectsByReviewId.get(manifest.reviewId) ?? new Map<string, ObjectRef>()
+        reviewValidationObjects.set(canonicalJson(manifest.codeManifest), manifest.codeManifest)
+        validationObjectsByReviewId.set(manifest.reviewId, reviewValidationObjects)
       } else if (directReference === undefined) {
         throw new TypeError('history subject object problem is detached from its subject')
       }
@@ -270,6 +401,12 @@ export async function loadReviewHistoryFromRequest(
     coverageActions: actions,
     sources: [...sourcesByPath.values()].sort((left, right) => left.path.localeCompare(right.path)),
     validationObjects: [...validationObjects.values()].sort(compareCanonical),
+    validationObjectsByReviewId: new Map(
+      [...validationObjectsByReviewId].map(([reviewId, references]) => [
+        reviewId,
+        [...references.values()].sort(compareCanonical),
+      ]),
+    ),
     ...(repositoryReader === undefined ? {} : { reader: repositoryReader }),
   }
   const history = Object.freeze({}) as LoadedReviewHistory

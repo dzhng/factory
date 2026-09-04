@@ -32,7 +32,11 @@ import {
 } from '@factory/repository'
 
 import { loadCandidateEvidence } from './candidate-loader'
-import { getLoadedReviewHistoryState, loadReviewHistoryFromRequest } from './history-loader'
+import {
+  deriveHistoryValidationRoots,
+  getLoadedReviewHistoryState,
+  loadReviewHistoryFromRequest,
+} from './history-loader'
 import type {
   LoadedHistorySource,
   ReviewEvidenceSelection,
@@ -657,20 +661,17 @@ async function expandInventory(
 ): Promise<{ bytes: Map<string, Uint8Array>; refs: ObjectRef[] }> {
   const pending = [...plan.objectInventory]
   const historyValidationRoots = new Set(
-    plan.historySources
-      .filter(source => source.kind === 'review-manifest')
-      .flatMap(source => {
-        const value = JSON.parse(
-          new TextDecoder('utf-8', { fatal: true }).decode(source.bytes),
-        ) as ReviewManifest
-        return value.codeManifest !== undefined &&
-          value.inputProblems.some(
-            problem => problem.kind === 'subject-object' && problem.field === 'limitation',
-          )
-          ? [canonicalJson(value.codeManifest)]
-          : []
-      }),
+    deriveHistoryValidationRoots(plan.historySources).map(canonicalJson),
   )
+  const currentTraversalRoots = new Set<string>()
+  if (plan.subject.observation.codeManifest !== undefined)
+    currentTraversalRoots.add(canonicalJson(plan.subject.observation.codeManifest))
+  for (const evidence of plan.evidence) {
+    if (evidence.turn.codeManifest !== undefined)
+      currentTraversalRoots.add(canonicalJson(evidence.turn.codeManifest))
+    if (evidence.repositoryObservation?.codeManifest !== undefined)
+      currentTraversalRoots.add(canonicalJson(evidence.repositoryObservation.codeManifest))
+  }
   const omitted = new Set(
     plan.inputProblems
       .filter(
@@ -707,7 +708,8 @@ async function expandInventory(
     if (
       ref.mediaType === 'application/vnd.factory.code-manifest+json' &&
       ref.role === 'workspace-code-manifest' &&
-      !historyValidationRoots.has(canonicalJson(ref))
+      (!historyValidationRoots.has(canonicalJson(ref)) ||
+        currentTraversalRoots.has(canonicalJson(ref)))
     ) {
       const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
       if (canonicalJson(JSON.parse(text)) !== text)
