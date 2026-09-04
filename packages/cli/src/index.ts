@@ -1172,6 +1172,7 @@ async function reviewCommand(
       },
     )
     const accepted = await acceptReview(await validateReview(bundle, raw), store)
+    await coordinator.finalize(bundle, selected.choice, imageDigest, accepted.reviewId)
     let enforced = false
     const failOn = options.failOn
     if (failOn !== undefined && accepted.disposition !== 'failed') {

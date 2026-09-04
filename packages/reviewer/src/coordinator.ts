@@ -51,6 +51,26 @@ type AttemptState =
       attempt: PersistedSnapshot
     }
 
+function attemptKey(
+  verified: Awaited<ReturnType<typeof readVerifiedReviewBundle>>,
+  choice: ReviewerChoice,
+  imageDigest: string,
+): string {
+  return createHash('sha256')
+    .update(
+      canonicalJson({
+        bundleSha256: verified.sha256,
+        reviewer: choice.settings,
+        imageDigest,
+        analyzerVersion: verified.manifest.plan.policies.analyzerVersion,
+        promptVersion: verified.manifest.plan.policies.promptVersion,
+        policyVersion: verified.manifest.plan.policies.policyVersion,
+        formatVersion: verified.manifest.plan.policies.formatVersion,
+      }),
+    )
+    .digest('hex')
+}
+
 async function privateDirectory(path: string): Promise<void> {
   await mkdir(path, { recursive: true, mode: 0o700 })
   await chmod(path, 0o700)
@@ -206,16 +226,7 @@ export class ReviewAttemptCoordinator {
     input: Omit<ReviewerExecutionInput, 'reviewId' | 'runtimeRoot' | 'containerIdentity'>,
   ): Promise<ReviewerRawAttempt> {
     const verified = await readVerifiedReviewBundle(bundle)
-    const identity = {
-      bundleSha256: verified.sha256,
-      reviewer: choice.settings,
-      imageDigest: input.imageDigest,
-      analyzerVersion: verified.manifest.plan.policies.analyzerVersion,
-      promptVersion: verified.manifest.plan.policies.promptVersion,
-      policyVersion: verified.manifest.plan.policies.policyVersion,
-      formatVersion: verified.manifest.plan.policies.formatVersion,
-    }
-    const key = createHash('sha256').update(canonicalJson(identity)).digest('hex')
+    const key = attemptKey(verified, choice, input.imageDigest)
     const attemptRoot = join(this.runtimeRoot, key)
     const containerIdentity = {
       name: `factory-review-${key.slice(0, 20)}`,
@@ -264,6 +275,35 @@ export class ReviewAttemptCoordinator {
           input,
           containerIdentity,
         )
+      },
+    )
+  }
+
+  /** Delete transient response state only after its immutable review publication succeeds. */
+  async finalize(
+    bundle: VerifiedReviewBundle,
+    choice: ReviewerChoice,
+    imageDigest: string,
+    reviewId: RecordId,
+  ): Promise<void> {
+    const key = attemptKey(await readVerifiedReviewBundle(bundle), choice, imageDigest)
+    const attemptRoot = join(this.runtimeRoot, key)
+    const statePath = join(attemptRoot, 'state.json')
+    await withAdvisoryFileLock(
+      join(attemptRoot, 'attempt.lock'),
+      24 * 60 * 60 * 1_000,
+      async () => {
+        const state = await readState(statePath)
+        if (state === undefined) return
+        if (state.key !== key || state.reviewId !== reviewId || state.phase !== 'completed')
+          throw new Error('review attempt finalization identity differs from durable state')
+        await unlink(statePath)
+        const directory = await open(attemptRoot, constants.O_RDONLY)
+        try {
+          await directory.sync()
+        } finally {
+          await directory.close()
+        }
       },
     )
   }

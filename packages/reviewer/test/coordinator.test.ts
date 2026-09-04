@@ -54,5 +54,17 @@ describe('review attempt coordinator', () => {
     ])
     expect(executions).toBe(1)
     expect(readReviewerRawAttempt(first)).toEqual(readReviewerRawAttempt(second))
+    await coordinator.finalize(
+      bundle,
+      choice,
+      input.imageDigest,
+      readReviewerRawAttempt(first).reviewId,
+    )
+    await coordinator.finalize(
+      bundle,
+      choice,
+      input.imageDigest,
+      readReviewerRawAttempt(first).reviewId,
+    )
   })
 })
