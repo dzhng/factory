@@ -1,0 +1,1 @@
+{"session_id":"claude-fixture-session","prompt_id":"prompt-1","hook_event_name":"PreToolUse","tool_name":"Bash","tool_use_id":"tool-1","tool_input":{"command":"printf fidelity"},"cwd":"/tmp/factory-capture-k1p1qk/repository"}

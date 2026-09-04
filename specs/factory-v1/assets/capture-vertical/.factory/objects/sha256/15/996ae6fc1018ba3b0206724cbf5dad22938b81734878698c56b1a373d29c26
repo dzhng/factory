@@ -1,0 +1,1 @@
+{"session_id":"codex-fixture-session","turn_id":"turn-1","hook_event_name":"PreToolUse","tool_name":"exec_command","tool_use_id":"tool-1","tool_input":{"cmd":"printf fidelity"},"cwd":"/tmp/factory-capture-k1p1qk/repository"}
