@@ -549,7 +549,34 @@ const permuted = await loadPlan(
   subjectPath,
   await history(permutedStore, [completed.manifestPath]),
 )
-const permutationEqual = canonicalJson(permuted) === canonicalJson(continuing)
+const permutationAPath = join(output, 'permutation-a')
+const permutationBPath = join(output, 'permutation-b')
+const bundleSource = (source: FixtureStore, plan: ReviewPlan) => ({
+  getObject: async (value: ObjectRef) => {
+    const ordinary = source.objects.get(value.sha256)
+    if (ordinary !== undefined) return ordinary
+    if (plan.priorLedger?.object.sha256 === value.sha256) {
+      const ledger = source.records.get(plan.priorLedger.path)
+      if (ledger !== undefined) return ledger
+    }
+    throw new Error(`fixture object unavailable: ${value.sha256}`)
+  },
+})
+const permutationA = await buildBundle(
+  continuing,
+  bundleSource(store, continuing),
+  permutationAPath,
+)
+const permutationB = await buildBundle(
+  permuted,
+  bundleSource(permutedStore, permuted),
+  permutationBPath,
+)
+const permutationEqual =
+  canonicalJson(permuted) === canonicalJson(continuing) &&
+  permutationA.sha256 === permutationB.sha256
+await rm(permutationAPath, { recursive: true, force: true })
+await rm(permutationBPath, { recursive: true, force: true })
 
 // Production reconstruction consumes only bundle CAS in a fresh directory whose ancestors contain no .git.
 const reconstruction = join(output, 'reconstructed')
@@ -602,7 +629,15 @@ const names = [
   'pr-force-push-base-change',
 ]
 let reviewerDockerStarts = 0
-for (const plan of [unchanged]) if (plan.status === 'ready') reviewerDockerStarts += 1
+let noOpBundleBuilds = 0
+let noOpObjectReads = 0
+const exerciseExecutionGate = (plan: ReviewPlan) => {
+  if (plan.status !== 'ready') return
+  noOpBundleBuilds += 1
+  noOpObjectReads += 1
+  reviewerDockerStarts += 1
+}
+exerciseExecutionGate(unchanged)
 const report = {
   schemaVersion: 1,
   cases: plans.map((plan, index) => ({
@@ -626,7 +661,12 @@ const report = {
     partial: partialBundle.sha256,
     pullRequest: prBundle.sha256,
   },
-  noOpGate: { status: unchanged.status, reviewerDockerStarts },
+  noOpGate: {
+    status: unchanged.status,
+    bundleBuilds: noOpBundleBuilds,
+    objectReads: noOpObjectReads,
+    reviewerDockerStarts,
+  },
   permutationEqual,
   freshDirectoryVerification: (
     await verifyBundle(join(output, 'complete-bundle'), completeBundle.sha256)
@@ -640,6 +680,8 @@ if (
   !report.reconstructedWithoutGit ||
   !report.gitDiscoveryFailed ||
   reviewerDockerStarts !== 0 ||
+  noOpBundleBuilds !== 0 ||
+  noOpObjectReads !== 0 ||
   unchanged.status !== 'already-reviewed' ||
   prPlan.selections[0]?.association?.proofs.length !== 2 ||
   forcePush.subjectReview !== 'full-current-pr-diff'

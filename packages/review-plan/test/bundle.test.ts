@@ -258,6 +258,13 @@ describe('verified review bundles', () => {
       join(parent, 'bundle'),
     )
     expect((await verifyBundle(built.path, built.sha256)).valid).toBe(true)
+    const bundleManifestPath = join(built.path, 'bundle.json')
+    const bundleManifest = JSON.parse(await readFile(bundleManifestPath, 'utf8'))
+    bundleManifest.plan.historySources[0].kind = 'review-ledger'
+    const forgedBytes = new TextEncoder().encode(canonicalJson(bundleManifest))
+    await rm(bundleManifestPath)
+    await writeFile(bundleManifestPath, forgedBytes)
+    expect((await verifyBundle(built.path, digest(forgedBytes))).valid).toBe(false)
   })
 
   test('verifies an omitted object owned by a workspace code-manifest limitation', async () => {

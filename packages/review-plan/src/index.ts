@@ -368,6 +368,18 @@ export type LoadedHistorySource = {
   kind: 'review-manifest' | 'review-ledger' | 'coverage-action' | 'subject-observation'
 }
 
+function historySourceKind(path: OwnedPath): LoadedHistorySource['kind'] | undefined {
+  if (/^reviews\/coverage-actions\/[^/]+\.json$/.test(path)) return 'coverage-action'
+  if (/^reviews\/.+\/manifest\.json$/.test(path)) return 'review-manifest'
+  if (/^reviews\/.+\/ledger\.json$/.test(path)) return 'review-ledger'
+  if (
+    /^repository-observations\/[^/]+\.json$/.test(path) ||
+    /^pull-requests\/github\/[^/]+\/\d+\/observations\/[^/]+\.json$/.test(path)
+  )
+    return 'subject-observation'
+  return undefined
+}
+
 type LoadedReviewHistoryState = {
   reviews: readonly PriorReview[]
   coverageActions: readonly CoverageAction[]
@@ -670,6 +682,48 @@ export async function loadReviewHistory(
           }
     if (subjectFingerprint(subject) !== manifest.subjectFingerprint) {
       throw new TypeError('history review fingerprint differs from its exact subject bytes')
+    }
+    for (const problem of manifest.inputProblems) {
+      if (problem.kind === 'association-batch') {
+        if (
+          subject.kind !== 'pull-request' ||
+          !problem.path.startsWith(
+            `pull-requests/github/${subject.observation.repositoryKey}/${subject.observation.number}/associations/${subject.observation.observationId}/batches/`,
+          )
+        ) {
+          throw new TypeError('history association problem is detached from its exact PR subject')
+        }
+        continue
+      }
+      const directReference = (() => {
+        if (problem.field === 'codeManifest') return subject.observation.codeManifest
+        if (subject.kind === 'workspace') {
+          if (problem.field === 'stagedPatch') return subject.observation.stagedPatch
+          if (problem.field === 'unstagedPatch') return subject.observation.unstagedPatch
+        } else if (problem.field === 'raw') {
+          return subject.observation.raw.find(
+            reference => canonicalJson(reference) === canonicalJson(problem.object),
+          )
+        }
+        if (problem.field === 'limitation') {
+          return subject.observation.limitations
+            .map(limitation => limitation.object)
+            .find(reference => canonicalJson(reference) === canonicalJson(problem.object))
+        }
+        return undefined
+      })()
+      if (
+        directReference === undefined &&
+        !(problem.field === 'limitation' && manifest.codeManifest !== undefined)
+      ) {
+        throw new TypeError('history subject object problem is detached from its subject')
+      }
+      if (
+        directReference !== undefined &&
+        canonicalJson(directReference) !== canonicalJson(problem.object)
+      ) {
+        throw new TypeError('history subject object problem names another object')
+      }
     }
     let ledger: ReviewLedger | undefined
     const ledgerPath = descriptor.manifestPath.endsWith('/manifest.json')
@@ -2285,9 +2339,7 @@ export function validateReviewPlanRecord(plan: ReviewPlanRecord): void {
         !Number.isSafeInteger(source.bytes) ||
         source.bytes < 0 ||
         !/^[a-f0-9]{64}$/.test(source.sha256) ||
-        !['review-manifest', 'review-ledger', 'coverage-action', 'subject-observation'].includes(
-          source.kind,
-        ),
+        historySourceKind(source.path) !== source.kind,
     )
   ) {
     throw new TypeError('review plan history sources are invalid or noncanonical')
@@ -2806,7 +2858,7 @@ export async function verifyBundle(
       }
     }
     if (manifest.plan.historySources.length > 0) {
-      await loadReviewHistory(
+      const rebuiltHistory = await loadReviewHistory(
         {
           read: async ownedPath => {
             const bytes = recordBytes.get(ownedPath)
@@ -2825,6 +2877,20 @@ export async function verifyBundle(
             .map(source => source.path),
         },
       )
+      const rebuiltSources = loadedHistories.get(rebuiltHistory)?.sources
+      if (
+        rebuiltSources === undefined ||
+        canonicalJson(
+          rebuiltSources.map(source => ({
+            path: source.path,
+            sha256: source.sha256,
+            bytes: source.bytes.byteLength,
+            kind: source.kind,
+          })),
+        ) !== canonicalJson(manifest.plan.historySources)
+      ) {
+        throw new Error('bundle history sources differ from the validated history closure')
+      }
     }
     const readBundleObject = async (ref: ObjectRef): Promise<Uint8Array> => {
       if (!manifest.inventory.some(item => canonicalJson(item) === canonicalJson(ref))) {
@@ -3034,6 +3100,26 @@ export async function verifyBundle(
     const compactWorkspaceRepositoryId =
       manifest.plan.subject.kind === 'workspace' ? manifest.plan.subject.repositoryId : undefined
     for (const selection of manifest.plan.selections) {
+      if (manifest.plan.subject.kind === 'pull-request' && selection.kind === 'range') {
+        const expectedProofs = [...bundledAssociationProofs.entries()]
+          .filter(([, bundled]) =>
+            bundled.evidence.kind === 'invalidation'
+              ? false
+              : bundled.evidence.sessionKey === selection.sessionKey,
+          )
+          .map(([key, bundled]) => ({
+            batchId: key.split('\0')[0] as RecordId,
+            evidenceId: bundled.evidence.evidenceId,
+            authority:
+              bundled.evidence.kind === 'manual'
+                ? ('manual-asserted' as const)
+                : ('verified-exact' as const),
+          }))
+          .sort(compareCanonical)
+        if (canonicalJson(expectedProofs) !== canonicalJson(selection.association?.proofs ?? [])) {
+          throw new Error('bundle selection omits or adds association proof authority')
+        }
+      }
       for (const proof of selection.association?.proofs ?? []) {
         const bundled = bundledAssociationProofs.get(`${proof.batchId}\0${proof.evidenceId}`)
         if (
