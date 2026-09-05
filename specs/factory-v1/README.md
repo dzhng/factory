@@ -1,12 +1,12 @@
 # Factory v1 specification
 
-Status: **whole-spec review fixes in progress; final certification and publication pending**
+Status: **review fixes complete; final certification and publication pending**
 
 ## Next Agent Prompt
 
-Whole-spec review fixes and the exact-artifact incremental journey are integrated.
-Finish the release report's confirmed mobile overflow correction, then certify
-the final native candidate and consolidate the choices ledger. The
+Whole-spec review fixes, the exact-artifact incremental journey, and the release
+report's mobile correction are integrated. Certify the final native candidate,
+then consolidate the choices ledger. The
 [capture certificate](assets/live-capture/README.md) now
 records actual callback authority and its current limits. Configurable
 Docker limits and cached update warnings are implemented; their

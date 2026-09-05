@@ -52,7 +52,10 @@ The integrated local build, formatting, lint, type, and test gates passed, along
 with the browser regression gate, workspace/PR CLI journeys, execution lab, and
 native macOS directory-inventory checks. Fresh visual review of the expanded
 release report found pre-existing mobile hash overflow and clipped authority
-text; that report-layout correction remains in progress.
+text. The CSS-only correction passed red/green browser assertions at mobile and
+desktop widths; identical report JSON separates layout from authority changes.
+Fresh review of all 22 captures and root inspection accepted the result, and
+independent code review found no defect.
 
 ## Remaining authority
 
