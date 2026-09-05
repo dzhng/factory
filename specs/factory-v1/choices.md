@@ -999,18 +999,17 @@ second normative schema; the master specification and format own mechanics.
   which is private runtime storage shared by linked worktrees. The first caller
   records a time-sortable review ID and deterministic container ownership before
   Docker starts. Concurrent callers wait on that same attempt. After the review
-  becomes immutable history, Factory replaces the cached raw response with a
-  small finalized marker. For example, if one process accepts a review and a
-  stale second process arrives afterward, the marker prevents a second model
-  run without retaining the provider's response forever.
+  becomes immutable history, Factory removes the transient attempt directory;
+  the subject lock makes a stale waiter reload portable history before it can
+  plan another model run.
 - **The gap:** The plan required retries, crashes, and concurrent invocations to
   converge, but it did not choose the durable single-flight key or what remains
   after acceptance.
 - **The reach:** Linked worktrees cannot accidentally run the same logical
   review twice, crash recovery can remove only the exact labeled container, and
-  portable `.factory` data stays free of locks and transient logs. Changing the
-  attempt identity changes retry semantics and must preserve the finalized
-  marker's no-rerun guarantee.
+  portable `.factory` data stays free of locks and transient logs. Finalized
+  runtime entries cannot accumulate into a lifetime execution cap; committed
+  review history is the durable no-rerun authority.
 - **Verdict:** Sound. It separates portable immutable truth from recoverable
   machine-local coordination while bounding retained sensitive data.
 - **Confidence:** High.

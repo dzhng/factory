@@ -82,8 +82,6 @@ describe('review attempt coordinator', () => {
     expect(await readFile(statePath, 'utf8')).toContain('responseBase64')
     await coordinator.finalize(bundle, choice, input.imageDigest, {
       reviewId: readReviewerRawAttempt(first).reviewId,
-      disposition: 'complete',
-      executionFailed: false,
     })
     await expect(readFile(statePath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
     expect(executions).toBe(1)
@@ -119,8 +117,6 @@ describe('review attempt coordinator', () => {
     const failedId = readReviewerRawAttempt(failed).reviewId
     await coordinator.finalize(bundle, choice, input.imageDigest, {
       reviewId: failedId,
-      disposition: 'failed',
-      executionFailed: true,
     })
     const retried = await coordinator.run(bundle, choice, executor, {
       ...input,

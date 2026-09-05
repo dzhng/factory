@@ -2549,7 +2549,10 @@ function validateRecordShape(
         throw new TypeError('review.containerImageDigest must be an immutable SHA-256 image ID')
       assertTimestamp(value.startedAt, 'review.startedAt')
       assertTimestamp(value.completedAt, 'review.completedAt')
-      if ((value.completedAt as string).localeCompare(value.startedAt as string) < 0)
+      if (
+        new Date(value.completedAt as string).getTime() <
+        new Date(value.startedAt as string).getTime()
+      )
         throw new TypeError('review.completedAt must not precede review.startedAt')
       assertEnum(value.disposition, ['complete', 'partial', 'failed'], 'review.disposition')
       if ('failureReason' in value)

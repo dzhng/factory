@@ -394,7 +394,7 @@ describe('public repository contract', () => {
           providerCliVersion: '0.1.0',
           hostPlatform: 'linux/arm64',
           startedAt: timestamp,
-          completedAt: timestamp,
+          completedAt: '2026-09-04T00:00:00.500Z',
           disposition: 'complete',
         },
       ],

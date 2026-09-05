@@ -270,7 +270,7 @@ export async function runObservedReviewerContainer(
     provider: plan.provider,
     bundleHostPath: plan.bundle.hostPath,
     outputHostPath: plan.output.hostPath,
-    auth: plan.auth.map(({ hostPath, containerPath }) => ({ hostPath, containerPath })),
+    auth: plan.auth,
   })
   if (!resolved.ok) {
     throw new Error(`Reviewer mount plan refused (${resolved.reason}): ${resolved.detail}`)
