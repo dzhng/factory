@@ -41,3 +41,5 @@ reported its default; offline branch-name fallbacks never manufacture drift.
 records, serves it only on `127.0.0.1`, and stops when the command exits. The
 browser receives two narrow append-only action seams—decision actions and
 explicit partial-coverage acceptance—not a generic repository writer.
+Display refreshes reuse the GitHub diagnostic policy with a short discovery
+deadline. Action validation reads local evidence without waiting for GitHub.

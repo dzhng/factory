@@ -1,5 +1,6 @@
 import { UnsupportedRepositoryVersionError, type RecordId } from '@factory/contract'
 import { buildUiProjection, buildUnavailableUiProjection } from '@factory/domain'
+import { observeGithubDefaultBranch } from '@factory/github'
 import { openRepositoryStore, type RepositoryStore } from '@factory/repository'
 import {
   acceptPartialCoverageByReviewId,
@@ -12,6 +13,8 @@ import {
   type LocalUiHandle,
   type UiDecisionAction,
 } from '@factory/web'
+
+import { githubDiagnostics } from './diagnostics'
 
 type Output = { stdout(value: string): void; stderr(value: string): void }
 
@@ -57,10 +60,31 @@ export async function openCommand(
   }
   const handle = await serveLocalUi({
     host: '127.0.0.1',
-    snapshot: async () => {
+    snapshot: async purpose => {
       if (unavailable !== undefined) return buildUnavailableUiProjection(unavailable)
       try {
-        return buildUiProjection(await requireStore().readRecords())
+        const [records, github] = await Promise.all([
+          requireStore().readRecords(),
+          purpose === 'display'
+            ? observeGithubDefaultBranch({
+                cwd: repositoryRoot,
+                environment,
+                maximumDurationMs: 750,
+              })
+            : undefined,
+        ])
+        const snapshot = buildUiProjection(records)
+        if (snapshot.state !== 'ready' || github === undefined) return snapshot
+        return {
+          ...snapshot,
+          diagnostics: [
+            ...snapshot.diagnostics,
+            ...githubDiagnostics(github, records.config.canonicalBranch).map(item => ({
+              priority: item.severity === 'high' ? ('high' as const) : ('normal' as const),
+              message: item.summary,
+            })),
+          ],
+        }
       } catch (error) {
         return buildUnavailableUiProjection(
           error instanceof UnsupportedRepositoryVersionError ? 'upgrade-required' : 'corrupt',

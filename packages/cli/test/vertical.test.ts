@@ -17,6 +17,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { canonicalJson, type RecordId } from '@factory/contract'
+import type { UiReadySnapshot } from '@factory/domain'
 import {
   initializeRepositoryStore,
   openRepositoryStore,
@@ -466,6 +467,77 @@ describe('installed capture vertical', () => {
     ).toBe(0)
     const repoReview = await command(value.factory, ['review'], value.repository, value.env)
     expect(JSON.parse(repoReview.stdout).reviewer.provider).toBe('codex')
+  })
+
+  test('open refresh observes canonical drift without changing repository configuration', async () => {
+    const value = await createFixture()
+    expect((await command(value.factory, ['init'], value.repository, value.env)).code).toBe(0)
+    const gh = join(value.root, 'bin', 'gh')
+    const branch = join(value.root, 'bin', 'default-branch')
+    await writeFile(gh, '#!/bin/sh\ncat "${0%/*}/default-branch"\n')
+    await chmod(gh, 0o755)
+    await writeFile(branch, 'trunk\n')
+    const controller = new AbortController()
+    let started!: (handle: LocalUiHandle) => void
+    const ready = new Promise<LocalUiHandle>(resolve => {
+      started = resolve
+    })
+    const running = runFactoryCli(['open'], {
+      cwd: value.repository,
+      environment: value.env,
+      output: { stdout: () => undefined, stderr: () => undefined },
+      open: { signal: controller.signal, launchBrowser: async () => undefined, onStarted: started },
+    })
+    const handle = await ready
+    try {
+      const snapshot = async () =>
+        (await fetch(`${handle.origin}/api/snapshot`).then(response =>
+          response.json(),
+        )) as UiReadySnapshot
+      expect((await snapshot()).diagnostics).toContainEqual({
+        priority: 'high',
+        message: 'Canonical branch main differs from GitHub default trunk',
+      })
+      await writeFile(branch, 'main\n')
+      expect((await snapshot()).diagnostics).not.toContainEqual(
+        expect.objectContaining({
+          message: expect.stringContaining('differs from GitHub'),
+        }),
+      )
+      await writeFile(gh, '#!/bin/sh\nexit 1\n')
+      expect((await snapshot()).diagnostics).not.toContainEqual(
+        expect.objectContaining({
+          message: expect.stringContaining('differs from GitHub'),
+        }),
+      )
+      await expect(
+        (await openRepositoryStore(value.repository))
+          .readConfig()
+          .then(config => config.canonicalBranch),
+      ).resolves.toBe('main')
+      await writeFile(gh, '#!/bin/sh\nsleep 10\n')
+      const slow = await fetch(`${handle.origin}/api/snapshot`, {
+        signal: AbortSignal.timeout(2_000),
+      })
+      expect(slow.status).toBe(200)
+      await writeFile(gh, '#!/bin/sh\ntouch "${0%/*}/called"\nexit 1\n')
+      const session = (await fetch(`${handle.origin}/api/session`).then(response =>
+        response.json(),
+      )) as { csrfToken: string }
+      await fetch(`${handle.origin}/api/actions/coverage`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Origin: handle.origin,
+          'X-Factory-CSRF': session.csrfToken,
+        },
+        body: JSON.stringify({ reviewId: 'review_00000000000000000000000001' }),
+      })
+      expect(await pathExists(join(value.root, 'bin', 'called'))).toBe(false)
+    } finally {
+      controller.abort()
+      expect(await running).toBe(0)
+    }
   })
 
   test('configures from GitHub while preserving explicit override and source-aware drift', async () => {

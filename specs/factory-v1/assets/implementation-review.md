@@ -35,16 +35,21 @@ Verdict: **not clean**. Scope: implementation from `c1b23a7` through
    the installed CLI. Capture succeeded and created a trigger, with no review.
    Source tracing confirms there is no dispatch or scheduler for that trigger.
    Implement the opted-in execution path without breaking fail-open capture.
-4. **P2 — The UI cannot report GitHub canonical-branch drift.**
+4. **Resolved P2 — The UI could not report GitHub canonical-branch drift.**
    [UI composition](../../../packages/cli/src/open.ts) supplies only repository
    records to the [projection](../../../packages/domain/src/ui.ts). Neither
    acquires a current GitHub default-branch observation. Its diagnostics contain
    missing canonical configuration and decision-fold problems, but cannot
-   detect the disagreement promised by the spec. Reuse the provider-backed
-   observation and diagnostic policy already used by `doctor`; local fallbacks
-   must not manufacture drift.
+   detect the disagreement promised by the spec. Display refreshes now reuse
+   the provider-backed observation and diagnostic policy used by `doctor`, with
+   a 750 ms discovery deadline. Action validation skips GitHub entirely.
+   Docker regressions cover drift, matching branches, unavailable and slow
+   GitHub, unchanged configuration, and local-only action validation. Real
+   browser captures at desktop and mobile widths passed fresh visual critique;
+   the existing mobile severity bar remains legible. Independent code review's
+   latency finding was fixed and its follow-up passed.
 
-The three P2 findings remain open. Only the P1 fix was authorized in the follow-up.
+Only automatic review remains open.
 
 ## Shape and documentation
 

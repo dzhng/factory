@@ -52,7 +52,7 @@ export type ActionPort = {
 export type ServeLocalUiInput = {
   host: '127.0.0.1'
   port?: number
-  snapshot(): Promise<UiSnapshot>
+  snapshot(purpose: 'display' | 'action'): Promise<UiSnapshot>
   actions: ActionPort
 }
 
@@ -249,7 +249,7 @@ export async function serveLocalUi(input: ServeLocalUiInput): Promise<LocalUiHan
         else if (url.pathname === '/api/session') result = json({ csrfToken })
         else if (url.pathname === '/api/snapshot') {
           try {
-            const snapshot = await input.snapshot()
+            const snapshot = await input.snapshot('display')
             const encoded = JSON.stringify(snapshot)
             result =
               new TextEncoder().encode(encoded).byteLength > 8 * 1024 * 1024
@@ -270,7 +270,7 @@ export async function serveLocalUi(input: ServeLocalUiInput): Promise<LocalUiHan
       )
         return error('request-authority-rejected', 403)
       try {
-        const snapshot = await input.snapshot()
+        const snapshot = await input.snapshot('action')
         if (snapshot.state !== 'ready') return error('repository-unavailable', 409)
         const body = await readJson(request)
         if (url.pathname === '/api/actions/decision') {

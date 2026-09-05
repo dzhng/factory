@@ -134,24 +134,29 @@ export function runDiagnostics(context: DiagnosticContext): readonly FactoryDiag
       })
   }
 
-  if (context.github.availability === 'unavailable')
+  diagnostics.push(...githubDiagnostics(context.github, context.canonicalBranch))
+  return diagnostics
+}
+
+export function githubDiagnostics(
+  github: GithubDefaultBranchObservation,
+  canonicalBranch?: string,
+): readonly FactoryDiagnostic[] {
+  const diagnostics: FactoryDiagnostic[] = []
+  if (github.availability === 'unavailable')
     diagnostics.push({
       code: 'github-unavailable',
       severity:
-        context.github.reason === 'gh-missing' ||
-        context.github.reason === 'authentication-required'
+        github.reason === 'gh-missing' || github.reason === 'authentication-required'
           ? 'low'
           : 'medium',
-      summary: `GitHub default branch is unavailable: ${context.github.reason}`,
+      summary: `GitHub default branch is unavailable: ${github.reason}`,
     })
-  else if (
-    context.canonicalBranch !== undefined &&
-    context.canonicalBranch !== context.github.branch
-  )
+  else if (canonicalBranch !== undefined && canonicalBranch !== github.branch)
     diagnostics.push({
       code: 'canonical-branch-drift',
       severity: 'high',
-      summary: `Canonical branch ${context.canonicalBranch} differs from GitHub default ${context.github.branch}`,
+      summary: `Canonical branch ${canonicalBranch} differs from GitHub default ${github.branch}`,
     })
   return diagnostics
 }
