@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "artifact": {
+    "version": "0.1.0",
+    "revision": "51ea46c3698c63e358c0c23f27c15b1fa025aa42",
+    "target": "bun-linux-x64-baseline",
+    "manifestSha256": "25561a84d7574b8a8d1607dd6690302570b7c8ca4ada736c5eb171f83c70513f",
+    "archiveSha256": "83798ac7dfc716b140635cf379289b538ceac605a46f627d51cdaae9d09ef2ed",
+    "executableSha256": "bdb1d6a8919f0e6ba9a62281249779f71186b23509e786bdc3cf2fcd02ab554c"
+  },
+  "platform": {
+    "os": "linux",
+    "architecture": "x64",
+    "node": "24.3.0",
+    "bun": "1.3.14",
+    "git": "git version 2.55.0",
+    "docker": "Docker version 28.0.4, build b8034c0"
+  },
+  "providers": {
+    "claude": {
+      "availability": "unavailable",
+      "reason": "missing"
+    },
+    "codex": {
+      "availability": "unavailable",
+      "reason": "missing"
+    }
+  },
+  "authorities": {
+    "providerExecution": "deterministic-isolation-fixture",
+    "realProviderCredentials": "unavailable",
+    "reviewerImageDigest": "local-fixture",
+    "githubReleaseAttestation": "unavailable"
+  },
+  "journeys": [
+    {
+      "name": "install",
+      "status": "passed",
+      "detail": "both provider hooks reconciled"
+    },
+    {
+      "name": "capture",
+      "status": "passed",
+      "detail": "both native provider fixtures stored"
+    },
+    {
+      "name": "review",
+      "status": "passed",
+      "detail": "isolated deterministic review accepted"
+    },
+    {
+      "name": "ui-action",
+      "status": "passed",
+      "detail": "loopback projection confirmed a decision"
+    },
+    {
+      "name": "incremental-coverage",
+      "status": "passed",
+      "detail": "continuing Session advances exact Stop coverage with the accepted prior ledger"
+    },
+    {
+      "name": "unchanged-review",
+      "status": "passed",
+      "detail": "exact prior review reused without Docker or another immutable attempt"
+    },
+    {
+      "name": "diagnostics",
+      "status": "passed",
+      "detail": "repository and installation healthy"
+    },
+    {
+      "name": "upgrade",
+      "status": "passed",
+      "detail": "exact artifact atomically reinstalled"
+    },
+    {
+      "name": "uninstall",
+      "status": "passed",
+      "detail": "owned hooks removed exactly"
+    }
+  ]
+}

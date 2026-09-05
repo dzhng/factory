@@ -5,8 +5,11 @@ Status: **review fixes complete; final certification and publication pending**
 ## Next Agent Prompt
 
 Whole-spec review fixes, the exact-artifact incremental journey, and the release
-report's mobile correction are integrated. Certify the final native candidate,
-then consolidate the choices ledger. The
+report's mobile correction are integrated. The [0.1.0 candidate](assets/final-candidate/README.md)
+passed CI and exact native deterministic journeys on Linux and macOS, with both
+archives and manifests verified against their source-pinned attestations.
+Resume authenticated certification of those exact bytes once Claude login is
+usable, then publish, consolidate the choices ledger, and close the spec. The
 [capture certificate](assets/live-capture/README.md) now
 records actual callback authority and its current limits. Configurable
 Docker limits and cached update warnings are implemented; their
@@ -20,11 +23,10 @@ The latest live Claude probe reports revoked OAuth authentication. Earlier
 successful runs remain historical evidence, not final-candidate certification;
 do not publish until both provider authorities are available and proven again.
 
-After implementation settles, dispatch CI with the intended candidate version,
-download its exact native artifacts, and certify the macOS artifact locally with
-both existing provider logins. Publish only those certified bytes; then reconcile
-all slice statuses and close the specification. Earlier artifact evidence does
-not certify subsequent changes.
+The candidate evidence records its exact source, CI run, and byte identities.
+Publish only those bytes after both authenticated provider checks pass; then
+reconcile all slice statuses and close the specification. Earlier artifact
+evidence does not certify subsequent code changes.
 
 The [release report](assets/release-certification/report.json) retains the exact
 macOS arm64 artifact at `0f2ba19` that completed both authenticated provider

@@ -61,6 +61,7 @@ independent code review found no defect.
 
 The integrated [live capture certificate](live-capture/README.md) distinguishes
 historical actual callbacks from current authentication readiness. The latest
-Claude attempt failed authentication. No host login was modified. The final
-exact candidate still needs all native quality gates, both authenticated review
-authorities, publication provenance, and specification closeout.
+Claude attempt failed authentication. No host login was modified. The
+[final candidate](final-candidate/README.md) passed native quality and deterministic
+journeys plus source-pinned candidate attestation checks. Both authenticated
+review authorities, release publication, and specification closeout remain pending.
