@@ -41,6 +41,10 @@ import {
   type ReviewRepositoryReader,
 } from '../src'
 
+if (process.env.FACTORY_DOCKER_TEST !== '1') {
+  throw new Error('Review bundle tests require Docker; run the package test script')
+}
+
 const roots: string[] = []
 afterEach(async () => {
   await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })))

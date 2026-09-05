@@ -11,7 +11,7 @@
     "build": "tsc -p tsconfig.build.json",
     "check-types": "tsc --noEmit",
     "lint": "oxlint src test docker",
-    "test": "bun test && bun run test/docker.ts"
+    "test": "bun test test/adapter.test.ts test/coordinator.test.ts test/environment.test.ts test/execution.test.ts test/isolation.test.ts && bun run test/docker.ts"
   },
   "dependencies": {
     "@factory/contract": "workspace:*",

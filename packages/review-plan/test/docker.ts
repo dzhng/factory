@@ -10,7 +10,7 @@ const child = Bun.spawn(
     '--user',
     '1000:1000',
     '--tmpfs',
-    '/tmp:rw,noexec,nosuid,nodev,size=16m',
+    '/tmp:rw,noexec,nosuid,nodev,size=64m',
     '--mount',
     `type=bind,src=${repositoryRoot},dst=/workspace,readonly`,
     '--workdir',
@@ -20,8 +20,7 @@ const child = Bun.spawn(
     'oven/bun:1.3.14',
     'bun',
     'test',
-    '/workspace/packages/reviewer/test/environment-docker.test.ts',
-    '/workspace/packages/reviewer/test/isolation-docker.test.ts',
+    '/workspace/packages/review-plan/test/bundle.test.ts',
   ],
   { stdout: 'inherit', stderr: 'inherit' },
 )
