@@ -22,6 +22,7 @@ describe('review provider adapters', () => {
     expect(invocation.prompt).toContain('/review-input')
     expect(invocation.prompt).toContain('"decisionKey":"explicit stable opaque key"')
     expect(invocation.prompt).toContain('Omission never means removal')
+    expect(invocation.prompt).toContain('MUST emit at least one cited summary')
   })
 
   test('pins restricted Claude argv without fallback or persistence', () => {
