@@ -6,10 +6,12 @@ or provider-auth targets outside the selected provider's namespace. Execution
 then observes the container Docker actually created, rather than treating the
 requested arguments as proof.
 
-The reviewer package never discovers repository state or review subjects.
-Credential discovery is limited to explicit dedicated-file configuration, which
-the package validates before returning an identity-bound read-only mount. The
-test harness owns fake images, live journeys, and human-readable reports.
+The reviewer package never discovers repository state or review subjects. It
+uses each authenticated CLI's conventional provider-owned credential location by
+default, with explicit file paths reserved for nonstandard installations and
+controlled tests. Every file is validated before the package returns an
+identity-bound read-only mount. The test harness owns fake images, live journeys,
+and human-readable reports.
 
 Bundle verification mints a private capability only for a `ready` plan. The
 execution boundary re-verifies that exact digest before using credentials or

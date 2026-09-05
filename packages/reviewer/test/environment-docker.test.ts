@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { chmod, mkdtemp, symlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -22,6 +22,31 @@ type InvalidCredentialReason = Exclude<
 >
 
 dockerDescribe('reviewer credential discovery', () => {
+  test('uses conventional CLI credentials without Factory-specific setup', async () => {
+    expect(process.getuid?.()).not.toBe(0)
+    const home = await mkdtemp(join(tmpdir(), 'factory-reviewer-cli-home-'))
+    const codex = join(home, '.codex', 'auth.json')
+    const claude = join(home, '.claude', '.credentials.json')
+    await Promise.all([
+      mkdir(join(home, '.codex'), { recursive: true }),
+      mkdir(join(home, '.claude'), { recursive: true }),
+    ])
+    await Promise.all([
+      writeFile(codex, '{"tokens":{"access_token":"codex-test"}}\n', { mode: 0o600 }),
+      writeFile(claude, '{"claudeAiOauth":{"accessToken":"claude-test"}}\n', { mode: 0o600 }),
+    ])
+
+    const resolved = await resolveReviewerAuthentication({ HOME: home })
+
+    expect(resolved.inspection).toEqual({
+      codex: { state: 'available' },
+      claude: { state: 'available' },
+    })
+    expect(resolved.availability).toEqual({ codex: true, claude: true })
+    expect(resolved.mounts.codex?.hostPath).toBe(codex)
+    expect(resolved.mounts.claude?.hostPath).toBe(claude)
+  })
+
   test('mints identity only for a mountable bounded file owned by this non-root user', async () => {
     expect(process.getuid?.()).not.toBe(0)
     const root = await mkdtemp(join(tmpdir(), 'factory-reviewer-auth-'))

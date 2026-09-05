@@ -44,8 +44,11 @@ this consequence clear before capture begins.
 
 ## Provider authentication stays provider-owned
 
-Factory reuses an authenticated Codex or Claude CLI. It does not collect or
-persist provider API keys in Factory configuration.
+Factory reuses an authenticated Codex or Claude CLI without a separate Factory
+login or credential setup. It discovers each CLI's conventional provider-owned
+authentication location; explicit paths exist only for nonstandard installations
+and controlled tests. Factory does not persist provider API keys in its
+configuration.
 
 When a reviewer runs, Factory mounts only the selected provider's required
 authentication files into the ephemeral container. These mounts are read-only.

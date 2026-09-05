@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { lstat, realpath } from 'node:fs/promises'
-import { isAbsolute } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 
 import { reviewerAuthContainerPath } from './adapter.js'
 import { dockerMountPathIssue, type ReadonlyAuthMount, type ReviewerProvider } from './isolation.js'
@@ -124,9 +124,22 @@ async function inspectDocker(
 export async function resolveReviewerAuthentication(
   environment: NodeJS.ProcessEnv,
 ): Promise<ReviewerAuthentication> {
+  const home = environment.HOME
   const configured = {
-    codex: environment.FACTORY_CODEX_AUTH_FILE,
-    claude: environment.FACTORY_CLAUDE_AUTH_FILE,
+    codex:
+      environment.FACTORY_CODEX_AUTH_FILE ??
+      (environment.CODEX_HOME === undefined
+        ? home === undefined
+          ? undefined
+          : join(home, '.codex', 'auth.json')
+        : join(environment.CODEX_HOME, 'auth.json')),
+    claude:
+      environment.FACTORY_CLAUDE_AUTH_FILE ??
+      (environment.CLAUDE_CONFIG_DIR === undefined
+        ? home === undefined
+          ? undefined
+          : join(home, '.claude', '.credentials.json')
+        : join(environment.CLAUDE_CONFIG_DIR, '.credentials.json')),
   }
   const mounts: ReviewerAuthentication['mounts'] = {}
   const availability = { codex: false, claude: false }
