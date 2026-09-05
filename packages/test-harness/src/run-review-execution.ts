@@ -180,9 +180,45 @@ async function main() {
         scenario.termination !== expected.termination ||
         scenario.exitCode !== expected.exitCode ||
         responseInfo.size === 0 ||
-        (expected.behavior === 'factory-test-oversized' && responseInfo.size > 1024 * 1024)
+        responseInfo.size > scenario.containerPolicy.fileSizeBytes ||
+        // Stream output retains one extra byte so the host can prove truncation.
+        (expected.behavior === 'factory-test-oversized' &&
+          expected.provider === 'claude' &&
+          responseInfo.size !== 1024 * 1024 + 1)
       )
-        throw new Error(`review response boundary failed: ${expected.behavior}`)
+        throw new Error(
+          `review response boundary failed: ${JSON.stringify({ expected, termination: scenario.termination, exitCode: scenario.exitCode, responseBytes: responseInfo.size })}`,
+        )
+      if (expected.behavior === 'factory-test-oversized' && expected.provider === 'codex') {
+        const truncated = readReviewerRawAttempt(
+          await dockerReviewerExecutor.run(
+            bundle,
+            { settings: bundleManifest.plan.policies.reviewer },
+            {
+              reviewId: 'review_00000000000000000000000010',
+              imageReference: imageDigest,
+              imageDigest,
+              runtimeRoot: root,
+              credential: {
+                kind: 'file',
+                mount: { hostPath: scenarioAuth, containerPath: '/auth/codex/auth.json' },
+              },
+              timeoutMs: 5_000,
+              containerIdentity: {
+                name: `factory-review-overflow-${randomUUID()}`,
+                label: randomUUID(),
+              },
+            },
+          ),
+        )
+        if (
+          truncated.termination !== 'crashed' ||
+          truncated.exitCode !== 1 ||
+          !truncated.outputTruncated ||
+          truncated.response.byteLength !== 1024 * 1024
+        )
+          throw new Error('production executor did not retain a bounded, explicitly partial prefix')
+      }
     }
     process.stdout.write(
       `${JSON.stringify({ schemaVersion: 1, imageDigest, termination: observation.termination, disposition: accepted.disposition, bundleSha256: manifest.bundleSha256 })}\n`,
