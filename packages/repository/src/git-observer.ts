@@ -616,7 +616,7 @@ export class GitObserver {
     const pathStates = new Map<string, string>()
     for (const path of paths) {
       try {
-        const scanned = await this.capturePath(path, 0)
+        const scanned = await this.capturePath(path, false)
         const value = fingerprint(path, scanned.kind, scanned.mode, scanned.digest)
         pathStates.set(pathKey(path), value)
         updateFingerprint(hashState, path, scanned.kind, scanned.mode, value)
@@ -638,8 +638,7 @@ export class GitObserver {
 
   private async capturePath(
     path: Uint8Array,
-    maximum = this.maxFileBytes,
-    onChunk?: (chunk: Uint8Array) => void,
+    retain = true,
     gitAlgorithm?: 'sha1' | 'sha256',
   ): Promise<{
     bytes?: Uint8Array
@@ -654,11 +653,10 @@ export class GitObserver {
     const before = await lstat(absolute, { bigint: true })
     if (before.isSymbolicLink()) {
       const bytes = await readlink(absolute, { encoding: 'buffer' })
-      onChunk?.(bytes)
       const after = await lstat(absolute, { bigint: true })
       await assertParentsUnchanged(parents)
       return {
-        ...(bytes.byteLength <= maximum ? { bytes } : {}),
+        ...(retain && bytes.byteLength <= this.maxFileBytes ? { bytes } : {}),
         digest: hash(bytes),
         ...(gitAlgorithm === undefined ? {} : { gitDigest: gitBlobDigest(bytes, gitAlgorithm) }),
         kind: 'symlink',
@@ -672,7 +670,6 @@ export class GitObserver {
     const chunks: Buffer[] = []
     const digest = createHash('sha256')
     let total = 0
-    let retaining = true
     const handle = await open(absolute, constants.O_RDONLY | constants.O_NOFOLLOW)
     try {
       const opened = await handle.stat({ bigint: true })
@@ -681,29 +678,37 @@ export class GitObserver {
         gitAlgorithm === undefined
           ? undefined
           : createHash(gitAlgorithm).update(`blob ${opened.size.toString()}\0`)
-      const buffer = Buffer.allocUnsafe(64 * 1024)
-      for (;;) {
-        const { bytesRead } = await handle.read(buffer, 0, buffer.byteLength, null)
+      let excluded = opened.size > BigInt(this.maxFileBytes)
+      const buffer = Buffer.allocUnsafe(Math.min(64 * 1024, this.maxFileBytes + 1))
+      while (!excluded) {
+        const { bytesRead } = await handle.read(
+          buffer,
+          0,
+          Math.min(buffer.byteLength, this.maxFileBytes - total + 1),
+          null,
+        )
         if (bytesRead === 0) break
         total += bytesRead
+        if (total > this.maxFileBytes) {
+          excluded = true
+          break
+        }
         const chunk = buffer.subarray(0, bytesRead)
         digest.update(chunk)
         gitDigest?.update(chunk)
-        onChunk?.(chunk)
-        if (total > maximum) {
-          retaining = false
-          chunks.length = 0
-        } else if (retaining) {
-          chunks.push(chunk.slice())
-        }
+        if (retain) chunks.push(Buffer.from(chunk))
       }
       const closed = await handle.stat({ bigint: true })
       const after = await lstat(absolute, { bigint: true })
       await assertParentsUnchanged(parents)
       return {
-        ...(retaining ? { bytes: Buffer.concat(chunks) } : {}),
-        digest: digest.digest('hex'),
-        ...(gitDigest === undefined ? {} : { gitDigest: gitDigest.digest('hex') }),
+        ...(retain && !excluded ? { bytes: Buffer.concat(chunks) } : {}),
+        // Excluded bytes have no content identity. Their metadata still participates
+        // in the race sentinel, without hashing a file we cannot admit as evidence.
+        digest: excluded
+          ? `excluded:${opened.dev}:${opened.ino}:${opened.size}:${opened.mtimeNs}:${opened.ctimeNs}:${opened.mode}`
+          : digest.digest('hex'),
+        ...(gitDigest === undefined || excluded ? {} : { gitDigest: gitDigest.digest('hex') }),
         kind: 'file',
         mode: Number(opened.mode),
         raced:
@@ -914,12 +919,7 @@ export class GitObserver {
         }
         let captured
         try {
-          captured = await this.capturePath(
-            candidate.path,
-            this.maxFileBytes,
-            undefined,
-            objectFormat,
-          )
+          captured = await this.capturePath(candidate.path, true, objectFormat)
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
             const code = (error as NodeJS.ErrnoException).code ?? 'read-failed'
@@ -967,7 +967,10 @@ export class GitObserver {
               : (captured.mode & 0o100) !== 0
                 ? '100755'
                 : '100644'
-          if (worktreeMode !== candidate.mode || captured.gitDigest !== candidate.oid) {
+          if (
+            worktreeMode !== candidate.mode ||
+            (captured.gitDigest !== undefined && captured.gitDigest !== candidate.oid)
+          ) {
             changedPathMap.set(pathKey(candidate.path), candidate.path)
           }
         }

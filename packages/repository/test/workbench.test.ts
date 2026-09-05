@@ -330,6 +330,20 @@ describe('sole repository writer', () => {
     )
   })
 
+  test('rejects projections when an owned record root is not an ordinary directory', async () => {
+    const root = await fixtureRoot()
+    const store = await initializeRepositoryStore(root, manifest, {})
+    const sessions = join(root, '.factory', 'sessions')
+    // A missing area is valid, but an existing replacement must not erase its
+    // records from an apparently successful projection.
+    expect((await store.readRecords()).records).toEqual([])
+    await writeFile(sessions, 'not a record directory')
+    await expect(store.readRecords()).rejects.toThrow('owned record root')
+    await unlink(sessions)
+    await symlink('decisions', sessions)
+    await expect(store.readRecords()).rejects.toThrow('owned record root')
+  })
+
   test('refuses symlinked owned areas, corrupt objects, and oversized input', async () => {
     const root = await fixtureRoot()
     const outside = join(root, 'outside')

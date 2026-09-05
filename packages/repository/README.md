@@ -13,6 +13,11 @@ and byte-preserving filesystem operations. It derives worktree changes from
 raw bytes and index identities instead of asking Git to inspect live files,
 because status-shaped commands can execute configured clean filters. Git
 stdout and stderr are bounded, and every command has a deadline. Its
+file ceiling bounds reads as well as retained bytes, including race checks.
+Excluded files contribute metadata-only race fingerprints, not invented content
+identities; admitted files still require exact bytes and stable metadata.
+Changed paths assert verified differences only; excluded content remains unknown,
+so their absence cannot prove a clean worktree. Its
 object-store seam lets capture finish the race sentinel before publishing
 anything under `.factory`. The public `CodeManifest` in `@factory/contract` is
 the reconstruction authority; the observer does not invent a second path or
@@ -37,6 +42,8 @@ filename bytes and descriptor ownership without adding a C-compiler dependency.
 Capture publishes immutable record graphs through one repository-owned grouped
 operation. The trigger is the logical commit point: interrupted create-only
 prefixes are ignored by projections and converge byte-for-byte during recovery.
+An absent owned record area is valid; a non-directory replacement is corruption,
+not an empty projection.
 Verified object and record reads are capabilities used by the runtime journal;
 paths alone never prove that committed evidence exists.
 

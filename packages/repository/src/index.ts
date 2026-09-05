@@ -785,7 +785,11 @@ export class RepositoryStore {
     }
     for (const area of OWNED_DIRECTORIES.filter(area => area !== 'objects')) {
       const root = join(this.factoryRoot, area)
-      if ((await pathKind(root)) === 'directory') await visit(root, area, 0)
+      const kind = await pathKind(root)
+      if (kind === 'missing') continue
+      if (kind !== 'directory')
+        throw new Error(`Factory refuses non-directory owned record root: ${root}`)
+      await visit(root, area, 0)
     }
     return { config: await this.readConfig(), records }
   }

@@ -1,5 +1,6 @@
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, spyOn, test } from 'bun:test'
 import { createHash } from 'node:crypto'
+import * as filesystem from 'node:fs/promises'
 import {
   chmod,
   lstat,
@@ -646,6 +647,129 @@ describe.serial('safe Git observation', () => {
     expect(publications).toBeGreaterThan(0)
   })
 
+  test('retains exact admitted bytes across multiple read chunks', async () => {
+    const root = await repository()
+    const bytes = Buffer.concat([
+      Buffer.alloc(64 * 1024, 1),
+      Buffer.alloc(64 * 1024, 2),
+      Buffer.from('tail'),
+    ])
+    await writeFile(join(root, 'source.bin'), bytes)
+    const objects = new MemoryGitObjectStore()
+    const result = await new GitObserver(root, objects, { repositoryId: 'repo_test' }).observe()
+    if (result.kind !== 'observed') throw new Error(`unexpected result: ${result.kind}`)
+    const manifest = await objects.readJson(result.observation.codeManifest!)
+    const entry = manifest.entries[0]!
+    if (!('object' in entry)) throw new Error('fixture must capture an ordinary file')
+    expect(Buffer.from(await objects.get(entry.object)).equals(bytes)).toBe(true)
+  })
+
+  test('excludes oversized files without reading their content in capture or race sentinels', async () => {
+    const root = await repository()
+    await writeFile(join(root, 'readable.txt'), 'readable\n')
+    await writeFile(join(root, 'oversized.bin'), '')
+    await truncate(join(root, 'oversized.bin'), 64 * 1024 * 1024)
+    const readBytes = async () => {
+      const counters = await readFile('/proc/self/io', 'utf8')
+      return Number(/^rchar: (\d+)$/m.exec(counters)![1])
+    }
+    const objects = new MemoryGitObjectStore()
+    const before = await readBytes()
+    const result = await new GitObserver(root, objects, {
+      repositoryId: 'repo_test',
+      maxFileBytes: 16,
+    }).observe()
+    const consumed = (await readBytes()) - before
+    if (result.kind !== 'observed') throw new Error(`unexpected result: ${result.kind}`)
+    const manifest = await objects.readJson(result.observation.codeManifest!)
+    expect(manifest.entries.map(entry => entry.path.display)).toEqual(['readable.txt'])
+    expect(manifest.limitations).toContainEqual(
+      expect.objectContaining({
+        code: 'excluded-by-limit',
+        detail: expect.stringContaining('file exceeds 16'),
+      }),
+    )
+    // Process-wide read accounting includes Git output and runtime overhead. The
+    // allowance dwarfs that overhead but cannot hide even one oversized-file scan.
+    expect(consumed).toBeLessThan(1024 * 1024)
+  })
+
+  test('detects replacement of excluded bytes during the observation window', async () => {
+    const root = await repository()
+    const path = join(root, 'oversized.bin')
+    await writeFile(path, 'before')
+    const result = await new GitObserver(root, new MemoryGitObjectStore(), {
+      repositoryId: 'repo_test',
+      maxFileBytes: 1,
+      afterCapture: async () => {
+        await unlink(path)
+        await writeFile(path, 'after!')
+      },
+    }).observe()
+    expect(result.kind).toBe('raced')
+    if (result.kind !== 'raced') throw new Error('excluded-path race was not detected')
+    expect(result.race.startState).not.toBe(result.race.endState)
+    expect(result.partial.limitations).toContainEqual(
+      expect.objectContaining({ code: 'repository-race' }),
+    )
+  })
+
+  test('bounds content reads when a file grows after its descriptor metadata was sampled', async () => {
+    const root = await repository()
+    const path = join(root, 'growing.bin')
+    await writeFile(path, 'small')
+    const readBytes = async () =>
+      Number(/^rchar: (\d+)$/m.exec(await readFile('/proc/self/io', 'utf8'))![1])
+    const originalOpen = filesystem.open
+    let grew = false
+    const opened = spyOn(filesystem, 'open').mockImplementation(async (...args) => {
+      const handle = await originalOpen(...args)
+      if (String(args[0]) === path) {
+        const originalStat = handle.stat
+        spyOn(handle, 'stat').mockImplementation(
+          new Proxy(originalStat, {
+            apply: async (stat, receiver, statArgs) => {
+              const state = await Reflect.apply(stat, receiver, statArgs)
+              if (!grew) {
+                grew = true
+                await truncate(path, 64 * 1024 * 1024)
+              }
+              return state
+            },
+          }),
+        )
+      }
+      return handle
+    })
+    try {
+      const before = await readBytes()
+      const result = await new GitObserver(root, new MemoryGitObjectStore(), {
+        repositoryId: 'repo_test',
+        maxFileBytes: 16,
+      }).observe()
+      expect(result.kind).toBe('raced')
+      expect((await readBytes()) - before).toBeLessThan(1024 * 1024)
+    } finally {
+      opened.mockRestore()
+    }
+  })
+
+  test('does not invent a content change for a clean tracked file excluded by size', async () => {
+    const root = await repository()
+    await writeFile(join(root, 'oversized.bin'), 'unchanged tracked bytes')
+    await run(root, ['add', 'oversized.bin'])
+    await run(root, ['commit', '--quiet', '-m', 'tracked'])
+    const result = await new GitObserver(root, new MemoryGitObjectStore(), {
+      repositoryId: 'repo_test',
+      maxFileBytes: 16,
+    }).observe()
+    if (result.kind !== 'observed') throw new Error(`unexpected result: ${result.kind}`)
+    expect(result.observation.changedPaths).toEqual([])
+    expect(result.observation.limitations).toContainEqual(
+      expect.objectContaining({ code: 'excluded-by-limit' }),
+    )
+  })
+
   test('bounds the aggregate captured workspace instead of accumulating without limit', async () => {
     const root = await repository()
     await writeFile(join(root, 'a.bin'), new Uint8Array(8))
@@ -795,7 +919,14 @@ describe.serial('safe Git observation', () => {
       mode: '160000',
     })
     expect(manifest.entries.some(entry => entry.path.display === 'large.bin')).toBe(false)
-    expect(result.observation.changedPaths.map(path => path.display)).toContain('large.bin')
+    // Excluded content is unknown, not a verified change or proof of equality.
+    expect(result.observation.changedPaths).toEqual([])
+    expect(result.observation.limitations).toContainEqual(
+      expect.objectContaining({
+        code: 'excluded-by-limit',
+        detail: expect.stringContaining('file exceeds 160'),
+      }),
+    )
     expect(manifest.limitations.map(item => item.code)).toEqual(
       expect.arrayContaining(['excluded-by-limit', 'unavailable-git-state']),
     )
