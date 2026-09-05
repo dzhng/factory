@@ -85,7 +85,7 @@ export function reviewerAdapter(settings: ResolvedReviewerSettings): ReviewerAda
       '/review-input',
       '--strict-mcp-config',
       '--mcp-config',
-      '{}',
+      '{"mcpServers":{}}',
       '--tools',
       'Read,Glob,Grep',
       '--permission-mode',

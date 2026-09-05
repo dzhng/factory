@@ -78,6 +78,11 @@ describe('reviewer isolation plan', () => {
       ok: true,
       plan: {
         provider: 'codex',
+        providerHome: {
+          containerPath: '/auth/codex',
+          mode: 'tmpfs',
+          options: 'rw,noexec,nosuid,nodev,size=16m',
+        },
         bundle: {
           hostPath: '/tmp/factory/bundle',
           containerPath: '/bundle',

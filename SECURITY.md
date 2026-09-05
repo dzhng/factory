@@ -64,6 +64,12 @@ authentication file into the ephemeral container. The mount is read-only.
 Credentials must never be copied into a container image, review bundle, trace,
 generated artifact, log, or committed file.
 
+The selected provider receives a small writable tmpfs configuration home because
+provider CLIs create ephemeral runtime state even when persistence is disabled.
+That tmpfs has no host source and disappears with the container; the nested
+credential-file mount remains read-only. No other provider home or host
+configuration is mounted.
+
 GitHub observation follows the same ownership rule: Factory invokes an
 already-authenticated `gh` executable and never reads, copies, or stores its
 token. GitHub is optional; missing or unauthenticated `gh` produces typed
@@ -96,7 +102,7 @@ read-only, plus one writable output directory. The container must not receive:
 - the live working tree;
 - the Docker socket;
 - unrelated host directories or credentials; or
-- writable provider configuration.
+- a writable host-backed provider configuration.
 
 The container has network access because the provider CLI must contact its
 model service. Review containers are removed after completion; reusable caches,

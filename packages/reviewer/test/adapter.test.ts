@@ -29,6 +29,11 @@ describe('review provider adapters', () => {
       '/review-input',
     ])
       expect(invocation.argv).toContain(value)
+    const mcpConfig = invocation.argv.indexOf('--mcp-config')
+    expect(invocation.argv.slice(mcpConfig, mcpConfig + 2)).toEqual([
+      '--mcp-config',
+      '{"mcpServers":{}}',
+    ])
     expect(invocation.argv).not.toContain('--fallback-model')
     expect(invocation.environment.CLAUDE_CONFIG_DIR).toBe('/auth/claude')
     expect(invocation.response).toEqual({ kind: 'stdout' })

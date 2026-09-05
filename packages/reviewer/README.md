@@ -46,6 +46,11 @@ token environment variables, or persist credentials in portable history. File
 identity and a bounded content digest are checked before creation, after
 creation, and by the container runner before provider startup.
 
+The selected provider's configuration directory is an empty, bounded tmpfs so
+the CLI can create required ephemeral runtime state. The credential is a nested
+read-only file mount; the tmpfs has no host source and is destroyed with the
+container.
+
 Reviewer prerequisites are observations, not ambient assumptions. This package
 also owns bounded Docker-daemon inspection and exact credential-file readiness.
 Review selection and diagnostics consume the same typed result without exposing

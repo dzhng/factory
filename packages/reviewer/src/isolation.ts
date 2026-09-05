@@ -28,6 +28,11 @@ export type IsolationInput<Provider extends IsolationProvider = ReviewerProvider
 
 export type MountPlan<Provider extends IsolationProvider = ReviewerProvider> = {
   provider: Provider
+  providerHome: {
+    containerPath: `/auth/${Provider}`
+    mode: 'tmpfs'
+    options: 'rw,noexec,nosuid,nodev,size=16m'
+  }
   bundle: {
     hostPath: string
     containerPath: '/bundle'
@@ -152,6 +157,11 @@ export function planIsolation<Provider extends IsolationProvider>(
     ok: true,
     plan: {
       provider: input.provider,
+      providerHome: {
+        containerPath: `/auth/${input.provider}`,
+        mode: 'tmpfs',
+        options: 'rw,noexec,nosuid,nodev,size=16m',
+      },
       bundle: { hostPath: input.bundleHostPath, containerPath: '/bundle', mode: 'ro' },
       output: { hostPath: input.outputHostPath, containerPath: '/out', mode: 'rw' },
       auth: input.auth.map(auth => ({ ...auth, mode: 'ro' })),

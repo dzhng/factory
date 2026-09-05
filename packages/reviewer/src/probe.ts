@@ -393,6 +393,8 @@ export async function runObservedReviewerContainer(
     'fsize=1048576:1048576',
     '--tmpfs',
     '/tmp:rw,noexec,nosuid,nodev,size=16m',
+    '--tmpfs',
+    `${plan.providerHome.containerPath}:${plan.providerHome.options}`,
     '--mount',
     dockerMount(plan.bundle.hostPath, bundleTarget, true),
     '--mount',
@@ -567,6 +569,8 @@ export async function runObservedReviewerContainer(
       containerPolicy.fileSizeBytes !== 1024 * 1024 ||
       container.HostConfig.Ulimits?.find(limit => limit.Name === 'fsize')?.Hard !== 1024 * 1024 ||
       container.HostConfig.Tmpfs?.['/review-input'] !== undefined ||
+      canonicalTmpfs(container.HostConfig.Tmpfs?.[plan.providerHome.containerPath]) !==
+        canonicalTmpfs(plan.providerHome.options) ||
       canonicalTmpfs(container.HostConfig.Tmpfs?.['/tmp']) !==
         canonicalTmpfs('rw,noexec,nosuid,nodev,size=16m')
     ) {
