@@ -20,7 +20,7 @@ import {
 } from '@factory/github'
 
 const repositoryRoot = resolve(import.meta.dir, '../../..')
-const evidenceRoot = resolve(repositoryRoot, 'specs/factory-v1/assets/pr-workbench')
+const evidenceRoot = resolve(repositoryRoot, 'specs/done/factory-v1/assets/pr-workbench')
 const tests = Bun.spawn(['bun', 'run', '--cwd', 'packages/github', 'test'], {
   cwd: repositoryRoot,
   stdout: 'inherit',

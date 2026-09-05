@@ -259,7 +259,7 @@ function reportHtml(report: ProviderOracleReport): string {
         <ul>${probe.rawEvents
           .map(
             event =>
-              `<li><a href="../../../../packages/test-harness/fixtures/${escapeHtml(event.fixture)}">${escapeHtml(event.fixture)}</a><code>sha256 ${escapeHtml(event.sha256)}</code></li>`,
+              `<li><a href="../../../../../packages/test-harness/fixtures/${escapeHtml(event.fixture)}">${escapeHtml(event.fixture)}</a><code>sha256 ${escapeHtml(event.sha256)}</code></li>`,
           )
           .join('')}</ul>
         <h3>Limitations</h3>

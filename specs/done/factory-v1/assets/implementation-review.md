@@ -6,7 +6,7 @@ Verdict: **findings resolved**. Original scope: implementation from `c1b23a7` th
 ## Behavior findings
 
 1. **Resolved P1 — Incremental acquisition could starve later Sessions.**
-   [The loader](../../../packages/review-plan/src/index.ts) sorts all requested
+   [The loader](../../../../packages/review-plan/src/index.ts) sorts all requested
    Session keys and applies `maxSessions` before accounting for historical
    coverage. With two equally ranked Sessions and a limit of one, the first
    remains admitted after it has been reviewed; the second remains excluded.
@@ -20,7 +20,7 @@ Verdict: **findings resolved**. Original scope: implementation from `c1b23a7` th
    modes. Independent Codex review found no remaining issue in this fix; the
    full build, formatting, lint, type, and test gates passed.
 2. **Resolved P2 — Global reviewer preferences did not affect execution.**
-   [The review command](../../../packages/cli/src/review.ts) passes only the
+   [The review command](../../../../packages/cli/src/review.ts) passes only the
    repository reviewer setting to selection. In a disposable Docker repository,
    `configure --global --reviewer claude` reported Claude, but the next review's
    output and immutable manifest recorded Codex. Authentication was deliberately
@@ -29,7 +29,7 @@ Verdict: **findings resolved**. Original scope: implementation from `c1b23a7` th
    configuration command's display. The installed CLI regression proves global
    selection and repository override precedence in Docker.
 3. **Resolved P2 — Automatic review was an accepted but inert preference.**
-   [The CLI](../../../packages/cli/src/index.ts) persists `automaticReview`, but
+   [The CLI](../../../../packages/cli/src/index.ts) persists `automaticReview`, but
    no production consumer dispatches reviews from it. A Docker reproduction
    enabled repository automatic review and sent SessionStart and Stop through
    the installed CLI. Capture succeeded and created a trigger, with no review.
@@ -52,8 +52,8 @@ Verdict: **findings resolved**. Original scope: implementation from `c1b23a7` th
    affected suites rerun after follow-up fixes. One CLI reconstruction-directory
    failure did not reproduce in the focused rerun or subsequent CLI suite runs.
 4. **Resolved P2 — The UI could not report GitHub canonical-branch drift.**
-   [UI composition](../../../packages/cli/src/open.ts) supplies only repository
-   records to the [projection](../../../packages/domain/src/ui.ts). Neither
+   [UI composition](../../../../packages/cli/src/open.ts) supplies only repository
+   records to the [projection](../../../../packages/domain/src/ui.ts). Neither
    acquires a current GitHub default-branch observation. Its diagnostics contain
    missing canonical configuration and decision-fold problems, but cannot
    detect the disagreement promised by the spec. Display refreshes now reuse

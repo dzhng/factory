@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 
-import claudeObservation from '../../../specs/factory-v1/assets/live-capture/claude-observation.json'
-import observation from '../../../specs/factory-v1/assets/live-capture/codex-observation.json'
+import claudeObservation from '../../../specs/done/factory-v1/assets/live-capture/claude-observation.json'
+import observation from '../../../specs/done/factory-v1/assets/live-capture/codex-observation.json'
 import {
   certifyLiveCapture,
   liveCaptureCompleted,

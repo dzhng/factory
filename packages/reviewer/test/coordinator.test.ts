@@ -11,7 +11,7 @@ import { sealReviewerRawAttempt } from '../src/attempt'
 import { ReviewAttemptCoordinator } from '../src/coordinator'
 
 async function fixture() {
-  const root = join(import.meta.dir, '../../../specs/factory-v1/assets/review-plan')
+  const root = join(import.meta.dir, '../../../specs/done/factory-v1/assets/review-plan')
   const report = await Bun.file(join(root, 'report.json')).json()
   const bundle = await openVerifiedReviewBundle(
     join(root, 'complete-bundle'),

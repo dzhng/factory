@@ -220,7 +220,7 @@ async function treeFiles(root: string): Promise<Map<string, string>> {
 }
 
 async function importBundleRecords(repository: string, name: 'complete-bundle' | 'partial-bundle') {
-  const source = join('/workspace/specs/factory-v1/assets/review-plan', name, '.factory')
+  const source = join('/workspace/specs/done/factory-v1/assets/review-plan', name, '.factory')
   const destination = join(repository, '.factory')
   for (const entry of await readdir(source)) {
     await cp(join(source, entry), join(destination, entry), {
@@ -236,7 +236,7 @@ async function acceptBundleReview(
   name: 'complete-bundle' | 'partial-bundle',
   reviewId: RecordId,
 ): Promise<void> {
-  const root = '/workspace/specs/factory-v1/assets/review-plan'
+  const root = '/workspace/specs/done/factory-v1/assets/review-plan'
   const report = JSON.parse(await readFile(join(root, 'report.json'), 'utf8')) as {
     bundles: { complete: string; partial: string }
   }

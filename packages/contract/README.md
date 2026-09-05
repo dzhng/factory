@@ -6,5 +6,5 @@ explain what downstream slices may persist; runtime packages must not invent
 parallel record shapes or construct `.factory` paths from unchecked strings.
 
 The durable layout and its rationale live in the
-[v1 format](../../specs/factory-v1/format.md). This package owns the executable
+[v1 format](../../specs/done/factory-v1/format.md). This package owns the executable
 mechanics that keep those promises stable.

@@ -12,7 +12,7 @@ import {
 } from '../src'
 
 async function partialManifest(): Promise<ReviewManifest> {
-  const root = join(import.meta.dir, '../../../specs/factory-v1/assets/review-plan')
+  const root = join(import.meta.dir, '../../../specs/done/factory-v1/assets/review-plan')
   const bundle = JSON.parse(await readFile(join(root, 'partial-bundle/bundle.json'), 'utf8')) as {
     plan: Record<string, unknown>
   }

@@ -9,7 +9,7 @@ Provider fixtures preserve raw bytes and provider-native vocabulary. They are
 observations, not a shared provider schema. Empirical oracle evidence informs
 Factory without becoming production behavior.
 
-The [authenticated capture certificate](../../specs/factory-v1/assets/live-capture/README.md)
+The [authenticated capture certificate](../../specs/done/factory-v1/assets/live-capture/README.md)
 separates real lifecycle callbacks from fixture replay and model-only review
 authority. Its test-only image enables hooks and persistence in disposable
 provider homes while reusing the production attempt and Docker owners. Its
@@ -55,14 +55,14 @@ when both logins are available, otherwise it runs the deterministic journey and
 reports the missing authority. An immutable image may be supplied as a controlled
 test override; the shipped digest and product model defaults apply otherwise.
 
-The governing capture contract and reslicing triggers live in the
-[Factory v1 specification](../../specs/factory-v1/README.md). Credential and
+The capture rationale and evidence provenance live in the
+[Factory v1 record](../../specs/done/factory-v1/README.md). Credential and
 container boundaries are owned by [`SECURITY.md`](../../SECURITY.md).
 
 `bun run lab:capture-vertical` runs the built CLI in a networkless disposable
 home, replays both provider fixtures, deletes the journal's derived index, and
-promotes the rebuilt portable tree and diagnostic report into the Slice 06
-evidence directory.
+promotes the rebuilt portable tree and diagnostic report into the archived
+capture-vertical evidence directory.
 
 `bun run check:localhost-ui` exercises twelve deterministic browser states at
 wide and narrow viewports, including partial coverage and decision actions,

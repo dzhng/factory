@@ -57,11 +57,13 @@ desktop widths; identical report JSON separates layout from authority changes.
 Fresh review of all 22 captures and root inspection accepted the result, and
 independent code review found no defect.
 
-## Remaining authority
+## Authority at this review checkpoint
 
 The integrated [live capture certificate](live-capture/README.md) distinguishes
 historical actual callbacks from current authentication readiness. The latest
-Claude attempt failed authentication. No host login was modified. The
+Claude attempt at this checkpoint failed authentication. No host login was modified. The
 [final candidate](final-candidate/README.md) passed native quality and deterministic
 journeys plus source-pinned candidate attestation checks. Both authenticated
-review authorities, release publication, and specification closeout remain pending.
+review authorities, release publication, and specification closeout were still pending.
+The [final candidate evidence](final-candidate/README.md) records the subsequent
+authenticated retry and exact-byte publication; the archived rationale records closeout.

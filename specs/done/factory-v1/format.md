@@ -68,7 +68,7 @@ fields are preserved by read-modify-write operations.
 
 `dockerLimits` holds optional resource and execution ceilings; `updateChecks`
 controls advisory release discovery and cached warnings. The executable schema
-and ranges live in [the public contract](../../packages/contract/src/index.ts).
+and ranges live in [the public contract](../../../packages/contract/src/index.ts).
 Each resource field merges independently through the configuration precedence
 order. These settings do not grant arbitrary commands, mounts, or weaker
 isolation. Update cache observations are private machine state, never repository
@@ -351,7 +351,8 @@ and digest before use. Unreferenced committed objects are not silently deleted.
 
 The Git common directory contains `factory-runtime`, including the transactional
 journal, write locks, derived indexes, materialization staging directories,
-Docker state, and update cache. Linked worktrees receive separately keyed
+and Docker state. The advisory update cache belongs to the user's private cache
+directory, not a repository. Linked worktrees receive separately keyed
 operational state inside that runtime root while sharing repository identity.
 
 Capture ordering is common to all linked worktrees. The runtime journal retains

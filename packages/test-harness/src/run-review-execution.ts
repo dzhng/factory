@@ -31,7 +31,7 @@ async function command(args: readonly string[]): Promise<string> {
 async function main() {
   const root = await mkdtemp(join(tmpdir(), 'factory-review-execution-'))
   try {
-    const assets = resolve(import.meta.dir, '../../../specs/factory-v1/assets/review-plan')
+    const assets = resolve(import.meta.dir, '../../../specs/done/factory-v1/assets/review-plan')
     const report = JSON.parse(await readFile(join(assets, 'report.json'), 'utf8')) as {
       bundles: { complete: string }
     }

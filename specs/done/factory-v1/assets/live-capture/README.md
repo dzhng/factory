@@ -54,9 +54,9 @@ per-Stop evidence rather than a claim that no later native bytes can appear.
 ## Reproduction
 
 The journey entry point is
-[`run-live-capture.ts`](../../../../packages/test-harness/src/run-live-capture.ts).
+[`run-live-capture.ts`](../../../../../packages/test-harness/src/run-live-capture.ts).
 Build the CLI, then build the
-[`live-capture` image](../../../../packages/test-harness/docker/live-capture/Dockerfile)
+[`live-capture` image](../../../../../packages/test-harness/docker/live-capture/Dockerfile)
 from the repository root. Pass one provider and that exact local image ID to
 the journey. It discovers the existing selected CLI login automatically and
 writes private scratch results outside the repository. No setup or token flags

@@ -9,7 +9,7 @@ import { chromium, type Browser } from 'playwright-core'
 import { localUiFixtures } from './local-ui-fixtures'
 
 const repositoryRoot = new URL('../../..', import.meta.url).pathname.replace(/\/$/, '')
-const outputRoot = join(repositoryRoot, 'specs/factory-v1/assets/localhost-ui')
+const outputRoot = join(repositoryRoot, 'specs/done/factory-v1/assets/localhost-ui')
 const image = 'factory-local-ui-test:local'
 const check = process.argv.includes('--check') || process.env.FACTORY_LOCAL_UI_CHECK === '1'
 

@@ -56,7 +56,7 @@ async function main() {
     await command(['git', 'init', '-q'], root)
     const asset = resolve(
       import.meta.dir,
-      '../../../specs/factory-v1/assets/review-plan/complete-bundle',
+      '../../../specs/done/factory-v1/assets/review-plan/complete-bundle',
     )
     await cp(join(asset, '.factory'), join(root, '.factory'), { recursive: true })
     await writeFile(

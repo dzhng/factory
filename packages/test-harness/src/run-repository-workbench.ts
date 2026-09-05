@@ -2,7 +2,7 @@ import { mkdir } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 
 const repositoryRoot = fileURLToPath(new URL('../../..', import.meta.url)).replace(/\/$/, '')
-const outputRoot = `${repositoryRoot}/specs/factory-v1/assets/repository-workbench`
+const outputRoot = `${repositoryRoot}/specs/done/factory-v1/assets/repository-workbench`
 await mkdir(outputRoot, { recursive: true })
 
 const child = Bun.spawn(

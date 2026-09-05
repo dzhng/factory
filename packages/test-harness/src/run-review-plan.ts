@@ -2,7 +2,7 @@ import { cp, mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 
 const root = resolve(import.meta.dir, '../../..')
-const output = resolve(root, 'specs/factory-v1/assets/review-plan')
+const output = resolve(root, 'specs/done/factory-v1/assets/review-plan')
 const dockerOutput = await mkdtemp(join(dirname(root), 'factory-review-plan-output-'))
 await rm(output, { recursive: true, force: true })
 await mkdir(output, { recursive: true })

@@ -9,10 +9,9 @@ The first release has no Factory account or hosted backend. Portable state is
 stored as inspectable, versioned files under `.factory`; credentials, locks,
 caches, and other machine state remain outside Git.
 
-The approved v1 product and implementation contract is in
-[`specs/factory-v1/README.md`](specs/factory-v1/README.md). Its file format and
-ordered [implementation slices](specs/factory-v1/slices/README.md) are specified
-separately so the public format does not depend on one package layout.
+The [v1 rationale](specs/done/factory-v1/README.md) records product principles,
+trade-offs, and verification provenance. Its [public format](specs/done/factory-v1/format.md)
+is separate so portable data does not depend on one package layout.
 
 The [security model](SECURITY.md) owns repository trust, credentials, container
 isolation, and local interface policy. The implementation follows these ownership

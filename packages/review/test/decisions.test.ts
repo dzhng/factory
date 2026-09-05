@@ -26,7 +26,7 @@ const id = (prefix: string, suffix: string) =>
   `${prefix}_${'0'.repeat(26 - suffix.length)}${suffix}` as RecordId
 
 async function fixture() {
-  const root = join(import.meta.dir, '../../../specs/factory-v1/assets/review-plan')
+  const root = join(import.meta.dir, '../../../specs/done/factory-v1/assets/review-plan')
   const report = JSON.parse(await readFile(join(root, 'report.json'), 'utf8')) as {
     bundles: { complete: string }
   }
