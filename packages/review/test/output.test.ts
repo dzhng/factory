@@ -93,4 +93,29 @@ describe('review semantic output', () => {
     expect(parsed.entries.map(entry => entry.summary)).toEqual(['Keep one writer'])
     expect(parsed.incomplete).toBe(true)
   })
+
+  test('requires decision assertions exactly when the effect carries meaning', () => {
+    const decisions = [
+      { effect: 'assert', assertion: null },
+      { effect: 'contradict', assertion: null },
+      { effect: 'remove', assertion: { owner: 'repository' } },
+    ].map((decision, index) => ({
+      kind: 'decision',
+      decisionKey: `decision-${index}`,
+      ...decision,
+      confidence: 'high',
+      summary: 'Invalid decision shape',
+      evidence: [{ object }],
+    }))
+
+    const parsed = parseSemanticOutput(
+      new TextEncoder().encode(
+        `${decisions.map(decision => JSON.stringify(decision)).join('\n')}\n`,
+      ),
+      [object],
+      'review_00000000000000000000000000',
+    )
+
+    expect(parsed).toMatchObject({ entries: [], incomplete: true })
+  })
 })

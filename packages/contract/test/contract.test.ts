@@ -538,6 +538,57 @@ describe('public repository contract', () => {
     ).toThrow('reviewId')
   })
 
+  test('requires non-null meaning for asserted and contradicted decisions', () => {
+    const reviewId = recordId('review')
+    const object = {
+      algorithm: 'sha256',
+      sha256: 'a'.repeat(64),
+      bytes: 1,
+      mediaType: 'text/plain',
+      role: 'event-raw',
+    }
+    for (const effect of ['assert', 'contradict'] as const) {
+      expect(() =>
+        validatePublicRecord(makeOwnedPath('reviews', ['workspace', reviewId, 'ledger.json']), {
+          schemaVersion: 1,
+          reviewId,
+          entries: [
+            {
+              entryId: recordId('entry'),
+              kind: 'decision',
+              decisionKey: 'repository.single-writer',
+              effect,
+              assertion: null,
+              confidence: 'high',
+              summary: 'Missing meaning',
+              evidence: [{ object }],
+            },
+          ],
+        }),
+      ).toThrow('assertion must not be null')
+
+      expect(() =>
+        validatePublicRecord(
+          makeOwnedPath('decisions', ['observations', `${recordId('decision')}.json`]),
+          {
+            schemaVersion: 1,
+            observationId: recordId('decision'),
+            reviewId,
+            reviewEntryId: recordId('entry'),
+            decisionKey: 'repository.single-writer',
+            effect,
+            assertion: null,
+            assertionFingerprint: decisionAssertionFingerprint({ effect, assertion: null }),
+            summary: 'Missing meaning',
+            source: { kind: 'workspace', branch: 'main', exactSnapshot: true },
+            confidence: 'high',
+            observedAt: '2026-09-05T00:00:00Z',
+          },
+        ),
+      ).toThrow('assertion must not be null')
+    }
+  })
+
   test('rejects malformed object references at their public-record boundary', () => {
     const path = makeOwnedPath('sessions', [
       'codex',
@@ -1147,8 +1198,11 @@ describe('public repository contract', () => {
           reviewEntryId: recordId('entry'),
           decisionKey: 'fixture',
           effect: 'assert',
-          assertion: null,
-          assertionFingerprint: decisionAssertionFingerprint({ effect: 'assert', assertion: null }),
+          assertion: { owner: 'repository' },
+          assertionFingerprint: decisionAssertionFingerprint({
+            effect: 'assert',
+            assertion: { owner: 'repository' },
+          }),
           summary: 'Fixture',
           source: { kind: 'workspace', branch: 'feature', exactSnapshot: true },
           confidence: 'low',

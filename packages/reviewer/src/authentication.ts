@@ -18,6 +18,7 @@ export type ReviewerCredentialSource =
   | {
       kind: 'macos-keychain'
       service: typeof CLAUDE_KEYCHAIN_SERVICE
+      keychainFile?: string
     }
 
 export type ReviewerAuthentication = {
@@ -84,7 +85,13 @@ export async function materializeReviewerCredential(
         maximumBytes: MAX_AUTH_BYTES,
         timeoutMs: 5_000,
       }))
-  const result = await runSecurity(['find-generic-password', '-w', '-s', source.service])
+  const result = await runSecurity([
+    'find-generic-password',
+    '-w',
+    '-s',
+    source.service,
+    ...(source.keychainFile === undefined ? [] : [source.keychainFile]),
+  ])
   if (result.kind !== 'completed' || result.exitCode !== 0)
     throw new Error('Claude Keychain credential became unavailable')
   const bytes = claudeInferenceCredential(result.stdout)
@@ -173,6 +180,33 @@ async function fileSource(
   }
 }
 
+async function keychainFile(
+  path: string,
+): Promise<
+  | { state: 'available'; path: string }
+  | { state: 'invalid'; reason: 'path-not-absolute' | 'missing-or-unsafe' | 'wrong-owner' }
+> {
+  if (!isAbsolute(path)) return { state: 'invalid', reason: 'path-not-absolute' }
+  const metadata = await lstat(path).catch(() => undefined)
+  if (metadata === undefined || metadata.isSymbolicLink() || !metadata.isFile())
+    return { state: 'invalid', reason: 'missing-or-unsafe' }
+  if (metadata.uid === 0 || metadata.uid !== process.getuid?.())
+    return { state: 'invalid', reason: 'wrong-owner' }
+  const canonicalPath = await realpath(path).catch(() => undefined)
+  const canonicalMetadata =
+    canonicalPath === undefined ? undefined : await lstat(canonicalPath).catch(() => undefined)
+  if (
+    canonicalPath === undefined ||
+    canonicalMetadata === undefined ||
+    !canonicalMetadata.isFile() ||
+    canonicalMetadata.dev !== metadata.dev ||
+    canonicalMetadata.ino !== metadata.ino ||
+    canonicalMetadata.uid !== metadata.uid
+  )
+    return { state: 'invalid', reason: 'missing-or-unsafe' }
+  return { state: 'available', path: canonicalPath }
+}
+
 export async function resolveReviewerAuthentication(
   environment: NodeJS.ProcessEnv,
   options: ReviewerAuthenticationOptions = {},
@@ -219,6 +253,13 @@ export async function resolveReviewerAuthentication(
       }
     }
     if (provider === 'claude' && (options.platform ?? hostPlatform()) === 'darwin') {
+      const requestedKeychainFile = environment.FACTORY_CLAUDE_KEYCHAIN_FILE
+      const keychain =
+        requestedKeychainFile === undefined ? undefined : await keychainFile(requestedKeychainFile)
+      if (keychain?.state === 'invalid') {
+        inspection.claude = keychain
+        continue
+      }
       const runSecurity =
         options.runSecurity ??
         (args =>
@@ -226,11 +267,20 @@ export async function resolveReviewerAuthentication(
             maximumBytes: 4_096,
             timeoutMs: 5_000,
           }))
-      const keychain = await runSecurity(['find-generic-password', '-s', CLAUDE_KEYCHAIN_SERVICE])
-      if (keychain.kind === 'completed' && keychain.exitCode === 0) {
+      const observed = await runSecurity([
+        'find-generic-password',
+        '-s',
+        CLAUDE_KEYCHAIN_SERVICE,
+        ...(keychain === undefined ? [] : [keychain.path]),
+      ])
+      if (observed.kind === 'completed' && observed.exitCode === 0) {
         availability.claude = true
         inspection.claude = { state: 'available' }
-        sources.claude = { kind: 'macos-keychain', service: CLAUDE_KEYCHAIN_SERVICE }
+        sources.claude = {
+          kind: 'macos-keychain',
+          service: CLAUDE_KEYCHAIN_SERVICE,
+          ...(keychain === undefined ? {} : { keychainFile: keychain.path }),
+        }
         continue
       }
     }

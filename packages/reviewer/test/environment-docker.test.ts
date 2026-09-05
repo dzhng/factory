@@ -50,16 +50,22 @@ dockerDescribe('reviewer credential discovery', () => {
 
   test('discovers an authenticated macOS Claude CLI through Keychain', async () => {
     const home = await mkdtemp(join(tmpdir(), 'factory-reviewer-keychain-home-'))
+    const keychainFile = join(home, 'login.keychain-db')
+    await writeFile(keychainFile, 'keychain fixture', { mode: 0o600 })
+    const calls: string[][] = []
     const resolved = await resolveReviewerAuthentication(
-      { HOME: home },
+      { HOME: home, FACTORY_CLAUDE_KEYCHAIN_FILE: keychainFile },
       {
         platform: 'darwin',
-        runSecurity: async () => ({
-          kind: 'completed',
-          exitCode: 0,
-          stdout: Buffer.from('keychain item metadata'),
-          stderr: Buffer.from(''),
-        }),
+        runSecurity: async args => {
+          calls.push([...args])
+          return {
+            kind: 'completed',
+            exitCode: 0,
+            stdout: Buffer.from('keychain item metadata'),
+            stderr: Buffer.from(''),
+          }
+        },
       },
     )
 
@@ -68,7 +74,11 @@ dockerDescribe('reviewer credential discovery', () => {
     expect(resolved.sources.claude).toEqual({
       kind: 'macos-keychain',
       service: 'Claude Code-credentials',
+      keychainFile,
     })
+    expect(calls).toEqual([
+      ['find-generic-password', '-s', 'Claude Code-credentials', keychainFile],
+    ])
   })
 
   test('stages only Claude inference auth from Keychain in private attempt state', async () => {
@@ -76,23 +86,28 @@ dockerDescribe('reviewer credential discovery', () => {
     const source = {
       kind: 'macos-keychain' as const,
       service: 'Claude Code-credentials' as const,
+      keychainFile: '/host/login.keychain-db',
     }
+    const calls: string[][] = []
     const prepared = await materializeReviewerCredential(source, root, {
-      runSecurity: async () => ({
-        kind: 'completed',
-        exitCode: 0,
-        stdout: Buffer.from(
-          JSON.stringify({
-            claudeAiOauth: {
-              accessToken: 'access-test',
-              refreshToken: 'refresh-test',
-              expiresAt: 123,
-            },
-            mcpOAuth: { github: { accessToken: 'must-not-cross' } },
-          }),
-        ),
-        stderr: Buffer.from(''),
-      }),
+      runSecurity: async args => {
+        calls.push([...args])
+        return {
+          kind: 'completed',
+          exitCode: 0,
+          stdout: Buffer.from(
+            JSON.stringify({
+              claudeAiOauth: {
+                accessToken: 'access-test',
+                refreshToken: 'refresh-test',
+                expiresAt: 123,
+              },
+              mcpOAuth: { github: { accessToken: 'must-not-cross' } },
+            }),
+          ),
+          stderr: Buffer.from(''),
+        }
+      },
     })
 
     expect(JSON.parse(await readFile(prepared.mount.hostPath, 'utf8'))).toEqual({
@@ -106,6 +121,9 @@ dockerDescribe('reviewer credential discovery', () => {
     expect(prepared.mount.containerPath).toBe('/auth/claude/.credentials.json')
     if (prepared.root === undefined) throw new Error('Keychain credential was not staged')
     expect(prepared.root.startsWith(`${root}/review-auth-`)).toBeTrue()
+    expect(calls).toEqual([
+      ['find-generic-password', '-w', '-s', 'Claude Code-credentials', '/host/login.keychain-db'],
+    ])
   })
 
   test('mints identity only for a mountable bounded file owned by this non-root user', async () => {

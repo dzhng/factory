@@ -2727,6 +2727,8 @@ function validateRecordShape(
           canonicalJson(entry.assertion)
           if (entry.effect === 'remove' && entry.assertion !== null)
             throw new TypeError(`${label}.remove assertion must be null`)
+          if (entry.effect !== 'remove' && entry.assertion === null)
+            throw new TypeError(`${label}.${entry.effect as string} assertion must not be null`)
           assertEnum(entry.confidence, ['low', 'medium', 'high'], `${label}.confidence`)
         }
         assertString(entry.summary, `${label}.summary`)
@@ -2829,6 +2831,10 @@ function validateRecordShape(
       canonicalJson(value.assertion)
       if (value.effect === 'remove' && value.assertion !== null)
         throw new TypeError('decisionObservation.remove assertion must be null')
+      if (value.effect !== 'remove' && value.assertion === null)
+        throw new TypeError(
+          `decisionObservation.${value.effect as string} assertion must not be null`,
+        )
       assertSha256(value.assertionFingerprint, 'decisionObservation.assertionFingerprint')
       if (
         value.assertionFingerprint !==

@@ -85,7 +85,11 @@ function parseLine(
     } catch {
       return undefined
     }
-    if (value.effect === 'remove' && value.assertion !== null) return undefined
+    if (
+      (value.effect === 'remove' && value.assertion !== null) ||
+      (value.effect !== 'remove' && value.assertion === null)
+    )
+      return undefined
   }
   const evidence: { object: ObjectRef; locator?: string }[] = []
   for (const candidate of value.evidence) {

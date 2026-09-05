@@ -22,10 +22,8 @@ import {
 } from '@factory/cli'
 import {
   DEFAULT_REVIEWER_IMAGE_REFERENCE,
-  materializeReviewerCredential,
   resolveReviewerAuthentication,
   reviewerImageIdentity,
-  type ReviewerCredentialSource,
 } from '@factory/reviewer'
 
 type CommandResult = { code: number; stdout: string; stderr: string }
@@ -285,7 +283,14 @@ if (expectedVersion === undefined) throw new Error('--expected-version is requir
 const expectedManifestSha256 = option('--manifest-sha256')
 if (expectedManifestSha256 === undefined) throw new Error('--manifest-sha256 is required')
 const reportRoot = resolve(option('--output') ?? join(tmpdir(), 'factory-release-certification'))
-const hostAuthentication = await resolveReviewerAuthentication(process.env)
+const hostKeychainFile =
+  process.platform === 'darwin' && process.env.HOME !== undefined
+    ? join(process.env.HOME, 'Library', 'Keychains', 'login.keychain-db')
+    : undefined
+const hostAuthentication = await resolveReviewerAuthentication({
+  ...process.env,
+  ...(hostKeychainFile === undefined ? {} : { FACTORY_CLAUDE_KEYCHAIN_FILE: hostKeychainFile }),
+})
 const codexCredential = hostAuthentication.sources.codex
 const claudeCredential = hostAuthentication.sources.claude
 const reviewerImage = option('--reviewer-image') ?? DEFAULT_REVIEWER_IMAGE_REFERENCE
@@ -415,17 +420,17 @@ try {
       ...environment,
       FACTORY_REVIEWER_IMAGE: productionReviewer.image,
     }
-    const exposeCredential = async (
-      name: 'FACTORY_CODEX_AUTH_FILE' | 'FACTORY_CLAUDE_AUTH_FILE',
-      source: ReviewerCredentialSource,
-    ): Promise<void> => {
-      const prepared = await materializeReviewerCredential(source, scratch)
-      authenticatedEnvironment[name] = prepared.mount.hostPath
-    }
-    await Promise.all([
-      exposeCredential('FACTORY_CODEX_AUTH_FILE', productionReviewer.codexCredential),
-      exposeCredential('FACTORY_CLAUDE_AUTH_FILE', productionReviewer.claudeCredential),
-    ])
+    if (productionReviewer.codexCredential.kind !== 'file')
+      throw new Error('Codex certification credential must be file-backed')
+    authenticatedEnvironment.FACTORY_CODEX_AUTH_FILE =
+      productionReviewer.codexCredential.mount.hostPath
+    if (productionReviewer.claudeCredential.kind === 'file')
+      authenticatedEnvironment.FACTORY_CLAUDE_AUTH_FILE =
+        productionReviewer.claudeCredential.mount.hostPath
+    else if (productionReviewer.claudeCredential.keychainFile !== undefined)
+      authenticatedEnvironment.FACTORY_CLAUDE_KEYCHAIN_FILE =
+        productionReviewer.claudeCredential.keychainFile
+    else throw new Error('Claude certification Keychain path is unavailable')
     for (const provider of ['codex', 'claude'] as const) {
       await succeed(
         executable,

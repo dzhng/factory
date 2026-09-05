@@ -59,6 +59,12 @@ credentials, do not cross the reviewer boundary. The staged file is deleted with
 the attempt during normal completion or crash recovery; it never enters
 `.factory`, a review bundle, an image, or a log.
 
+The release harness keeps the same ownership even though its disposable home is
+not the user's home. It gives the packaged CLI the absolute path of the user's
+validated login Keychain database, so the packaged CLI performs extraction only
+inside its crash-recoverable review attempt. The harness never stages an OAuth
+token in its broader release scratch directory.
+
 When a reviewer runs, Factory mounts only the selected provider's required
 authentication file into the ephemeral container. The mount is read-only.
 Credentials must never be copied into a container image, review bundle, trace,

@@ -12,7 +12,9 @@ Factory without becoming production behavior.
 Release certification uses the same provider-owned CLI logins that production
 automatically discovers. The disposable journey exposes only the selected
 credential to each packaged review; it does not copy a developer's provider home
-into the fixture. If both CLIs are not already authenticated, the report records
+into the fixture. On macOS it passes the validated login Keychain path to the
+packaged CLI, which keeps token extraction inside its own review-attempt cleanup
+boundary. If both CLIs are not already authenticated, the report records
 real-provider authority as unavailable instead of simulating a pass. Generated
 scratch reports stay outside the repository unless a spec deliberately promotes
 them into its `assets/`; the default lab output is written under the operating
