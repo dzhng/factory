@@ -393,6 +393,7 @@ try {
   const reviewEnvironment = {
     ...environment,
     FACTORY_CODEX_AUTH_FILE: auth,
+    FACTORY_CLAUDE_AUTH_FILE: join(scratch, 'not-authenticated.json'),
     FACTORY_REVIEWER_IMAGE: image,
     FACTORY_CODEX_REVIEW_MODEL: 'gpt-test',
     FACTORY_CODEX_REVIEW_EFFORT: 'high',

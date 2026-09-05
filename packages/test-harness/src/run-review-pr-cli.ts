@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
 import { canonicalJson, newRecordId } from '@factory/contract'
+import type { StoredReviewResult } from '@factory/review'
 
 const cliPackageRoot = resolve(import.meta.dir, '../../cli')
 const factoryProgram = join(cliPackageRoot, 'dist/factory.js')
@@ -34,7 +35,7 @@ if (args[0] === 'repo' && args[1] === 'view') {
 async function review(
   root: string,
   environment: NodeJS.ProcessEnv,
-): Promise<Record<string, unknown>> {
+): Promise<StoredReviewResult> {
   const child = Bun.spawn([process.execPath, factoryProgram, 'review', '--pr', '42', '--force'], {
     cwd: root,
     env: environment,
@@ -47,7 +48,7 @@ async function review(
     new Response(child.stderr).text(),
   ])
   if (code !== 0) throw new Error(`PR review failed: ${stdout}${stderr}`)
-  return JSON.parse(stdout) as Record<string, unknown>
+  return JSON.parse(stdout) as StoredReviewResult
 }
 
 async function main() {
@@ -94,16 +95,20 @@ async function main() {
     )
     const baseEnvironment = {
       ...process.env,
+      XDG_CONFIG_HOME: join(root, 'global-config'),
       PATH: `${bin}:${process.env.PATH ?? ''}`,
       FACTORY_CODEX_REVIEW_MODEL: 'gpt-test',
       FACTORY_CODEX_REVIEW_EFFORT: 'high',
       FACTORY_CLAUDE_REVIEW_MODEL: 'claude-test',
       FACTORY_CLAUDE_REVIEW_EFFORT: 'high',
       FACTORY_CODEX_AUTH_FILE: auth,
+      FACTORY_CLAUDE_AUTH_FILE: join(root, 'not-authenticated.json'),
       FACTORY_REVIEWER_IMAGE: image,
     }
     const originalHead = '0000000000000000000000000000000000000064'
     const first = await review(root, { ...baseEnvironment, FACTORY_TEST_PR_HEAD: originalHead })
+    if (first.reviewer.provider !== 'codex')
+      throw new Error('deterministic PR fixture selected authentication outside its Codex fixture')
     const factoryRoot = join(root, '.factory')
     const firstAssociationPath = await Array.fromAsync(
       new Bun.Glob('pull-requests/**/associations/*/*.json').scan({ cwd: factoryRoot }),
