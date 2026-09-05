@@ -1332,12 +1332,14 @@ export async function persistPullRequestEvidence(
     const sourceObservationIds = [
       ...new Set(group.associations.flatMap(association => association.sourceObservationIds)),
     ].sort()
+    const policyVersion =
+      options.policyVersion ?? (group.kind === 'manual' ? 'manual-v1' : 'factory-v1-exact-git-v1')
     const batchIdentity = canonicalJson({
       observationId: observation.observationId,
       kind: group.kind,
       evidence,
       sourceObservationIds,
-      policyVersion: options.policyVersion ?? 'factory-v1-exact-git-v1',
+      policyVersion,
     })
     const observedAt = group.associations[0]!.observedAt
     const batch: AssociationBatch = {
@@ -1351,7 +1353,7 @@ export async function persistPullRequestEvidence(
       evidence,
       sourceObservationIds,
       observedAt,
-      policyVersion: options.policyVersion ?? 'factory-v1-exact-git-v1',
+      policyVersion,
     }
     const batchPath = makeOwnedPath('pull-requests', [
       ...root,

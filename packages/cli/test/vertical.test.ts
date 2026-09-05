@@ -99,6 +99,28 @@ async function createFixture() {
   return { root, home, repository, factory, env }
 }
 
+async function installPullRequestFixture(
+  fixture: Awaited<ReturnType<typeof createFixture>>,
+): Promise<typeof fixture.env> {
+  const gh = join(fixture.root, 'bin', 'gh')
+  await writeFile(
+    gh,
+    `#!/usr/bin/env bun
+const args = process.argv.slice(2)
+const head = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+if (args[0] === 'repo' && args[1] === 'view') {
+  console.log(JSON.stringify({id:'R_base',nameWithOwner:'owner/repo',url:'https://github.com/owner/repo'}))
+} else if (args[0] === 'pr' && args[1] === 'diff') {
+  console.log('diff --git a/app.ts b/app.ts\\n+manual')
+} else if (args[0] === 'api' && args.includes('graphql')) {
+  console.log(JSON.stringify({data:{repository:{id:'R_base',nameWithOwner:'owner/repo',url:'https://github.com/owner/repo',pullRequest:{id:'PR_42',url:'https://github.com/owner/repo/pull/42',number:42,state:'OPEN',mergedAt:null,baseRefName:'main',baseRefOid:'1111111111111111111111111111111111111111',headRefName:'feature',headRefOid:head,updatedAt:'2026-09-05T00:00:00Z',headRepository:{id:'R_base',nameWithOwner:'owner/repo',url:'https://github.com/owner/repo'},commits:{nodes:[{commit:{oid:head}}],pageInfo:{hasNextPage:false,endCursor:null}}}}}}))
+} else process.exit(3)
+`,
+  )
+  await chmod(gh, 0o755)
+  return { ...fixture.env, PATH: `${join(fixture.root, 'bin')}:${fixture.env.PATH}` }
+}
+
 async function replay(
   fixture: Awaited<ReturnType<typeof createFixture>>,
   provider: 'codex' | 'claude',
@@ -257,6 +279,130 @@ async function acceptBundleReview(
 }
 
 describe('installed capture vertical', () => {
+  test('records an explicit manual Session-to-PR association', async () => {
+    const value = await createFixture()
+    expect((await command(value.factory, ['init'], value.repository, value.env)).code).toBe(0)
+    expect(
+      (
+        await command(
+          value.factory,
+          ['install', '--executable', value.factory],
+          value.repository,
+          value.env,
+        )
+      ).code,
+    ).toBe(0)
+    await replay(value, 'codex')
+    const [sessionKey] = await readdir(join(value.repository, '.factory', 'sessions', 'codex'))
+    const environment = await installPullRequestFixture(value)
+    const beforeRejectedAssociation = await treeDigest(join(value.repository, '.factory'))
+    expect(
+      (
+        await command(
+          value.factory,
+          [
+            'associate',
+            '--pr',
+            '9007199254740993',
+            '--session',
+            sessionKey!,
+            '--actor',
+            'david',
+            '--reason',
+            'Unsafe PR fixture.',
+          ],
+          value.repository,
+          environment,
+        )
+      ).code,
+    ).toBe(1)
+    expect(await treeDigest(join(value.repository, '.factory'))).toBe(beforeRejectedAssociation)
+    expect(
+      (
+        await command(
+          value.factory,
+          [
+            'associate',
+            '--pr',
+            '42',
+            '--session',
+            'missing-session',
+            '--actor',
+            'david',
+            '--reason',
+            'Typo fixture.',
+          ],
+          value.repository,
+          environment,
+        )
+      ).code,
+    ).toBe(1)
+    expect(await treeDigest(join(value.repository, '.factory'))).toBe(beforeRejectedAssociation)
+    const result = await command(
+      value.factory,
+      [
+        'associate',
+        '--pr',
+        '42',
+        '--session',
+        sessionKey!,
+        '--actor',
+        'david',
+        '--reason',
+        'This session contains the preparatory work.',
+      ],
+      value.repository,
+      environment,
+    )
+    expect(result.code).toBe(0)
+
+    let paths = await Array.fromAsync(
+      new Bun.Glob('pull-requests/**/associations/**/*.json').scan({
+        cwd: join(value.repository, '.factory'),
+      }),
+    )
+    let records = await Promise.all(
+      paths.map(async path =>
+        JSON.parse(await readFile(join(value.repository, '.factory', path), 'utf8')),
+      ),
+    )
+    expect(records.find(record => record.kind === 'manual')).toMatchObject({
+      sessionKey,
+      strength: 'asserted',
+      assertion: { actor: 'david', reason: 'This session contains the preparatory work.' },
+    })
+    expect(
+      records.find(record => record.kind === 'manual' && record.batchId !== undefined),
+    ).toMatchObject({
+      policyVersion: 'manual-v1',
+    })
+
+    const review = await command(
+      value.factory,
+      ['review', '--pr', '42'],
+      value.repository,
+      environment,
+    )
+    expect(review).toMatchObject({
+      code: 1,
+      stderr: expect.stringContaining('FACTORY_REVIEWER_IMAGE_DIGEST'),
+    })
+    paths = await Array.fromAsync(
+      new Bun.Glob('pull-requests/**/associations/**/*.json').scan({
+        cwd: join(value.repository, '.factory'),
+      }),
+    )
+    records = await Promise.all(
+      paths.map(async path =>
+        JSON.parse(await readFile(join(value.repository, '.factory', path), 'utf8')),
+      ),
+    )
+    const carried = records.filter(record => record.kind === 'manual' && record.evidenceId)
+    expect(carried).toHaveLength(2)
+    expect(new Set(carried.map(record => record.pullRequestObservationId)).size).toBe(2)
+    expect(new Set(carried.map(record => record.observedAt)).size).toBe(1)
+  })
+
   test('preserves unrelated global settings during a partial configure update', async () => {
     const value = await createFixture()
     expect(

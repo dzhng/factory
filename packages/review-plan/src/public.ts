@@ -27,6 +27,6 @@ export {
   type ReviewInputLoadRequest,
   type ReviewSubject,
 } from './index'
-export { observeReviewSubject } from './subject-observation.js'
+export { associateReviewSession, observeReviewSubject } from './subject-observation.js'
 
 export type { ReviewInputProblem } from '@factory/contract'

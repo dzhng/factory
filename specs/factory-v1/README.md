@@ -285,6 +285,15 @@ always nonzero. `--full` or `--force` explicitly reanalyzes prior evidence.
 `--accept-partial <review-id>` records that permanently unavailable evidence is
 accepted for coverage without rewriting the partial review or its triggers.
 
+### `factory associate`
+
+`factory associate --pr <number> --session <key> --actor <name> --reason <text>`
+adds an explicit Session-to-PR assertion. It first observes the exact PR, then
+stores the actor and reason in append-only manual association evidence. Manual
+evidence is labeled asserted, never machine-verified. Later observations of the
+same PR carry the completed assertion forward with its original actor, reason,
+and action time so a subsequent review can consume it.
+
 ### `factory open`
 
 Starts a short-lived server bound to `127.0.0.1`, opens the repository UI, and

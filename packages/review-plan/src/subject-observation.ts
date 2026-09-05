@@ -8,7 +8,7 @@ import {
   type RecordId,
   type SessionPullRequestAssociation,
 } from '@factory/contract'
-import { deriveAssociations, verifyAssociationBatch } from '@factory/domain'
+import { deriveAssociations, verifyAssociationBatch, type ManualAssociation } from '@factory/domain'
 import {
   GithubPrObserver,
   observeGithubRepositoryMapping,
@@ -26,6 +26,7 @@ export async function observeReviewSubject(
   store: RepositoryStore,
   pullRequest: number | undefined,
   environment: NodeJS.ProcessEnv,
+  options: { manual?: readonly ManualAssociation[] } = {},
 ): Promise<OwnedPath> {
   const objects = {
     put: async (bytes: Uint8Array, metadata: { mediaType: string; role: string }) =>
@@ -51,38 +52,9 @@ export async function observeReviewSubject(
     return path
   }
 
-  const hostname = (environment.GH_HOST ?? 'github.com').toLowerCase()
-  const mapping = await observeGithubRepositoryMapping(store.manifest.repositoryId, hostname, {
-    objects,
-    cwd: repositoryRoot,
-    environment,
-  })
-  if ('availability' in mapping)
-    throw new Error(`pull-request repository mapping unavailable: ${mapping.reason}`)
-  await persistGithubRepositoryMapping(store, mapping)
-  const [owner, name, ...extra] = mapping.repository.split('/')
-  if (!owner || !name || extra.length !== 0)
-    throw new Error('pull-request repository mapping returned an invalid name')
-  const observation = await new GithubPrObserver({
-    objects,
-    cwd: repositoryRoot,
-    environment,
-  }).observe({
-    hostname: mapping.hostname,
-    owner,
-    name,
-    number: pullRequest,
-  })
-  if (observation.availability === 'unavailable') {
-    if (observation.record !== undefined)
-      await persistPullRequestEvidence(store, observation.record, [])
-    throw new Error(`pull-request observation unavailable: ${observation.reason}`)
-  }
-
-  const records = (await store.readRecords()).records
-  const recordByPath = new Map(records.map(record => [record.path, record.value]))
+  const candidateRecords = (await store.readRecords()).records
   const reader = await openReviewRepositoryReader(store.factoryRoot)
-  const triggerRecords = records.filter(record =>
+  const triggerRecords = candidateRecords.filter(record =>
     /^review-triggers\/[^/]+\.json$/.test(record.path),
   )
   if (triggerRecords.length > 10_000)
@@ -119,6 +91,42 @@ export async function observeReviewSubject(
       },
     ]
   })
+  const availableSessionKeys = new Set(sessions.map(session => session.turn.sessionKey))
+  for (const manual of options.manual ?? []) {
+    if (!availableSessionKeys.has(manual.sessionKey))
+      throw new Error(`manual association session is unavailable: ${manual.sessionKey}`)
+  }
+
+  const hostname = (environment.GH_HOST ?? 'github.com').toLowerCase()
+  const mapping = await observeGithubRepositoryMapping(store.manifest.repositoryId, hostname, {
+    objects,
+    cwd: repositoryRoot,
+    environment,
+  })
+  if ('availability' in mapping)
+    throw new Error(`pull-request repository mapping unavailable: ${mapping.reason}`)
+  await persistGithubRepositoryMapping(store, mapping)
+  const [owner, name, ...extra] = mapping.repository.split('/')
+  if (!owner || !name || extra.length !== 0)
+    throw new Error('pull-request repository mapping returned an invalid name')
+  const observation = await new GithubPrObserver({
+    objects,
+    cwd: repositoryRoot,
+    environment,
+  }).observe({
+    hostname: mapping.hostname,
+    owner,
+    name,
+    number: pullRequest,
+  })
+  if (observation.availability === 'unavailable') {
+    if (observation.record !== undefined)
+      await persistPullRequestEvidence(store, observation.record, [])
+    throw new Error(`pull-request observation unavailable: ${observation.reason}`)
+  }
+
+  const records = (await store.readRecords()).records
+  const recordByPath = new Map(records.map(record => [record.path, record.value]))
   const repositoryMappings = records
     .filter(record => record.path.includes('/repository-mappings/'))
     .map(record => record.value as unknown as GithubRepositoryMappingObservation)
@@ -155,12 +163,65 @@ export async function observeReviewSubject(
       if (!verifyAssociationBatch(batch, pullRequest, evidence)) return []
       return evidence.map(association => ({ pullRequest, association }))
     })
+  const inheritedManual = previous.flatMap(({ association }) =>
+    association.kind === 'manual'
+      ? [
+          {
+            sessionKey: association.sessionKey,
+            actor: association.assertion.actor,
+            reason: association.assertion.reason,
+            observedAt: association.observedAt,
+          },
+        ]
+      : [],
+  )
   const associations = deriveAssociations({
     pullRequest: observation,
     sessions,
     repositoryMappings,
+    manual: [...inheritedManual, ...(options.manual ?? [])],
     previous,
   })
   await persistPullRequestEvidence(store, observation, associations)
   return `pull-requests/github/${observation.repositoryKey}/${observation.number}/observations/${observation.observationId}.json` as OwnedPath
+}
+
+/** Observe one PR and append one explicitly asserted Session association. */
+export async function associateReviewSession(
+  repositoryRoot: string,
+  store: RepositoryStore,
+  pullRequest: number,
+  assertion: { sessionKey: string; actor: string; reason: string },
+  environment: NodeJS.ProcessEnv,
+): Promise<{ subjectPath: OwnedPath; associationPath: OwnedPath }> {
+  const observedAt = new Date().toISOString()
+  const subjectPath = await observeReviewSubject(repositoryRoot, store, pullRequest, environment, {
+    manual: [{ ...assertion, observedAt }],
+  })
+  const records = (await store.readRecords()).records
+  const subject = records.find(record => record.path === subjectPath)?.value as
+    | { observationId?: string }
+    | undefined
+  if (subject?.observationId === undefined) throw new Error('manual association subject is absent')
+  const association = records.find(record => {
+    const value = record.value as {
+      kind?: string
+      sessionKey?: string
+      pullRequestObservationId?: string
+      observedAt?: string
+      assertion?: { actor?: string; reason?: string }
+    }
+    return (
+      record.path.includes('/associations/') &&
+      !record.path.includes('/batches/') &&
+      value.kind === 'manual' &&
+      value.sessionKey === assertion.sessionKey &&
+      value.pullRequestObservationId === subject.observationId &&
+      value.observedAt === observedAt &&
+      value.assertion?.actor === assertion.actor &&
+      value.assertion.reason === assertion.reason
+    )
+  })
+  if (association === undefined) throw new Error('manual association was not persisted')
+  return { subjectPath, associationPath: association.path }
 }

@@ -58,7 +58,7 @@ import {
   syncDirectory,
 } from './private-files'
 import { verifyReleaseArtifact } from './release-manifest'
-import { reviewCommand } from './review'
+import { associateCommand, reviewCommand } from './review'
 import { factoryBuildIdentity } from './version'
 
 export {
@@ -847,6 +847,11 @@ export async function runFactoryCli(
       if (root === undefined) throw new Error('factory review requires a Git repository')
       return await reviewCommand(root, args, environment, output)
     }
+    if (command === 'associate') {
+      const root = await gitRoot(cwd, environment)
+      if (root === undefined) throw new Error('factory associate requires a Git repository')
+      return await associateCommand(root, args, environment, output)
+    }
     if (command === 'open') {
       const root = await gitRoot(cwd, environment)
       if (root === undefined) throw new Error('factory open requires a Git repository')
@@ -854,7 +859,7 @@ export async function runFactoryCli(
       return 0
     }
     throw new Error(
-      'Usage: factory configure|init|install|uninstall|upgrade|capture|doctor|review|open|version',
+      'Usage: factory configure|init|install|uninstall|upgrade|capture|doctor|associate|review|open|version',
     )
   } catch (error) {
     output.stderr(`${error instanceof Error ? error.message : String(error)}\n`)

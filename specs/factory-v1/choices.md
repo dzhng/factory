@@ -844,6 +844,26 @@ second normative schema; the master specification and format own mechanics.
   machine-proved, human-asserted, or later invalidated.
 - **Confidence:** High.
 
+### Make manual inclusion an explicit association action
+
+- **When:** Slice 07 production workflow completion.
+- **The choice:** `factory associate --pr <number> --session <key> --actor
+  <name> --reason <text>` observes the exact PR and appends one manual
+  association plus its `manual-v1` completion batch. The command validates an
+  existing reviewable Session before provider acquisition or repository writes,
+  and preserves the supplied actor and reason; it does not overload `factory
+  review` or infer an identity from local account state. Later observations of
+  that PR carry completed manual assertions forward while preserving their
+  original action time, because review consumes associations scoped to its exact
+  immutable PR observation.
+- **The gap:** The schema and persistence seam supported manual evidence, but
+  no production action could create it.
+- **The reach:** Manual grouping remains a direct Session-to-PR assertion and
+  review stays responsible only for selecting and analyzing existing evidence.
+- **Verdict:** Sound. The extra command keeps a consequential human assertion
+  explicit without introducing an Epic, branch identity, or heuristic link.
+- **Confidence:** High.
+
 ### Publish association evidence through immutable completion batches
 
 - **When:** Slice 07 crash-consistency review.

@@ -96,6 +96,7 @@ async function main() {
     }
     for (const invalid of [
       ['review', '--pr', '42x'],
+      ['review', '--pr', '9007199254740993'],
       ['review', '--full', '--force'],
       ['review', '--fail-on', 'urgent'],
     ]) {
@@ -104,8 +105,8 @@ async function main() {
         throw new Error(`factory review accepted invalid flags: ${invalid.join(' ')}`)
     }
     const first = await Promise.all([
-      factory(['review'], root, environment),
-      factory(['review'], root, environment),
+      factory(['review', '--session', 'session-review-lab'], root, environment),
+      factory(['review', '--session', 'session-review-lab'], root, environment),
     ])
     if (first.some(({ code }) => code !== 0))
       throw new Error(

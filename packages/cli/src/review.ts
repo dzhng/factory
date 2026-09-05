@@ -21,6 +21,7 @@ import {
 import {
   bindReviewPolicies,
   buildBundle,
+  associateReviewSession,
   loadReviewHistory,
   loadReviewInputs,
   openReviewRepositoryReader,
@@ -41,6 +42,77 @@ import {
 } from '@factory/reviewer'
 
 type ReviewOutput = { stdout(value: string): void; stderr(value: string): void }
+
+function pullRequestNumber(value: string): number {
+  const number = Number(value)
+  if (!/^[1-9]\d*$/.test(value) || !Number.isSafeInteger(number) || number < 1)
+    throw new TypeError('--pr must be a positive safe integer')
+  return number
+}
+
+function reviewSubjectLock(
+  runtimeRoot: string,
+  repositoryId: string,
+  pullRequest: number | undefined,
+): string {
+  return join(
+    runtimeRoot,
+    `subject-${createHash('sha256')
+      .update(canonicalJson({ repositoryId, pullRequest: pullRequest ?? null }))
+      .digest('hex')}.lock`,
+  )
+}
+
+export async function associateCommand(
+  repositoryRoot: string,
+  args: readonly string[],
+  environment: NodeJS.ProcessEnv,
+  output: ReviewOutput,
+): Promise<number> {
+  const expected = new Set(['--pr', '--session', '--actor', '--reason'])
+  const values = new Map<string, string>()
+  for (let index = 1; index < args.length; index += 2) {
+    const flag = args[index]
+    const value = args[index + 1]
+    if (flag === undefined || !expected.has(flag))
+      throw new TypeError(`unknown factory associate option: ${flag ?? ''}`)
+    if (values.has(flag)) throw new TypeError(`factory associate option repeated: ${flag}`)
+    if (value === undefined || value.startsWith('--'))
+      throw new TypeError(`${flag} requires a value`)
+    values.set(flag, value)
+  }
+  for (const flag of expected)
+    if (!values.has(flag)) throw new TypeError(`factory associate requires ${flag}`)
+  const pullRequestText = values.get('--pr')!
+  const sessionKey = values.get('--session')!
+  const actor = values.get('--actor')!
+  const reason = values.get('--reason')!
+  const pullRequest = pullRequestNumber(pullRequestText)
+  for (const [flag, value, maximumBytes] of [
+    ['--session', sessionKey, 1024],
+    ['--actor', actor, 1024],
+    ['--reason', reason, 16 * 1024],
+  ] as const) {
+    if (!value.trim() || Buffer.byteLength(value) > maximumBytes)
+      throw new TypeError(`${flag} must be nonblank and bounded`)
+  }
+  const store = await openRepositoryStore(repositoryRoot)
+  const coordinator = await ReviewAttemptCoordinator.open({ repositoryRoot })
+  const result = await withAdvisoryFileLock(
+    reviewSubjectLock(coordinator.runtimeRoot, store.manifest.repositoryId, pullRequest),
+    24 * 60 * 60 * 1_000,
+    async () =>
+      await associateReviewSession(
+        repositoryRoot,
+        store,
+        pullRequest,
+        { sessionKey, actor, reason },
+        environment,
+      ),
+  )
+  output.stdout(canonicalJson({ schemaVersion: 1, status: 'associated', ...result }))
+  return 0
+}
 
 function decisionView(records: RepositoryRecords, canonicalBranch?: string) {
   return canonicalBranch === undefined ? null : foldStoredDecisions(records, canonicalBranch)
@@ -98,8 +170,7 @@ function parseReviewOptions(args: readonly string[]): ReviewCliOptions {
   if (seen.has('--full') && seen.has('--force'))
     throw new TypeError('--full and --force are mutually exclusive')
   const pullRequestText = values.get('--pr')
-  if (pullRequestText !== undefined && !/^[1-9]\d*$/.test(pullRequestText))
-    throw new TypeError('--pr must be a positive integer')
+  const pullRequest = pullRequestText === undefined ? undefined : pullRequestNumber(pullRequestText)
   const sessionKey = values.get('--session')
   if (sessionKey !== undefined && (!sessionKey.trim() || Buffer.byteLength(sessionKey) > 1024))
     throw new TypeError('--session must be nonblank and bounded')
@@ -113,7 +184,7 @@ function parseReviewOptions(args: readonly string[]): ReviewCliOptions {
     throw new TypeError('--accept-partial cannot be combined with review execution options')
   return {
     mode: seen.has('--force') ? 'force' : seen.has('--full') ? 'full' : 'incremental',
-    ...(pullRequestText === undefined ? {} : { pullRequest: Number(pullRequestText) }),
+    ...(pullRequest === undefined ? {} : { pullRequest }),
     ...(sessionKey === undefined ? {} : { sessionKey }),
     ...(failOn === undefined ? {} : { failOn: failOn as ReviewCliOptions['failOn'] & string }),
     ...(acceptPartial === undefined ? {} : { acceptPartial: acceptPartial as RecordId }),
@@ -137,16 +208,10 @@ export async function reviewCommand(
   reviewerAdapter({ provider: 'codex', ...reviewerDefaults.codex })
   reviewerAdapter({ provider: 'claude', ...reviewerDefaults.claude })
   const coordinator = await ReviewAttemptCoordinator.open({ repositoryRoot })
-  const subjectLock = join(
+  const subjectLock = reviewSubjectLock(
     coordinator.runtimeRoot,
-    `subject-${createHash('sha256')
-      .update(
-        canonicalJson({
-          repositoryId: store.manifest.repositoryId,
-          pullRequest: options.pullRequest ?? null,
-        }),
-      )
-      .digest('hex')}.lock`,
+    store.manifest.repositoryId,
+    options.pullRequest,
   )
   return await withAdvisoryFileLock(subjectLock, 24 * 60 * 60 * 1_000, async () => {
     const repositorySettings = await store.readConfig()

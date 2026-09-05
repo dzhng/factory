@@ -74,5 +74,7 @@ association fold. The deterministic Docker workbench and its human-readable
 result are promoted under `../assets/pr-workbench/`. It proves bounded command
 termination, coherent paginated snapshots, typed failures, stable rename/fork/
 GHES identity, exact many-to-many association, append-only invalidation, and
-the absence of heuristic association. Verified code-state continuity remains
-disabled pending its separate false-positive corpus.
+the absence of heuristic association. `factory associate` is the production
+action that observes a PR and publishes a named Session assertion with its actor
+and reason. Verified code-state continuity remains disabled pending its separate
+false-positive corpus.
