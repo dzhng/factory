@@ -1,6 +1,17 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, open, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
+import {
+  chmod,
+  lstat,
+  mkdir,
+  mkdtemp,
+  open,
+  readFile,
+  readdir,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -8,6 +19,7 @@ import { makeOwnedPath } from '@factory/contract'
 
 import {
   JournalCorruptionError,
+  inspectRuntimeJournal,
   openRuntimeJournal as openJournal,
   type DurabilityBoundary,
   type RuntimeJournal,
@@ -143,6 +155,140 @@ describe('runtime journal', () => {
     expect((await mainJournal.inventory()).referenced).toHaveLength(2)
     expect((await linkedJournal.inventory()).referenced).toHaveLength(2)
   }, 30_000)
+
+  test('inspects an existing Git-common journal without creating or changing runtime state', async () => {
+    const repository = await mkdtemp(join(tmpdir(), 'factory-inspect-'))
+    const gitDirectory = join(repository, '.git')
+    await mkdir(gitDirectory)
+
+    expect(await inspectRuntimeJournal(repository)).toEqual({ state: 'absent', storageBytes: 0 })
+    expect(await Bun.file(join(gitDirectory, 'factory-runtime')).exists()).toBe(false)
+
+    const journal = await openRuntimeJournal({ repositoryRoot: repository })
+    await journal.append({
+      ...capture('pending-stop', 'stop-payload'),
+      eventKind: 'stop',
+      stopId: 'stop-1',
+    })
+    await journal.append({ ...capture('pending-end', 'end-payload'), eventKind: 'session-end' })
+    const diagnosticId = await journal.recordDiagnostic(new Error('inspection evidence'))
+    await journal.close()
+
+    const runtimeRoot = join(gitDirectory, 'factory-runtime')
+    const inspection = await inspectRuntimeJournal(repository)
+    expect(inspection).toEqual({
+      state: 'available',
+      pendingStops: 1,
+      pendingLifecycle: 1,
+      diagnostics: [`${diagnosticId}.txt`],
+      diagnosticsTruncated: false,
+      storageBytes: expect.any(Number),
+    })
+    expect(inspection.storageBytes).toBeGreaterThan(0)
+    const before = await treeFingerprint(runtimeRoot)
+    await inspectRuntimeJournal(repository)
+    expect(await treeFingerprint(runtimeRoot)).toEqual(before)
+  })
+
+  test('rejects a half-present runtime journal during inspection', async () => {
+    const repository = await mkdtemp(join(tmpdir(), 'factory-inspect-incomplete-'))
+    const runtimeRoot = join(repository, '.git', 'factory-runtime')
+    const journalRoot = join(runtimeRoot, 'journal-v1')
+    await mkdir(journalRoot, { recursive: true })
+    await chmod(runtimeRoot, 0o700)
+    await chmod(journalRoot, 0o700)
+
+    await expect(inspectRuntimeJournal(repository)).rejects.toThrow(
+      'Runtime journal database is missing',
+    )
+  })
+
+  test('rejects unsafe runtime parents and SQLite sidecars during inspection', async () => {
+    const symlinkedRepository = await mkdtemp(join(tmpdir(), 'factory-inspect-symlink-'))
+    const external = await mkdtemp(join(tmpdir(), 'factory-inspect-external-'))
+    await mkdir(join(symlinkedRepository, '.git'))
+    await symlink(external, join(symlinkedRepository, '.git', 'factory-runtime'))
+    await expect(inspectRuntimeJournal(symlinkedRepository)).rejects.toThrow(
+      'Runtime path is not an ordinary directory',
+    )
+
+    const sidecarRepository = await initializedRepository('factory-inspect-sidecar-')
+    const sidecarRoot = runtimeJournalRoot(sidecarRepository)
+    await rm(join(sidecarRoot, 'journal.sqlite-shm'), { force: true })
+    await symlink(external, join(sidecarRoot, 'journal.sqlite-shm'))
+    await expect(inspectRuntimeJournal(sidecarRepository)).rejects.toThrow(
+      'Runtime path is not an ordinary file',
+    )
+
+    const permissionsRepository = await initializedRepository('factory-inspect-permissions-')
+    await chmod(runtimeJournalRoot(permissionsRepository), 0o755)
+    await expect(inspectRuntimeJournal(permissionsRepository)).rejects.toThrow(
+      'Runtime directory ownership is unsafe',
+    )
+
+    const diagnosticsRepository = await initializedRepository('factory-inspect-diagnostics-')
+    const diagnosticsRoot = join(runtimeJournalRoot(diagnosticsRepository), 'diagnostics')
+    await rm(diagnosticsRoot, { recursive: true })
+    await symlink(external, diagnosticsRoot)
+    await expect(inspectRuntimeJournal(diagnosticsRepository)).rejects.toThrow(
+      'Runtime path is not an ordinary directory',
+    )
+
+    const fileRepository = await initializedRepository('factory-inspect-file-permissions-')
+    const journal = await openRuntimeJournal({ repositoryRoot: fileRepository })
+    const diagnosticId = await journal.recordDiagnostic(new Error('unsafe permissions'))
+    await journal.close()
+    await chmod(
+      join(runtimeJournalRoot(fileRepository), 'diagnostics', `${diagnosticId}.txt`),
+      0o644,
+    )
+    await expect(inspectRuntimeJournal(fileRepository)).rejects.toThrow(
+      'Runtime storage ownership is unsafe',
+    )
+  })
+
+  test('rejects an oversized runtime database before SQLite opens it', async () => {
+    const repository = await mkdtemp(join(tmpdir(), 'factory-inspect-oversized-'))
+    await mkdir(join(repository, '.git'))
+    await (await openRuntimeJournal({ repositoryRoot: repository })).close()
+    const databasePath = join(repository, '.git', 'factory-runtime', 'journal-v1', 'journal.sqlite')
+    const database = await open(databasePath, 'r+')
+    await database.truncate(512 * 1024 * 1024 + 1)
+    await database.close()
+
+    await expect(inspectRuntimeJournal(repository)).rejects.toThrow(
+      'Runtime file exceeds its byte bound',
+    )
+  })
+
+  test('rejects a physically valid completion without its durable claim', async () => {
+    const repository = await mkdtemp(join(tmpdir(), 'factory-inspect-forged-'))
+    await mkdir(join(repository, '.git'))
+    const journal = await openRuntimeJournal({
+      repositoryRoot: repository,
+      verifyTurn: turnVerifier(repository),
+    })
+    await journal.append({
+      ...capture('forged-completion-stop', 'stop'),
+      eventKind: 'stop',
+      stopId: 'stop-1',
+    })
+    const claim = (await journal.claimStop(crashStop)).claim
+    const turn = await writeTurn(repository, 'codex', 'crash-session', 'stop-1', 'completion')
+    await journal.complete(claim, turn)
+    await journal.close()
+
+    const { Database } = await import('bun:sqlite')
+    const database = new Database(
+      join(repository, '.git', 'factory-runtime', 'journal-v1', 'journal.sqlite'),
+    )
+    database.run('DELETE FROM claims')
+    database.close()
+
+    await expect(inspectRuntimeJournal(repository)).rejects.toThrow(
+      'Completion does not match its durable claim',
+    )
+  })
 
   test('serializes concurrent calls sharing one journal handle', async () => {
     const root = await mkdtemp(join(tmpdir(), 'factory-one-handle-'))
@@ -1119,6 +1265,36 @@ function testIdentity(...parts: string[]): string {
 
 function rawPath(root: string, sha256: string): string {
   return join(root, 'journal-v1', 'objects', 'sha256', sha256.slice(0, 2), sha256.slice(2))
+}
+
+async function initializedRepository(prefix: string): Promise<string> {
+  const repository = await mkdtemp(join(tmpdir(), prefix))
+  await mkdir(join(repository, '.git'))
+  await (await openRuntimeJournal({ repositoryRoot: repository })).close()
+  return repository
+}
+
+function runtimeJournalRoot(repository: string): string {
+  return join(repository, '.git', 'factory-runtime', 'journal-v1')
+}
+
+async function treeFingerprint(root: string, relative = ''): Promise<readonly string[]> {
+  const entries = await readdir(join(root, relative), { withFileTypes: true })
+  const fingerprints: string[] = []
+  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+    const path = join(relative, entry.name)
+    const info = await lstat(join(root, path))
+    if (entry.isDirectory()) {
+      fingerprints.push(`directory:${path}:${info.mode & 0o777}`)
+      fingerprints.push(...(await treeFingerprint(root, path)))
+    } else {
+      const sha256 = createHash('sha256')
+        .update(await readFile(join(root, path)))
+        .digest('hex')
+      fingerprints.push(`file:${path}:${info.mode & 0o777}:${sha256}`)
+    }
+  }
+  return fingerprints
 }
 
 async function preparedStopRoot(): Promise<string> {

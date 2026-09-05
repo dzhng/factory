@@ -33,6 +33,12 @@ The runtime database and its indexes are recoverable machine state, never
 portable history. Once the repository store verifies the corresponding Turn,
 runtime objects may be reclaimed without changing `.factory`.
 
+Read-only diagnostics use `inspectRuntimeJournal`, which owns SQLite integrity
+checks, pending-work counts, the bounded diagnostic inventory, and runtime
+storage accounting. Callers receive a typed snapshot and never need to know the
+database schema or private directory layout. Inspection does not initialize an
+absent journal; a half-present journal is corruption rather than empty state.
+
 Callers close a journal handle when its hook invocation or materialization pass
 ends. The package requires Node 22.13 or newer because earlier Node 22 releases
 do not provide the SQLite runtime it uses; Bun uses its built-in SQLite binding.

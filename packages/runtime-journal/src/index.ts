@@ -125,6 +125,16 @@ export interface HookCaptureResult {
   receipt?: DurableCaptureReceipt
   diagnosticId?: string
 }
+export type RuntimeJournalInspection =
+  | { state: 'absent'; storageBytes: 0 }
+  | {
+      state: 'available'
+      pendingStops: number
+      pendingLifecycle: number
+      diagnostics: readonly string[]
+      diagnosticsTruncated: boolean
+      storageBytes: number
+    }
 export interface RuntimeJournal {
   append(input: RawCaptureInput): Promise<DurableCaptureReceipt>
   appendNonBlocking(input: RawCaptureInput): Promise<HookCaptureResult>
@@ -192,6 +202,7 @@ const MAX_EVENT_METADATA_BYTES = 64 * 1024 * 1024
 const MAX_STATE_METADATA_BYTES = 64 * 1024 * 1024
 const MAX_CLAIM_JSON_BYTES = 1024 * 1024
 const MAX_COMPLETION_JSON_BYTES = 128 * 1024
+const MAX_DATABASE_FILE_BYTES = 512 * 1024 * 1024
 const DATABASE_PAGE_ROWS = 128
 const EVENT_METADATA_TOTALS_SQL = `SELECT COUNT(*) AS row_count, COALESCE(SUM(
   24 +
@@ -1159,6 +1170,21 @@ async function openSqlite(path: string): Promise<Database> {
   const module = (await import(name)) as { DatabaseSync: new (path: string) => Database }
   return new module.DatabaseSync(path)
 }
+
+async function openSqliteReadOnly(path: string): Promise<Database> {
+  if ('Bun' in globalThis) {
+    const name = 'bun:sqlite'
+    const module = (await import(name)) as {
+      Database: new (path: string, options: unknown) => Database
+    }
+    return new module.Database(path, { readonly: true, strict: true })
+  }
+  const name = 'node:sqlite'
+  const module = (await import(name)) as {
+    DatabaseSync: new (path: string, options: unknown) => Database
+  }
+  return new module.DatabaseSync(path, { readOnly: true })
+}
 function stmt(database: Database, sql: string): Statement {
   const value = database.prepare?.(sql) ?? database.query?.(sql)
   if (!value) throw new Error('SQLite prepared statements unavailable')
@@ -1533,6 +1559,15 @@ async function validateTestRuntimeRoot(path: string): Promise<string> {
 
 /** Resolve the private runtime root shared by every worktree of one Git repository. */
 export async function locateGitCommonRuntime(repositoryRoot: string): Promise<string> {
+  const commonDirectory = await resolveGitCommonDirectory(repositoryRoot)
+  const runtimeRoot = join(commonDirectory, 'factory-runtime')
+  await ensurePrivateDirectory(runtimeRoot)
+  await syncDirectory(runtimeRoot)
+  await syncDirectory(commonDirectory)
+  return runtimeRoot
+}
+
+async function resolveGitCommonDirectory(repositoryRoot: string): Promise<string> {
   if (!isAbsolute(repositoryRoot)) throw new TypeError('repositoryRoot must be absolute')
   const worktree = await realpath(repositoryRoot)
   const dotGit = join(worktree, '.git')
@@ -1566,11 +1601,147 @@ export async function locateGitCommonRuntime(repositoryRoot: string): Promise<st
   const commonInfo = await lstat(commonDirectory)
   if (commonInfo.isSymbolicLink() || !commonInfo.isDirectory())
     throw new Error('Factory requires an ordinary Git common directory')
+  return commonDirectory
+}
+
+/** Inspect existing runtime state without creating, migrating, or repairing it. */
+export async function inspectRuntimeJournal(
+  repositoryRoot: string,
+): Promise<RuntimeJournalInspection> {
+  const commonDirectory = await resolveGitCommonDirectory(repositoryRoot)
   const runtimeRoot = join(commonDirectory, 'factory-runtime')
-  await ensurePrivateDirectory(runtimeRoot)
-  await syncDirectory(runtimeRoot)
-  await syncDirectory(commonDirectory)
-  return runtimeRoot
+  const root = join(runtimeRoot, 'journal-v1')
+  const databasePath = join(root, 'journal.sqlite')
+  try {
+    await requirePrivateDirectoryReadOnly(runtimeRoot)
+    await requirePrivateDirectoryReadOnly(root)
+    await requirePrivateFileReadOnly(databasePath, MAX_DATABASE_FILE_BYTES)
+    await requireMissingOrPrivateFileReadOnly(`${databasePath}-wal`, MAX_DATABASE_FILE_BYTES)
+    await requireMissingOrPrivateFileReadOnly(`${databasePath}-shm`, MAX_DATABASE_FILE_BYTES)
+  } catch (error) {
+    if (isCode(error, 'ENOENT')) {
+      try {
+        const rootInfo = await lstat(root)
+        if (rootInfo.isSymbolicLink() || !rootInfo.isDirectory()) {
+          throw new JournalCorruptionError('Runtime journal root is not an ordinary directory')
+        }
+      } catch (rootError) {
+        if (isCode(rootError, 'ENOENT')) return { state: 'absent', storageBytes: 0 }
+        throw rootError
+      }
+      throw new JournalCorruptionError('Runtime journal database is missing')
+    }
+    throw error
+  }
+
+  const database = await openSqliteReadOnly(databasePath)
+  let pendingStops: number
+  let pendingLifecycle: number
+  try {
+    const stored = record(
+      stmt(database, 'SELECT runtime_scope FROM journal_meta WHERE singleton=1').get(),
+      'runtime metadata',
+    )
+    if (typeof stored.runtime_scope !== 'string')
+      throw new JournalCorruptionError('Runtime scope is malformed')
+    new SqliteJournal(
+      join(root, 'objects', 'sha256'),
+      join(root, 'tmp'),
+      join(root, 'diagnostics'),
+      stored.runtime_scope,
+      database,
+      { repositoryRoot },
+    ).assertLogicalIntegrity()
+    pendingStops = numberField(
+      record(
+        stmt(
+          database,
+          `SELECT (SELECT COUNT(*) FROM events WHERE event_kind='stop') - (SELECT COUNT(*) FROM completions) AS count`,
+        ).get(),
+        'pending Stop count',
+      ),
+      'count',
+    )
+    pendingLifecycle = numberField(
+      record(
+        stmt(
+          database,
+          `SELECT COUNT(*) AS count FROM events e LEFT JOIN lifecycle_completions l ON l.event_key=e.event_key WHERE e.event_kind='session-end' AND l.event_key IS NULL`,
+        ).get(),
+        'pending lifecycle count',
+      ),
+      'count',
+    )
+    if (pendingStops < 0 || pendingLifecycle < 0) {
+      throw new JournalCorruptionError('Runtime pending counts are invalid')
+    }
+  } finally {
+    database.close()
+  }
+
+  const diagnostics: string[] = []
+  let diagnosticsTruncated = false
+  const diagnosticsRoot = join(root, 'diagnostics')
+  try {
+    await requirePrivateDirectoryReadOnly(diagnosticsRoot)
+    const directory = await opendir(diagnosticsRoot)
+    let visited = 0
+    for await (const entry of directory) {
+      visited += 1
+      if (visited > MAX_DIAGNOSTICS) {
+        diagnosticsTruncated = true
+        break
+      }
+      if (entry.isSymbolicLink() || (!entry.isFile() && !entry.isDirectory())) {
+        throw new JournalCorruptionError('Runtime diagnostics contain an unsafe entry')
+      }
+      if (entry.isFile() && /^[0-9a-f]{64}\.txt$/.test(entry.name)) diagnostics.push(entry.name)
+    }
+  } catch (error) {
+    if (!isCode(error, 'ENOENT')) throw error
+  }
+  diagnostics.sort()
+  return {
+    state: 'available',
+    pendingStops,
+    pendingLifecycle,
+    diagnostics,
+    diagnosticsTruncated,
+    storageBytes: await boundedDirectoryBytes(root),
+  }
+}
+
+async function boundedDirectoryBytes(root: string): Promise<number> {
+  const pending = [root]
+  let visited = 0
+  let bytes = 0
+  while (pending.length > 0) {
+    const directory = pending.pop()!
+    const handle = await opendir(directory)
+    for await (const entry of handle) {
+      visited += 1
+      if (visited > MAX_JOURNAL_ROWS * 3) {
+        throw new JournalCorruptionError('Runtime storage inventory exceeds its bound')
+      }
+      const path = join(directory, entry.name)
+      const info = await lstat(path)
+      if (info.isSymbolicLink()) {
+        throw new JournalCorruptionError('Runtime storage contains a symbolic link')
+      }
+      if (
+        (info.mode & 0o077) !== 0 ||
+        (process.getuid !== undefined && info.uid !== process.getuid())
+      )
+        throw new JournalCorruptionError(`Runtime storage ownership is unsafe: ${path}`)
+      if (info.isDirectory()) pending.push(path)
+      else if (info.isFile()) bytes += info.size
+      else throw new JournalCorruptionError('Runtime storage contains an unsupported entry')
+      if (!Number.isSafeInteger(bytes)) {
+        throw new JournalCorruptionError('Runtime storage byte count exceeds its bound')
+      }
+    }
+  }
+  return bytes
 }
 
 async function ensurePrivateDirectory(path: string): Promise<void> {
@@ -1583,6 +1754,32 @@ async function ensurePrivateDirectory(path: string): Promise<void> {
   if (info.isSymbolicLink() || !info.isDirectory())
     throw new JournalCorruptionError(`Runtime path is not an ordinary directory: ${path}`)
   await chmod(path, 0o700)
+}
+
+async function requirePrivateDirectoryReadOnly(path: string): Promise<void> {
+  const info = await lstat(path)
+  if (info.isSymbolicLink() || !info.isDirectory())
+    throw new JournalCorruptionError(`Runtime path is not an ordinary directory: ${path}`)
+  if ((info.mode & 0o077) !== 0 || (process.getuid !== undefined && info.uid !== process.getuid()))
+    throw new JournalCorruptionError(`Runtime directory ownership is unsafe: ${path}`)
+}
+
+async function requireMissingOrPrivateFileReadOnly(path: string, maxBytes: number): Promise<void> {
+  try {
+    await requirePrivateFileReadOnly(path, maxBytes)
+  } catch (error) {
+    if (!isCode(error, 'ENOENT')) throw error
+  }
+}
+
+async function requirePrivateFileReadOnly(path: string, maxBytes: number): Promise<void> {
+  const info = await lstat(path)
+  if (info.isSymbolicLink() || !info.isFile())
+    throw new JournalCorruptionError(`Runtime path is not an ordinary file: ${path}`)
+  if ((info.mode & 0o077) !== 0 || (process.getuid !== undefined && info.uid !== process.getuid()))
+    throw new JournalCorruptionError(`Runtime file ownership is unsafe: ${path}`)
+  if (info.size > maxBytes)
+    throw new JournalCorruptionError(`Runtime file exceeds its byte bound: ${path}`)
 }
 
 async function requireMissingOrPrivateFile(path: string): Promise<void> {

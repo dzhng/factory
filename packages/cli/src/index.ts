@@ -1,4 +1,3 @@
-import { Database } from 'bun:sqlite'
 import { createHash, randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
 import {
@@ -8,7 +7,6 @@ import {
   link,
   mkdir,
   open,
-  opendir,
   readFile,
   realpath,
   rename,
@@ -46,6 +44,7 @@ import {
   type RepositoryStore,
 } from '@factory/repository'
 import {
+  inspectRuntimeJournal,
   openRuntimeJournal,
   type CaptureProvider,
   type RuntimeJournal,
@@ -839,43 +838,7 @@ async function doctor(
   const verification = await store.verify()
   const config = await store.readConfig()
   const suggestion = await canonicalSuggestion(repositoryRoot, environment)
-  let pendingStops: number | null = null
-  let pendingLifecycle: number | null = null
-  const gitCommon = await run(
-    'git',
-    ['rev-parse', '--path-format=absolute', '--git-common-dir'],
-    repositoryRoot,
-    environment,
-  )
-  const journalPath =
-    gitCommon.code === 0
-      ? join(gitCommon.stdout.trim(), 'factory-runtime', 'journal-v1', 'journal.sqlite')
-      : undefined
-  if (!repair && journalPath !== undefined && (await pathKind(journalPath)) === 'file') {
-    const database = new Database(journalPath, { readonly: true })
-    try {
-      pendingStops = Number(
-        (
-          database
-            .query(
-              `SELECT (SELECT COUNT(*) FROM events WHERE event_kind='stop') - (SELECT COUNT(*) FROM completions) AS count`,
-            )
-            .get() as { count: number }
-        ).count,
-      )
-      pendingLifecycle = Number(
-        (
-          database
-            .query(
-              `SELECT COUNT(*) AS count FROM events e LEFT JOIN lifecycle_completions l ON l.event_key=e.event_key WHERE e.event_kind='session-end' AND l.event_key IS NULL`,
-            )
-            .get() as { count: number }
-        ).count,
-      )
-    } finally {
-      database.close(false)
-    }
-  }
+  let runtime = await inspectRuntimeJournal(repositoryRoot)
   if (repair) {
     const repositoryStores = new Map([[repositoryRoot, store]])
     const journal = await openRuntimeJournal({
@@ -903,11 +866,10 @@ async function doctor(
     })
     try {
       await recoverRepository(repositoryRoot, store, repositoryStores, journal, environment)
-      pendingStops = (await Array.fromAsync(journal.recover())).length
-      pendingLifecycle = (await Array.fromAsync(journal.recoverLifecycle())).length
     } finally {
       await journal.close()
     }
+    runtime = await inspectRuntimeJournal(repositoryRoot)
   }
   const records = await store.readRecords()
   const hookState = await readHookState(environment).catch(error => ({
@@ -915,34 +877,13 @@ async function doctor(
   }))
   const hookTransactionPending =
     (await pathKind(join(configRoot(environment), 'hook-transaction.json'))) === 'file'
-  const diagnosticsRoot =
-    gitCommon.code === 0
-      ? join(gitCommon.stdout.trim(), 'factory-runtime', 'journal-v1', 'diagnostics')
-      : undefined
-  const captureDiagnostics: string[] = []
-  let diagnosticsTruncated = false
-  if (diagnosticsRoot !== undefined && (await pathKind(diagnosticsRoot)) === 'directory') {
-    const directory = await opendir(diagnosticsRoot)
-    let visited = 0
-    try {
-      for await (const entry of directory) {
-        visited += 1
-        if (visited > 10_000) {
-          diagnosticsTruncated = true
-          break
-        }
-        if (/^[0-9a-f]{64}\.txt$/.test(entry.name)) captureDiagnostics.push(entry.name)
-      }
-    } finally {
-      try {
-        await directory.close()
-      } catch {
-        // Async iteration closes the directory after exhaustion.
-      }
-    }
-  }
-  captureDiagnostics.sort()
-  if (diagnosticsTruncated) captureDiagnostics.push('inventory-exceeds-bound')
+  const captureDiagnostics =
+    runtime.state === 'available'
+      ? [
+          ...runtime.diagnostics,
+          ...(runtime.diagnosticsTruncated ? ['inventory-exceeds-bound'] : []),
+        ]
+      : []
   const projection = reduceRepository(records)
   const issues = [
     ...verification.issues,
@@ -951,8 +892,9 @@ async function doctor(
   return {
     repository: issues.length === 0 ? 'ok' : 'invalid',
     issues: issues as unknown as JsonValue,
-    pendingStops,
-    pendingLifecycle,
+    pendingStops: runtime.state === 'available' ? runtime.pendingStops : null,
+    pendingLifecycle: runtime.state === 'available' ? runtime.pendingLifecycle : null,
+    runtimeStorageBytes: runtime.storageBytes,
     projection: projection as unknown as JsonValue,
     hooks: (hookState ?? null) as unknown as JsonValue,
     hookTransactionPending,

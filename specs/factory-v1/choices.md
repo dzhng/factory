@@ -1449,3 +1449,20 @@ second normative schema; the master specification and format own mechanics.
 - **Verdict:** Sound as the local verification half of the release boundary;
   CI attestation remains the next pass.
 - **Confidence:** High.
+
+### Keep runtime diagnostics behind the journal owner
+
+- **When:** Slice 12 diagnostic ownership pass.
+- **The choice:** The runtime-journal package exposes one typed, bounded,
+  read-only inspection snapshot for pending work, private diagnostics, and
+  storage usage. The CLI no longer reads the SQLite schema or walks the private
+  runtime layout. Inspection does not create an absent journal, and a
+  half-present journal is reported as corruption.
+- **The gap:** `factory doctor` previously duplicated journal table names,
+  pending-count queries, diagnostic naming, and Git-common path mechanics.
+- **The reach:** Journal schema and private layout can evolve without creating
+  a second diagnostic authority. Other interfaces must consume the same
+  snapshot rather than rediscover runtime state.
+- **Verdict:** Sound. The component that owns recoverable machine state also
+  owns its interpretation.
+- **Confidence:** High.
