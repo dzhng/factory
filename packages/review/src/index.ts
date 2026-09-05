@@ -1,5 +1,15 @@
 export { parseSemanticOutput, type ParsedSemanticOutput } from './output.js'
 export {
+  appendDecisionAction,
+  appendDecisionObservations,
+  foldStoredDecisions,
+  recoverDecisionObservations,
+  StaleDecisionActionError,
+  type DecisionActionInput,
+  type DecisionActionRef,
+  type DecisionObservationSource,
+} from './decisions.js'
+export {
   loadStoredReviews,
   storedReviewFindingsMeetThreshold,
   storedReviewResult,

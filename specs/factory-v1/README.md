@@ -1,6 +1,6 @@
 # Factory v1 specification
 
-Status: **in implementation; Slices 01–09 are complete**
+Status: **in implementation; Slices 01–10 are complete**
 
 ## Next Agent Prompt
 
@@ -19,10 +19,12 @@ Status: **in implementation; Slices 01–09 are complete**
 > audited code-capture deadline hardening at `396dd97`. Slice 08 adds
 > deterministic incremental coverage and independently verified portable
 > workspace/PR bundles through `c934ba8`. Slice 09 implements isolated review
-> execution and immutable acceptance through `37d9a04`.
-> Next, begin Slice 10 without widening the review container authority.
+> execution and immutable acceptance through `37d9a04`. Slice 10 implements
+> verified decision observations, deterministic canonical folding, and linear
+> append-only human actions in the current checkpoint.
+> Next, begin Slice 11 without widening the localhost or filesystem authority.
 > Read `AGENTS.md`, `SECURITY.md`, this README, `choices.md`, `format.md`, and
-> Slices 08 and 09 in full.
+> Slices 10 and 11 in full.
 > Slice 06's packaged networkless Docker vertical passes both provider fixtures,
 > continuing/cross-repository Sessions, hook recovery, automatic initialization,
 > partial transcripts, Git sentinels, and rebuild after derived-index deletion.
@@ -40,13 +42,14 @@ Status: **in implementation; Slices 01–09 are complete**
 > authority. These are explicit unavailable authorities, not passes. Real Codex
 > and Claude execution is a Slice 09 release gate through the packaged
 > production path; never borrow a developer login. Changed gates: all six
-> prior runnable labs plus the PR workbench pass; SQLite was selected from the
+> prior runnable labs, the PR workbench, decision replay, and workspace/PR
+> review-release journeys pass; SQLite was selected from the
 > measured crash candidates;
 > runtime record validation covers every public v1 family plus the public code
 > manifest; the journal passes 32 Docker tests, repository storage 14, and Git
 > observation/reconstruction 36; the GitHub workspace passes 19 Docker tests
 > with 147 assertions; the combined workspace passes build, formatting, lint,
-> types, and 167 tests. Global TODOs: rerun current-client
+> types, and all package tests. Global TODOs: rerun current-client
 > authority when the registry is reachable; define verified code-state
 > continuity before enabling it; choose the release channel before Slice 12.
 > After every pass, update this prompt with the completed commit, exact next

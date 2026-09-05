@@ -6,10 +6,12 @@ import { join } from 'node:path'
 
 import {
   canonicalJson,
+  decisionAssertionFingerprint,
   makeOwnedPath,
   objectOwnedPath,
   reviewSubjectCoverageId,
   type CoverageAction,
+  type DecisionAction,
   type RecordId,
 } from '../../contract/src/index'
 import {
@@ -456,21 +458,88 @@ describe('sole repository writer', () => {
           observationId: recordId('decision'),
           reviewId: recordId('review'),
           reviewEntryId: recordId('entry'),
-          subject: {
+          decisionKey: 'fixture.object-shaped-assertion',
+          effect: 'assert',
+          assertion: {
             algorithm: 'sha256',
             sha256: 'f'.repeat(64),
             bytes: 99,
             mediaType: 'incidental',
             role: 'not-authority',
           },
-          summary: 'Object-shaped subject data remains ordinary JSON',
-          canonicalBranch: true,
+          assertionFingerprint: decisionAssertionFingerprint({
+            effect: 'assert',
+            assertion: {
+              algorithm: 'sha256',
+              sha256: 'f'.repeat(64),
+              bytes: 99,
+              mediaType: 'incidental',
+              role: 'not-authority',
+            },
+          }),
+          summary: 'Object-shaped assertion data remains ordinary JSON',
+          source: { kind: 'workspace', branch: 'main', exactSnapshot: true },
           confidence: 'high',
           observedAt: manifest.createdAt,
         }),
       ),
     )
     expect((await store.verify()).issues).toEqual([])
+  })
+
+  test('appends a decision action once against exact decision-record authority', async () => {
+    const root = await fixtureRoot()
+    const store = await initializeRepositoryStore(root, manifest, { canonicalBranch: 'main' })
+    const assertion = { owner: 'repository' }
+    const observation = {
+      schemaVersion: 1 as const,
+      observationId: recordId('decision'),
+      reviewId: recordId('review'),
+      reviewEntryId: recordId('entry'),
+      decisionKey: 'repository.writer',
+      effect: 'assert' as const,
+      assertion,
+      assertionFingerprint: decisionAssertionFingerprint({ effect: 'assert', assertion }),
+      summary: 'Repository owns durable writes',
+      source: { kind: 'workspace' as const, branch: 'main', exactSnapshot: true },
+      confidence: 'high' as const,
+      observedAt: manifest.createdAt,
+    }
+    const observationPath = makeOwnedPath('decisions', [
+      'observations',
+      `${observation.observationId}.json`,
+    ])
+    const observationBytes = new TextEncoder().encode(canonicalJson(observation))
+    await store.createImmutable(observationPath, observationBytes)
+    const authority = {
+      canonicalBranch: 'main',
+      records: [
+        {
+          path: observationPath,
+          sha256: createHash('sha256').update(observationBytes).digest('hex'),
+        },
+      ],
+    }
+    const action: DecisionAction = {
+      schemaVersion: 1,
+      actionId: recordId('action'),
+      previousActionId: null,
+      kind: 'confirm',
+      targetObservationId: observation.observationId,
+      actor: { kind: 'human' },
+      expectedStateFingerprint: 'a'.repeat(64),
+      createdAt: manifest.createdAt,
+    }
+    const first = await store.createDecisionAction(action, authority)
+    const retry = await store.createDecisionAction(
+      { ...action, createdAt: '2026-09-05T00:00:01Z' },
+      { canonicalBranch: 'main', records: [] },
+    )
+    expect(retry).toEqual(first)
+
+    await expect(
+      store.createDecisionAction({ ...action, actionId: recordId('other-action') }, authority),
+    ).rejects.toThrow('decision authority changed before append')
   })
 
   test('releases mutation ownership when the locking process dies', async () => {

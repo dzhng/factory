@@ -18,6 +18,7 @@ import {
   type VerifiedReviewBundle,
 } from '@factory/reviewer'
 
+import { appendDecisionObservations } from './decisions'
 import { parseSemanticOutput } from './output'
 import { loadStoredReviews } from './stored-reviews'
 
@@ -232,6 +233,14 @@ export async function acceptReview(
     records,
     manifestPath,
   )
+  if (state.ledger !== undefined) {
+    await appendDecisionObservations(
+      store,
+      state.manifest,
+      state.ledger,
+      JSON.parse(state.subjectRecord),
+    )
+  }
   return {
     reviewId: state.manifest.reviewId,
     disposition: state.manifest.disposition,

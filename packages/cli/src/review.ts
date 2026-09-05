@@ -3,11 +3,17 @@ import { lstat, mkdtemp, realpath, rm } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 
 import { canonicalJson, type RecordId } from '@factory/contract'
-import { openRepositoryStore, withAdvisoryFileLock } from '@factory/repository'
+import {
+  openRepositoryStore,
+  withAdvisoryFileLock,
+  type RepositoryRecords,
+} from '@factory/repository'
 import {
   acceptPartialCoverageByReviewId,
   acceptReview,
+  foldStoredDecisions,
   loadStoredReviews,
+  recoverDecisionObservations,
   storedReviewFindingsMeetThreshold,
   storedReviewResult,
   subjectPathLineage,
@@ -38,6 +44,10 @@ import {
 } from '@factory/reviewer'
 
 type ReviewOutput = { stdout(value: string): void; stderr(value: string): void }
+
+function decisionView(records: RepositoryRecords, canonicalBranch?: string) {
+  return canonicalBranch === undefined ? null : foldStoredDecisions(records, canonicalBranch)
+}
 
 const FACTORY_REVIEWER_DEFAULTS = {
   codex: { model: 'gpt-5.6-sol', effort: 'xhigh' },
@@ -209,7 +219,8 @@ export async function reviewCommand(
       options.pullRequest,
       environment,
     )
-    const stored = await store.readRecords()
+    let stored = await store.readRecords()
+    if ((await recoverDecisionObservations(store, stored)) > 0) stored = await store.readRecords()
     const committedReviews = loadStoredReviews(stored.records)
     const lineage = subjectPathLineage(subjectPath, stored.records)
     const retryGeneration = committedReviews
@@ -254,7 +265,13 @@ export async function reviewCommand(
           review => review.paths.ledger === plan.priorLedger?.path,
         )
         if (prior !== undefined) {
-          output.stdout(canonicalJson(storedReviewResult(prior, 'already-reviewed')))
+          const currentSettings = await store.readConfig()
+          output.stdout(
+            canonicalJson({
+              ...storedReviewResult(prior, 'already-reviewed'),
+              decisions: decisionView(stored, currentSettings.canonicalBranch),
+            }),
+          )
           return storedReviewFindingsMeetThreshold(prior, options.failOn) ? 1 : 0
         }
       }
@@ -289,12 +306,19 @@ export async function reviewCommand(
       )
       const accepted = await acceptReview(await validateReview(bundle, raw), store)
       await coordinator.finalize(bundle, selected.choice, imageDigest, accepted, retryGeneration)
-      const acceptedReview = loadStoredReviews((await store.readRecords()).records).find(
+      const currentRecords = await store.readRecords()
+      const acceptedReview = loadStoredReviews(currentRecords.records).find(
         review => review.manifest.reviewId === accepted.reviewId && review.lineage === lineage,
       )
       if (acceptedReview === undefined) throw new Error('accepted review manifest is absent')
       const enforced = storedReviewFindingsMeetThreshold(acceptedReview, options.failOn)
-      output.stdout(canonicalJson(storedReviewResult(acceptedReview)))
+      const currentSettings = await store.readConfig()
+      output.stdout(
+        canonicalJson({
+          ...storedReviewResult(acceptedReview),
+          decisions: decisionView(currentRecords, currentSettings.canonicalBranch),
+        }),
+      )
       return accepted.executionFailed || enforced ? 1 : 0
     } finally {
       await rm(bundleParent, { recursive: true, force: true })

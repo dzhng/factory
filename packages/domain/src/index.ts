@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto'
 
+export * from './decisions'
+
 import {
   canonicalJson,
   makeOwnedPath,

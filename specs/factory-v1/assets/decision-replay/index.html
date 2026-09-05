@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Canonical decision replay</title>
+  <style>
+    :root { color-scheme: light; font: 16px/1.5 system-ui, sans-serif; background: #f4f1e8; color: #201f1b; }
+    body { max-width: 1120px; margin: 0 auto; padding: 42px 24px 80px; }
+    header { border-bottom: 3px solid #201f1b; margin-bottom: 28px; }
+    h1 { font: 700 clamp(2.2rem, 5vw, 4.2rem)/1 Georgia, serif; margin: 0 0 16px; }
+    main { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; }
+    article { background: #fffdf7; border: 1px solid #201f1b; padding: 20px; box-shadow: 3px 3px 0 #201f1b; }
+    h2 { margin: 0; font-size: 1.35rem; }
+    .step { margin: 0 0 4px; color: #5a574f; font: 700 .78rem ui-monospace, monospace; text-transform: uppercase; }
+    dl div { display: flex; justify-content: space-between; gap: 16px; border-top: 1px solid #cbc6ba; padding: 6px 0; }
+    dd { margin: 0; font-weight: 700; }
+    .summary { color: #48463f; font-style: italic; }
+    .status { display: inline-block; padding: 5px 9px; background: #f4c95d; border: 1px solid #201f1b; }
+    footer { margin-top: 28px; color: #5a574f; }
+  </style>
+</head>
+<body>
+  <header><p class="status">Slice 10 · deterministic fold</p><h1>Canonical decision replay</h1><p>Canonical scope comes only from an exact <strong>main</strong> snapshot. Human actions remain separate, append-only evidence.</p></header>
+  <main><article>
+        <p class="step">Step 1</p>
+        <h2>feature proposal</h2>
+        <p>An exact feature-branch snapshot is evidence, but it is not the configured canonical branch, so it remains a proposal.</p>
+        <dl>
+          <div><dt>Lifecycle</dt><dd>proposal</dd></div>
+          <div><dt>Human status</dt><dd>unconfirmed</dd></div>
+          <div><dt>Priority</dt><dd>normal</dd></div>
+          
+        </dl>
+        <p class="summary">Retain review results for 30 days.</p>
+      </article>
+<article>
+        <p class="step">Step 2</p>
+        <h2>first canonical observation</h2>
+        <p>The first assertion on an exact main snapshot becomes canonical immediately; canonical status does not imply human confirmation.</p>
+        <dl>
+          <div><dt>Lifecycle</dt><dd>canonical-current</dd></div>
+          <div><dt>Human status</dt><dd>unconfirmed</dd></div>
+          <div><dt>Priority</dt><dd>normal</dd></div>
+          
+        </dl>
+        <p class="summary">Retain review results without expiry.</p>
+      </article>
+<article>
+        <p class="step">Step 3</p>
+        <h2>unchanged canonical replay</h2>
+        <p>Different summary prose has the same exact semantic fingerprint, so this is an unchanged canonical replay.</p>
+        <dl>
+          <div><dt>Lifecycle</dt><dd>canonical-replay</dd></div>
+          <div><dt>Human status</dt><dd>unconfirmed</dd></div>
+          <div><dt>Priority</dt><dd>normal</dd></div>
+          
+        </dl>
+        <p class="summary">Keep every review result.</p>
+      </article>
+<article>
+        <p class="step">Step 4</p>
+        <h2>canonical change</h2>
+        <p>The explicit decision key matches the current lineage but the exact semantic fingerprint changed, so confirmation is predictably high priority.</p>
+        <dl>
+          <div><dt>Lifecycle</dt><dd>pending-supersession</dd></div>
+          <div><dt>Human status</dt><dd>unconfirmed</dd></div>
+          <div><dt>Priority</dt><dd>high</dd></div>
+          <div><dt>Pending reason</dt><dd>change</dd></div>
+        </dl>
+        <p class="summary">Retain review results for one year.</p>
+      </article>
+<article>
+        <p class="step">Step 5</p>
+        <h2>canonical removal</h2>
+        <p>An explicit removal never erases the current observation; it creates a high-priority pending supersession.</p>
+        <dl>
+          <div><dt>Lifecycle</dt><dd>pending-supersession</dd></div>
+          <div><dt>Human status</dt><dd>unconfirmed</dd></div>
+          <div><dt>Priority</dt><dd>high</dd></div>
+          <div><dt>Pending reason</dt><dd>removal</dd></div>
+        </dl>
+        <p class="summary">Remove the review-retention policy.</p>
+      </article>
+<article>
+        <p class="step">Step 6</p>
+        <h2>canonical contradiction</h2>
+        <p>An explicit contradiction is retained beside the current decision as a high-priority pending supersession.</p>
+        <dl>
+          <div><dt>Lifecycle</dt><dd>pending-supersession</dd></div>
+          <div><dt>Human status</dt><dd>unconfirmed</dd></div>
+          <div><dt>Priority</dt><dd>high</dd></div>
+          <div><dt>Pending reason</dt><dd>contradiction</dd></div>
+        </dl>
+        <p class="summary">A newer constraint requires session-only retention.</p>
+      </article>
+<article>
+        <p class="step">Step 7</p>
+        <h2>human confirmation</h2>
+        <p>Human confirmation is an append-only status layered onto canonical evidence; it did not make the observation canonical.</p>
+        <dl>
+          <div><dt>Lifecycle</dt><dd>canonical-current</dd></div>
+          <div><dt>Human status</dt><dd>confirmed</dd></div>
+          <div><dt>Priority</dt><dd>normal</dd></div>
+          
+        </dl>
+        <p class="summary">Retain review results without expiry.</p>
+      </article>
+<article>
+        <p class="step">Step 8</p>
+        <h2>proposal rejection</h2>
+        <p>Rejecting the feature proposal makes only that immutable observation terminal; canonical history is unchanged.</p>
+        <dl>
+          <div><dt>Lifecycle</dt><dd>rejected</dd></div>
+          <div><dt>Human status</dt><dd>unconfirmed</dd></div>
+          <div><dt>Priority</dt><dd>normal</dd></div>
+          
+        </dl>
+        <p class="summary">Retain review results for 30 days.</p>
+      </article>
+<article>
+        <p class="step">Step 9</p>
+        <h2>human dispute</h2>
+        <p>A dispute raises the current canonical observation to high priority without rewriting its assertion or prior confirmation.</p>
+        <dl>
+          <div><dt>Lifecycle</dt><dd>canonical-current</dd></div>
+          <div><dt>Human status</dt><dd>disputed</dd></div>
+          <div><dt>Priority</dt><dd>high</dd></div>
+          
+        </dl>
+        <p class="summary">Retain review results without expiry.</p>
+      </article>
+<article>
+        <p class="step">Step 10</p>
+        <h2>dispute resolution</h2>
+        <p>Resolving the active dispute restores the prior confirmed status while preserving both append-only actions.</p>
+        <dl>
+          <div><dt>Lifecycle</dt><dd>canonical-current</dd></div>
+          <div><dt>Human status</dt><dd>confirmed</dd></div>
+          <div><dt>Priority</dt><dd>normal</dd></div>
+          
+        </dl>
+        <p class="summary">Retain review results without expiry.</p>
+      </article>
+<article>
+        <p class="step">Step 11</p>
+        <h2>explicit supersession</h2>
+        <p>The accepted transition marks the prior observation superseded and makes the selected pending assertion current; competing pending evidence remains visible.</p>
+        <dl>
+          <div><dt>Lifecycle</dt><dd>canonical-current</dd></div>
+          <div><dt>Human status</dt><dd>unconfirmed</dd></div>
+          <div><dt>Priority</dt><dd>normal</dd></div>
+          
+        </dl>
+        <p class="summary">Retain review results for one year.</p>
+      </article></main>
+  <footer>Shuffled observation and action inputs reproduce the exact final view: <strong>true</strong>. Machine-readable detail: <a href="report.json">report.json</a>.</footer>
+</body>
+</html>

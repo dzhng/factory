@@ -75,6 +75,10 @@ describe('review semantic output', () => {
     const lines = [
       {
         kind: 'decision',
+        decisionKey: 'repository.single-writer',
+        effect: 'assert',
+        assertion: { owner: 'repository' },
+        confidence: 'high',
         summary: 'Keep one writer',
         evidence: [{ object }],
       },

@@ -14,3 +14,9 @@ immutable fact and leaves the original association intact. Partial membership
 never proves absence. Code-state continuity remains a
 public format variant but no fold produces it until a separate corpus proves a
 deterministic algorithm.
+
+Decision history is another pure fold. It groups only explicit decision keys,
+derives canonical scope from exact snapshots of the configured branch, and
+keeps analyzer confidence, material change, and human status separate. Actions
+name exact observations or disputes; the fold never spreads their effects by
+similarity or rewrites earlier evidence.

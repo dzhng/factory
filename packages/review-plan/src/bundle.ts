@@ -104,7 +104,9 @@ function collectObjectRefs(value: unknown, refs: Map<string, ObjectRef>): void {
     refs.set(canonicalJson(ref), ref)
     return
   }
-  Object.values(record).forEach(item => collectObjectRefs(item, refs))
+  Object.entries(record).forEach(([key, item]) => {
+    if (key !== 'assertion') collectObjectRefs(item, refs)
+  })
 }
 async function verifyCodeManifestClosure(
   reference: ObjectRef,

@@ -1,0 +1,1645 @@
+{
+  "schemaVersion": 1,
+  "canonicalBranch": "main",
+  "steps": [
+    {
+      "name": "feature proposal",
+      "explanation": "An exact feature-branch snapshot is evidence, but it is not the configured canonical branch, so it remains a proposal.",
+      "focus": {
+        "observationId": "decision-observation_01M1QDTVZ8040G2081040G2081",
+        "summary": "Retain review results for 30 days.",
+        "lifecycle": "proposal",
+        "humanStatus": "unconfirmed",
+        "priority": "normal"
+      },
+      "stateFingerprint": "02302877289231b7adad83364135fd60b9e1f9d1798452cf292b54c9ec5c5bf9",
+      "lineages": [
+        {
+          "decisionKey": "storage.review-retention",
+          "observations": [
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDTVZ8040G2081040G2081",
+                "reviewId": "review_01M1QDTVZ8040G2081040G2081",
+                "reviewEntryId": "review-entry_01M1QDTVZ8040G2081040G2081",
+                "decisionKey": "storage.review-retention",
+                "effect": "assert",
+                "assertion": {
+                  "retain": "30-days"
+                },
+                "assertionFingerprint": "3de748ada0dff6a9840d693d78fba0b2b7a01e3de1bb77cae811f8231791ec4a",
+                "summary": "Retain review results for 30 days.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "feature/retention",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:01.000Z"
+              },
+              "scope": "proposal",
+              "lifecycle": "proposal",
+              "humanStatus": "unconfirmed",
+              "materiality": "new",
+              "priority": "normal"
+            }
+          ]
+        }
+      ],
+      "diagnostics": []
+    },
+    {
+      "name": "first canonical observation",
+      "explanation": "The first assertion on an exact main snapshot becomes canonical immediately; canonical status does not imply human confirmation.",
+      "focus": {
+        "observationId": "decision-observation_01M1QDTWYG081040G2081040G2",
+        "summary": "Retain review results without expiry.",
+        "lifecycle": "canonical-current",
+        "humanStatus": "unconfirmed",
+        "priority": "normal"
+      },
+      "stateFingerprint": "2b000465fd94aa3c4e0005054441f811a8ac7adc6815cf33485a941147a7032c",
+      "lineages": [
+        {
+          "decisionKey": "storage.review-retention",
+          "currentObservationId": "decision-observation_01M1QDTWYG081040G2081040G2",
+          "observations": [
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDTVZ8040G2081040G2081",
+                "reviewId": "review_01M1QDTVZ8040G2081040G2081",
+                "reviewEntryId": "review-entry_01M1QDTVZ8040G2081040G2081",
+                "decisionKey": "storage.review-retention",
+                "effect": "assert",
+                "assertion": {
+                  "retain": "30-days"
+                },
+                "assertionFingerprint": "3de748ada0dff6a9840d693d78fba0b2b7a01e3de1bb77cae811f8231791ec4a",
+                "summary": "Retain review results for 30 days.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "feature/retention",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:01.000Z"
+              },
+              "scope": "proposal",
+              "lifecycle": "proposal",
+              "humanStatus": "unconfirmed",
+              "materiality": "new",
+              "priority": "normal"
+            },
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDTWYG081040G2081040G2",
+                "reviewId": "review_01M1QDTWYG081040G2081040G2",
+                "reviewEntryId": "review-entry_01M1QDTWYG081040G2081040G2",
+                "decisionKey": "storage.review-retention",
+                "effect": "assert",
+                "assertion": {
+                  "retain": "forever"
+                },
+                "assertionFingerprint": "85c818d55a98a27a60634b5362fa9a92edc4d1f2f249bf09d52eb417680d56ae",
+                "summary": "Retain review results without expiry.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "main",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:02.000Z"
+              },
+              "scope": "canonical",
+              "lifecycle": "canonical-current",
+              "humanStatus": "unconfirmed",
+              "materiality": "new",
+              "priority": "normal"
+            }
+          ]
+        }
+      ],
+      "diagnostics": []
+    },
+    {
+      "name": "unchanged canonical replay",
+      "explanation": "Different summary prose has the same exact semantic fingerprint, so this is an unchanged canonical replay.",
+      "focus": {
+        "observationId": "decision-observation_01M1QDTXXR0C1G60R30C1G60R3",
+        "summary": "Keep every review result.",
+        "lifecycle": "canonical-replay",
+        "humanStatus": "unconfirmed",
+        "priority": "normal"
+      },
+      "stateFingerprint": "f704fd8cee8cf60ad70086603f310cdc2cf19e04bb0230f174409c23cc25c947",
+      "lineages": [
+        {
+          "decisionKey": "storage.review-retention",
+          "currentObservationId": "decision-observation_01M1QDTWYG081040G2081040G2",
+          "observations": [
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDTVZ8040G2081040G2081",
+                "reviewId": "review_01M1QDTVZ8040G2081040G2081",
+                "reviewEntryId": "review-entry_01M1QDTVZ8040G2081040G2081",
+                "decisionKey": "storage.review-retention",
+                "effect": "assert",
+                "assertion": {
+                  "retain": "30-days"
+                },
+                "assertionFingerprint": "3de748ada0dff6a9840d693d78fba0b2b7a01e3de1bb77cae811f8231791ec4a",
+                "summary": "Retain review results for 30 days.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "feature/retention",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:01.000Z"
+              },
+              "scope": "proposal",
+              "lifecycle": "proposal",
+              "humanStatus": "unconfirmed",
+              "materiality": "new",
+              "priority": "normal"
+            },
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDTWYG081040G2081040G2",
+                "reviewId": "review_01M1QDTWYG081040G2081040G2",
+                "reviewEntryId": "review-entry_01M1QDTWYG081040G2081040G2",
+                "decisionKey": "storage.review-retention",
+                "effect": "assert",
+                "assertion": {
+                  "retain": "forever"
+                },
+                "assertionFingerprint": "85c818d55a98a27a60634b5362fa9a92edc4d1f2f249bf09d52eb417680d56ae",
+                "summary": "Retain review results without expiry.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "main",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:02.000Z"
+              },
+              "scope": "canonical",
+              "lifecycle": "canonical-current",
+              "humanStatus": "unconfirmed",
+              "materiality": "new",
+              "priority": "normal"
+            },
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDTXXR0C1G60R30C1G60R3",
+                "reviewId": "review_01M1QDTXXR0C1G60R30C1G60R3",
+                "reviewEntryId": "review-entry_01M1QDTXXR0C1G60R30C1G60R3",
+                "decisionKey": "storage.review-retention",
+                "effect": "assert",
+                "assertion": {
+                  "retain": "forever"
+                },
+                "assertionFingerprint": "85c818d55a98a27a60634b5362fa9a92edc4d1f2f249bf09d52eb417680d56ae",
+                "summary": "Keep every review result.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "main",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:03.000Z"
+              },
+              "scope": "canonical",
+              "lifecycle": "canonical-replay",
+              "humanStatus": "unconfirmed",
+              "materiality": "unchanged",
+              "priority": "normal"
+            }
+          ]
+        }
+      ],
+      "diagnostics": []
+    },
+    {
+      "name": "canonical change",
+      "explanation": "The explicit decision key matches the current lineage but the exact semantic fingerprint changed, so confirmation is predictably high priority.",
+      "focus": {
+        "observationId": "decision-observation_01M1QDTYX00G2081040G208104",
+        "summary": "Retain review results for one year.",
+        "lifecycle": "pending-supersession",
+        "humanStatus": "unconfirmed",
+        "priority": "high",
+        "pendingReason": "change"
+      },
+      "stateFingerprint": "ab862ba00873ff14db9d7730709857f09d7c4ba2d2026b2a32cfc5a0691f60f9",
+      "lineages": [
+        {
+          "decisionKey": "storage.review-retention",
+          "currentObservationId": "decision-observation_01M1QDTWYG081040G2081040G2",
+          "observations": [
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDTVZ8040G2081040G2081",
+                "reviewId": "review_01M1QDTVZ8040G2081040G2081",
+                "reviewEntryId": "review-entry_01M1QDTVZ8040G2081040G2081",
+                "decisionKey": "storage.review-retention",
+                "effect": "assert",
+                "assertion": {
+                  "retain": "30-days"
+                },
+                "assertionFingerprint": "3de748ada0dff6a9840d693d78fba0b2b7a01e3de1bb77cae811f8231791ec4a",
+                "summary": "Retain review results for 30 days.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "feature/retention",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:01.000Z"
+              },
+              "scope": "proposal",
+              "lifecycle": "proposal",
+              "humanStatus": "unconfirmed",
+              "materiality": "new",
+              "priority": "normal"
+            },
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDTWYG081040G2081040G2",
+                "reviewId": "review_01M1QDTWYG081040G2081040G2",
+                "reviewEntryId": "review-entry_01M1QDTWYG081040G2081040G2",
+                "decisionKey": "storage.review-retention",
+                "effect": "assert",
+                "assertion": {
+                  "retain": "forever"
+                },
+                "assertionFingerprint": "85c818d55a98a27a60634b5362fa9a92edc4d1f2f249bf09d52eb417680d56ae",
+                "summary": "Retain review results without expiry.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "main",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:02.000Z"
+              },
+              "scope": "canonical",
+              "lifecycle": "canonical-current",
+              "humanStatus": "unconfirmed",
+              "materiality": "new",
+              "priority": "normal"
+            },
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDTXXR0C1G60R30C1G60R3",
+                "reviewId": "review_01M1QDTXXR0C1G60R30C1G60R3",
+                "reviewEntryId": "review-entry_01M1QDTXXR0C1G60R30C1G60R3",
+                "decisionKey": "storage.review-retention",
+                "effect": "assert",
+                "assertion": {
+                  "retain": "forever"
+                },
+                "assertionFingerprint": "85c818d55a98a27a60634b5362fa9a92edc4d1f2f249bf09d52eb417680d56ae",
+                "summary": "Keep every review result.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "main",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:03.000Z"
+              },
+              "scope": "canonical",
+              "lifecycle": "canonical-replay",
+              "humanStatus": "unconfirmed",
+              "materiality": "unchanged",
+              "priority": "normal"
+            },
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDTYX00G2081040G208104",
+                "reviewId": "review_01M1QDTYX00G2081040G208104",
+                "reviewEntryId": "review-entry_01M1QDTYX00G2081040G208104",
+                "decisionKey": "storage.review-retention",
+                "effect": "assert",
+                "assertion": {
+                  "retain": "365-days"
+                },
+                "assertionFingerprint": "19c752b1a05c64f739371e0d47d3e07eec2149bcbadf0fecd144862659832c14",
+                "summary": "Retain review results for one year.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "main",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:04.000Z"
+              },
+              "scope": "canonical",
+              "lifecycle": "pending-supersession",
+              "humanStatus": "unconfirmed",
+              "materiality": "material-change",
+              "priority": "high",
+              "pendingReason": "change",
+              "pendingFromObservationId": "decision-observation_01M1QDTWYG081040G2081040G2"
+            }
+          ]
+        }
+      ],
+      "diagnostics": []
+    },
+    {
+      "name": "canonical removal",
+      "explanation": "An explicit removal never erases the current observation; it creates a high-priority pending supersession.",
+      "focus": {
+        "observationId": "decision-observation_01M1QDTZW80M2GA1850M2GA185",
+        "summary": "Remove the review-retention policy.",
+        "lifecycle": "pending-supersession",
+        "humanStatus": "unconfirmed",
+        "priority": "high",
+        "pendingReason": "removal"
+      },
+      "stateFingerprint": "40f5c2a84a44c42f8cc5104137876aef8c45554bdb277951a2f6327e60a68a21",
+      "lineages": [
+        {
+          "decisionKey": "storage.review-retention",
+          "currentObservationId": "decision-observation_01M1QDTWYG081040G2081040G2",
+          "observations": [
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDTVZ8040G2081040G2081",
+                "reviewId": "review_01M1QDTVZ8040G2081040G2081",
+                "reviewEntryId": "review-entry_01M1QDTVZ8040G2081040G2081",
+                "decisionKey": "storage.review-retention",
+                "effect": "assert",
+                "assertion": {
+                  "retain": "30-days"
+                },
+                "assertionFingerprint": "3de748ada0dff6a9840d693d78fba0b2b7a01e3de1bb77cae811f8231791ec4a",
+                "summary": "Retain review results for 30 days.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "feature/retention",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:01.000Z"
+              },
+              "scope": "proposal",
+              "lifecycle": "proposal",
+              "humanStatus": "unconfirmed",
+              "materiality": "new",
+              "priority": "normal"
+            },
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDTWYG081040G2081040G2",
+                "reviewId": "review_01M1QDTWYG081040G2081040G2",
+                "reviewEntryId": "review-entry_01M1QDTWYG081040G2081040G2",
+                "decisionKey": "storage.review-retention",
+                "effect": "assert",
+                "assertion": {
+                  "retain": "forever"
+                },
+                "assertionFingerprint": "85c818d55a98a27a60634b5362fa9a92edc4d1f2f249bf09d52eb417680d56ae",
+                "summary": "Retain review results without expiry.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "main",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:02.000Z"
+              },
+              "scope": "canonical",
+              "lifecycle": "canonical-current",
+              "humanStatus": "unconfirmed",
+              "materiality": "new",
+              "priority": "normal"
+            },
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDTXXR0C1G60R30C1G60R3",
+                "reviewId": "review_01M1QDTXXR0C1G60R30C1G60R3",
+                "reviewEntryId": "review-entry_01M1QDTXXR0C1G60R30C1G60R3",
+                "decisionKey": "storage.review-retention",
+                "effect": "assert",
+                "assertion": {
+                  "retain": "forever"
+                },
+                "assertionFingerprint": "85c818d55a98a27a60634b5362fa9a92edc4d1f2f249bf09d52eb417680d56ae",
+                "summary": "Keep every review result.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "main",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:03.000Z"
+              },
+              "scope": "canonical",
+              "lifecycle": "canonical-replay",
+              "humanStatus": "unconfirmed",
+              "materiality": "unchanged",
+              "priority": "normal"
+            },
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDTYX00G2081040G208104",
+                "reviewId": "review_01M1QDTYX00G2081040G208104",
+                "reviewEntryId": "review-entry_01M1QDTYX00G2081040G208104",
+                "decisionKey": "storage.review-retention",
+                "effect": "assert",
+                "assertion": {
+                  "retain": "365-days"
+                },
+                "assertionFingerprint": "19c752b1a05c64f739371e0d47d3e07eec2149bcbadf0fecd144862659832c14",
+                "summary": "Retain review results for one year.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "main",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:04.000Z"
+              },
+              "scope": "canonical",
+              "lifecycle": "pending-supersession",
+              "humanStatus": "unconfirmed",
+              "materiality": "material-change",
+              "priority": "high",
+              "pendingReason": "change",
+              "pendingFromObservationId": "decision-observation_01M1QDTWYG081040G2081040G2"
+            },
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDTZW80M2GA1850M2GA185",
+                "reviewId": "review_01M1QDTZW80M2GA1850M2GA185",
+                "reviewEntryId": "review-entry_01M1QDTZW80M2GA1850M2GA185",
+                "decisionKey": "storage.review-retention",
+                "effect": "remove",
+                "assertion": null,
+                "assertionFingerprint": "3f81da6f855d4ab83e62783475e47dd6f20e0880dd6cd2bc9506180c2a9e69e4",
+                "summary": "Remove the review-retention policy.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "main",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:05.000Z"
+              },
+              "scope": "canonical",
+              "lifecycle": "pending-supersession",
+              "humanStatus": "unconfirmed",
+              "materiality": "removal",
+              "priority": "high",
+              "pendingReason": "removal",
+              "pendingFromObservationId": "decision-observation_01M1QDTWYG081040G2081040G2"
+            }
+          ]
+        }
+      ],
+      "diagnostics": []
+    },
+    {
+      "name": "canonical contradiction",
+      "explanation": "An explicit contradiction is retained beside the current decision as a high-priority pending supersession.",
+      "focus": {
+        "observationId": "decision-observation_01M1QDV0VG0R30C1G60R30C1G6",
+        "summary": "A newer constraint requires session-only retention.",
+        "lifecycle": "pending-supersession",
+        "humanStatus": "unconfirmed",
+        "priority": "high",
+        "pendingReason": "contradiction"
+      },
+      "stateFingerprint": "a433b88eb48da05d8b959b0e039990f87e7257dbf4004919c10e030677d8351f",
+      "lineages": [
+        {
+          "decisionKey": "storage.review-retention",
+          "currentObservationId": "decision-observation_01M1QDTWYG081040G2081040G2",
+          "observations": [
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDTVZ8040G2081040G2081",
+                "reviewId": "review_01M1QDTVZ8040G2081040G2081",
+                "reviewEntryId": "review-entry_01M1QDTVZ8040G2081040G2081",
+                "decisionKey": "storage.review-retention",
+                "effect": "assert",
+                "assertion": {
+                  "retain": "30-days"
+                },
+                "assertionFingerprint": "3de748ada0dff6a9840d693d78fba0b2b7a01e3de1bb77cae811f8231791ec4a",
+                "summary": "Retain review results for 30 days.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "feature/retention",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:01.000Z"
+              },
+              "scope": "proposal",
+              "lifecycle": "proposal",
+              "humanStatus": "unconfirmed",
+              "materiality": "new",
+              "priority": "normal"
+            },
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDTWYG081040G2081040G2",
+                "reviewId": "review_01M1QDTWYG081040G2081040G2",
+                "reviewEntryId": "review-entry_01M1QDTWYG081040G2081040G2",
+                "decisionKey": "storage.review-retention",
+                "effect": "assert",
+                "assertion": {
+                  "retain": "forever"
+                },
+                "assertionFingerprint": "85c818d55a98a27a60634b5362fa9a92edc4d1f2f249bf09d52eb417680d56ae",
+                "summary": "Retain review results without expiry.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "main",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:02.000Z"
+              },
+              "scope": "canonical",
+              "lifecycle": "canonical-current",
+              "humanStatus": "unconfirmed",
+              "materiality": "new",
+              "priority": "normal"
+            },
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDTXXR0C1G60R30C1G60R3",
+                "reviewId": "review_01M1QDTXXR0C1G60R30C1G60R3",
+                "reviewEntryId": "review-entry_01M1QDTXXR0C1G60R30C1G60R3",
+                "decisionKey": "storage.review-retention",
+                "effect": "assert",
+                "assertion": {
+                  "retain": "forever"
+                },
+                "assertionFingerprint": "85c818d55a98a27a60634b5362fa9a92edc4d1f2f249bf09d52eb417680d56ae",
+                "summary": "Keep every review result.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "main",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:03.000Z"
+              },
+              "scope": "canonical",
+              "lifecycle": "canonical-replay",
+              "humanStatus": "unconfirmed",
+              "materiality": "unchanged",
+              "priority": "normal"
+            },
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDTYX00G2081040G208104",
+                "reviewId": "review_01M1QDTYX00G2081040G208104",
+                "reviewEntryId": "review-entry_01M1QDTYX00G2081040G208104",
+                "decisionKey": "storage.review-retention",
+                "effect": "assert",
+                "assertion": {
+                  "retain": "365-days"
+                },
+                "assertionFingerprint": "19c752b1a05c64f739371e0d47d3e07eec2149bcbadf0fecd144862659832c14",
+                "summary": "Retain review results for one year.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "main",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:04.000Z"
+              },
+              "scope": "canonical",
+              "lifecycle": "pending-supersession",
+              "humanStatus": "unconfirmed",
+              "materiality": "material-change",
+              "priority": "high",
+              "pendingReason": "change",
+              "pendingFromObservationId": "decision-observation_01M1QDTWYG081040G2081040G2"
+            },
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDTZW80M2GA1850M2GA185",
+                "reviewId": "review_01M1QDTZW80M2GA1850M2GA185",
+                "reviewEntryId": "review-entry_01M1QDTZW80M2GA1850M2GA185",
+                "decisionKey": "storage.review-retention",
+                "effect": "remove",
+                "assertion": null,
+                "assertionFingerprint": "3f81da6f855d4ab83e62783475e47dd6f20e0880dd6cd2bc9506180c2a9e69e4",
+                "summary": "Remove the review-retention policy.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "main",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:05.000Z"
+              },
+              "scope": "canonical",
+              "lifecycle": "pending-supersession",
+              "humanStatus": "unconfirmed",
+              "materiality": "removal",
+              "priority": "high",
+              "pendingReason": "removal",
+              "pendingFromObservationId": "decision-observation_01M1QDTWYG081040G2081040G2"
+            },
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDV0VG0R30C1G60R30C1G6",
+                "reviewId": "review_01M1QDV0VG0R30C1G60R30C1G6",
+                "reviewEntryId": "review-entry_01M1QDV0VG0R30C1G60R30C1G6",
+                "decisionKey": "storage.review-retention",
+                "effect": "contradict",
+                "assertion": {
+                  "retain": "session-only"
+                },
+                "assertionFingerprint": "6381828c92930b28599a5ac3ce535b3f7b20e2154dcb39f967e101f3052b6aff",
+                "summary": "A newer constraint requires session-only retention.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "main",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:06.000Z"
+              },
+              "scope": "canonical",
+              "lifecycle": "pending-supersession",
+              "humanStatus": "unconfirmed",
+              "materiality": "contradiction",
+              "priority": "high",
+              "pendingReason": "contradiction",
+              "pendingFromObservationId": "decision-observation_01M1QDTWYG081040G2081040G2"
+            }
+          ]
+        }
+      ],
+      "diagnostics": []
+    },
+    {
+      "name": "human confirmation",
+      "explanation": "Human confirmation is an append-only status layered onto canonical evidence; it did not make the observation canonical.",
+      "focus": {
+        "observationId": "decision-observation_01M1QDTWYG081040G2081040G2",
+        "summary": "Retain review results without expiry.",
+        "lifecycle": "canonical-current",
+        "humanStatus": "confirmed",
+        "priority": "normal"
+      },
+      "stateFingerprint": "b6806374e2af2e7527d873f52542327b85daef75cc5480898a1675bb8dabe052",
+      "lineages": [
+        {
+          "decisionKey": "storage.review-retention",
+          "currentObservationId": "decision-observation_01M1QDTWYG081040G2081040G2",
+          "observations": [
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDTVZ8040G2081040G2081",
+                "reviewId": "review_01M1QDTVZ8040G2081040G2081",
+                "reviewEntryId": "review-entry_01M1QDTVZ8040G2081040G2081",
+                "decisionKey": "storage.review-retention",
+                "effect": "assert",
+                "assertion": {
+                  "retain": "30-days"
+                },
+                "assertionFingerprint": "3de748ada0dff6a9840d693d78fba0b2b7a01e3de1bb77cae811f8231791ec4a",
+                "summary": "Retain review results for 30 days.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "feature/retention",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:01.000Z"
+              },
+              "scope": "proposal",
+              "lifecycle": "proposal",
+              "humanStatus": "unconfirmed",
+              "materiality": "new",
+              "priority": "normal"
+            },
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDTWYG081040G2081040G2",
+                "reviewId": "review_01M1QDTWYG081040G2081040G2",
+                "reviewEntryId": "review-entry_01M1QDTWYG081040G2081040G2",
+                "decisionKey": "storage.review-retention",
+                "effect": "assert",
+                "assertion": {
+                  "retain": "forever"
+                },
+                "assertionFingerprint": "85c818d55a98a27a60634b5362fa9a92edc4d1f2f249bf09d52eb417680d56ae",
+                "summary": "Retain review results without expiry.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "main",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:02.000Z"
+              },
+              "scope": "canonical",
+              "lifecycle": "canonical-current",
+              "humanStatus": "confirmed",
+              "materiality": "new",
+              "priority": "normal"
+            },
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDTXXR0C1G60R30C1G60R3",
+                "reviewId": "review_01M1QDTXXR0C1G60R30C1G60R3",
+                "reviewEntryId": "review-entry_01M1QDTXXR0C1G60R30C1G60R3",
+                "decisionKey": "storage.review-retention",
+                "effect": "assert",
+                "assertion": {
+                  "retain": "forever"
+                },
+                "assertionFingerprint": "85c818d55a98a27a60634b5362fa9a92edc4d1f2f249bf09d52eb417680d56ae",
+                "summary": "Keep every review result.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "main",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:03.000Z"
+              },
+              "scope": "canonical",
+              "lifecycle": "canonical-replay",
+              "humanStatus": "unconfirmed",
+              "materiality": "unchanged",
+              "priority": "normal"
+            },
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDTYX00G2081040G208104",
+                "reviewId": "review_01M1QDTYX00G2081040G208104",
+                "reviewEntryId": "review-entry_01M1QDTYX00G2081040G208104",
+                "decisionKey": "storage.review-retention",
+                "effect": "assert",
+                "assertion": {
+                  "retain": "365-days"
+                },
+                "assertionFingerprint": "19c752b1a05c64f739371e0d47d3e07eec2149bcbadf0fecd144862659832c14",
+                "summary": "Retain review results for one year.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "main",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:04.000Z"
+              },
+              "scope": "canonical",
+              "lifecycle": "pending-supersession",
+              "humanStatus": "unconfirmed",
+              "materiality": "material-change",
+              "priority": "high",
+              "pendingReason": "change",
+              "pendingFromObservationId": "decision-observation_01M1QDTWYG081040G2081040G2"
+            },
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDTZW80M2GA1850M2GA185",
+                "reviewId": "review_01M1QDTZW80M2GA1850M2GA185",
+                "reviewEntryId": "review-entry_01M1QDTZW80M2GA1850M2GA185",
+                "decisionKey": "storage.review-retention",
+                "effect": "remove",
+                "assertion": null,
+                "assertionFingerprint": "3f81da6f855d4ab83e62783475e47dd6f20e0880dd6cd2bc9506180c2a9e69e4",
+                "summary": "Remove the review-retention policy.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "main",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:05.000Z"
+              },
+              "scope": "canonical",
+              "lifecycle": "pending-supersession",
+              "humanStatus": "unconfirmed",
+              "materiality": "removal",
+              "priority": "high",
+              "pendingReason": "removal",
+              "pendingFromObservationId": "decision-observation_01M1QDTWYG081040G2081040G2"
+            },
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDV0VG0R30C1G60R30C1G6",
+                "reviewId": "review_01M1QDV0VG0R30C1G60R30C1G6",
+                "reviewEntryId": "review-entry_01M1QDV0VG0R30C1G60R30C1G6",
+                "decisionKey": "storage.review-retention",
+                "effect": "contradict",
+                "assertion": {
+                  "retain": "session-only"
+                },
+                "assertionFingerprint": "6381828c92930b28599a5ac3ce535b3f7b20e2154dcb39f967e101f3052b6aff",
+                "summary": "A newer constraint requires session-only retention.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "main",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:06.000Z"
+              },
+              "scope": "canonical",
+              "lifecycle": "pending-supersession",
+              "humanStatus": "unconfirmed",
+              "materiality": "contradiction",
+              "priority": "high",
+              "pendingReason": "contradiction",
+              "pendingFromObservationId": "decision-observation_01M1QDTWYG081040G2081040G2"
+            }
+          ]
+        }
+      ],
+      "diagnostics": []
+    },
+    {
+      "name": "proposal rejection",
+      "explanation": "Rejecting the feature proposal makes only that immutable observation terminal; canonical history is unchanged.",
+      "focus": {
+        "observationId": "decision-observation_01M1QDTVZ8040G2081040G2081",
+        "summary": "Retain review results for 30 days.",
+        "lifecycle": "rejected",
+        "humanStatus": "unconfirmed",
+        "priority": "normal"
+      },
+      "stateFingerprint": "18ad97c14b4299214682991fbe86397e7eb127c36b24f17c1ce2099b40a7ab07",
+      "lineages": [
+        {
+          "decisionKey": "storage.review-retention",
+          "currentObservationId": "decision-observation_01M1QDTWYG081040G2081040G2",
+          "observations": [
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDTVZ8040G2081040G2081",
+                "reviewId": "review_01M1QDTVZ8040G2081040G2081",
+                "reviewEntryId": "review-entry_01M1QDTVZ8040G2081040G2081",
+                "decisionKey": "storage.review-retention",
+                "effect": "assert",
+                "assertion": {
+                  "retain": "30-days"
+                },
+                "assertionFingerprint": "3de748ada0dff6a9840d693d78fba0b2b7a01e3de1bb77cae811f8231791ec4a",
+                "summary": "Retain review results for 30 days.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "feature/retention",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:01.000Z"
+              },
+              "scope": "proposal",
+              "lifecycle": "rejected",
+              "humanStatus": "unconfirmed",
+              "materiality": "new",
+              "priority": "normal"
+            },
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDTWYG081040G2081040G2",
+                "reviewId": "review_01M1QDTWYG081040G2081040G2",
+                "reviewEntryId": "review-entry_01M1QDTWYG081040G2081040G2",
+                "decisionKey": "storage.review-retention",
+                "effect": "assert",
+                "assertion": {
+                  "retain": "forever"
+                },
+                "assertionFingerprint": "85c818d55a98a27a60634b5362fa9a92edc4d1f2f249bf09d52eb417680d56ae",
+                "summary": "Retain review results without expiry.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "main",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:02.000Z"
+              },
+              "scope": "canonical",
+              "lifecycle": "canonical-current",
+              "humanStatus": "confirmed",
+              "materiality": "new",
+              "priority": "normal"
+            },
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDTXXR0C1G60R30C1G60R3",
+                "reviewId": "review_01M1QDTXXR0C1G60R30C1G60R3",
+                "reviewEntryId": "review-entry_01M1QDTXXR0C1G60R30C1G60R3",
+                "decisionKey": "storage.review-retention",
+                "effect": "assert",
+                "assertion": {
+                  "retain": "forever"
+                },
+                "assertionFingerprint": "85c818d55a98a27a60634b5362fa9a92edc4d1f2f249bf09d52eb417680d56ae",
+                "summary": "Keep every review result.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "main",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:03.000Z"
+              },
+              "scope": "canonical",
+              "lifecycle": "canonical-replay",
+              "humanStatus": "unconfirmed",
+              "materiality": "unchanged",
+              "priority": "normal"
+            },
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDTYX00G2081040G208104",
+                "reviewId": "review_01M1QDTYX00G2081040G208104",
+                "reviewEntryId": "review-entry_01M1QDTYX00G2081040G208104",
+                "decisionKey": "storage.review-retention",
+                "effect": "assert",
+                "assertion": {
+                  "retain": "365-days"
+                },
+                "assertionFingerprint": "19c752b1a05c64f739371e0d47d3e07eec2149bcbadf0fecd144862659832c14",
+                "summary": "Retain review results for one year.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "main",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:04.000Z"
+              },
+              "scope": "canonical",
+              "lifecycle": "pending-supersession",
+              "humanStatus": "unconfirmed",
+              "materiality": "material-change",
+              "priority": "high",
+              "pendingReason": "change",
+              "pendingFromObservationId": "decision-observation_01M1QDTWYG081040G2081040G2"
+            },
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDTZW80M2GA1850M2GA185",
+                "reviewId": "review_01M1QDTZW80M2GA1850M2GA185",
+                "reviewEntryId": "review-entry_01M1QDTZW80M2GA1850M2GA185",
+                "decisionKey": "storage.review-retention",
+                "effect": "remove",
+                "assertion": null,
+                "assertionFingerprint": "3f81da6f855d4ab83e62783475e47dd6f20e0880dd6cd2bc9506180c2a9e69e4",
+                "summary": "Remove the review-retention policy.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "main",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:05.000Z"
+              },
+              "scope": "canonical",
+              "lifecycle": "pending-supersession",
+              "humanStatus": "unconfirmed",
+              "materiality": "removal",
+              "priority": "high",
+              "pendingReason": "removal",
+              "pendingFromObservationId": "decision-observation_01M1QDTWYG081040G2081040G2"
+            },
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDV0VG0R30C1G60R30C1G6",
+                "reviewId": "review_01M1QDV0VG0R30C1G60R30C1G6",
+                "reviewEntryId": "review-entry_01M1QDV0VG0R30C1G60R30C1G6",
+                "decisionKey": "storage.review-retention",
+                "effect": "contradict",
+                "assertion": {
+                  "retain": "session-only"
+                },
+                "assertionFingerprint": "6381828c92930b28599a5ac3ce535b3f7b20e2154dcb39f967e101f3052b6aff",
+                "summary": "A newer constraint requires session-only retention.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "main",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:06.000Z"
+              },
+              "scope": "canonical",
+              "lifecycle": "pending-supersession",
+              "humanStatus": "unconfirmed",
+              "materiality": "contradiction",
+              "priority": "high",
+              "pendingReason": "contradiction",
+              "pendingFromObservationId": "decision-observation_01M1QDTWYG081040G2081040G2"
+            }
+          ]
+        }
+      ],
+      "diagnostics": []
+    },
+    {
+      "name": "human dispute",
+      "explanation": "A dispute raises the current canonical observation to high priority without rewriting its assertion or prior confirmation.",
+      "focus": {
+        "observationId": "decision-observation_01M1QDTWYG081040G2081040G2",
+        "summary": "Retain review results without expiry.",
+        "lifecycle": "canonical-current",
+        "humanStatus": "disputed",
+        "priority": "high"
+      },
+      "stateFingerprint": "79ee5b6f64ecb1667a338a970669dcf0d9cabaa6f0200cb2cd8ec81518ad2a72",
+      "lineages": [
+        {
+          "decisionKey": "storage.review-retention",
+          "currentObservationId": "decision-observation_01M1QDTWYG081040G2081040G2",
+          "observations": [
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDTVZ8040G2081040G2081",
+                "reviewId": "review_01M1QDTVZ8040G2081040G2081",
+                "reviewEntryId": "review-entry_01M1QDTVZ8040G2081040G2081",
+                "decisionKey": "storage.review-retention",
+                "effect": "assert",
+                "assertion": {
+                  "retain": "30-days"
+                },
+                "assertionFingerprint": "3de748ada0dff6a9840d693d78fba0b2b7a01e3de1bb77cae811f8231791ec4a",
+                "summary": "Retain review results for 30 days.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "feature/retention",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:01.000Z"
+              },
+              "scope": "proposal",
+              "lifecycle": "rejected",
+              "humanStatus": "unconfirmed",
+              "materiality": "new",
+              "priority": "normal"
+            },
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDTWYG081040G2081040G2",
+                "reviewId": "review_01M1QDTWYG081040G2081040G2",
+                "reviewEntryId": "review-entry_01M1QDTWYG081040G2081040G2",
+                "decisionKey": "storage.review-retention",
+                "effect": "assert",
+                "assertion": {
+                  "retain": "forever"
+                },
+                "assertionFingerprint": "85c818d55a98a27a60634b5362fa9a92edc4d1f2f249bf09d52eb417680d56ae",
+                "summary": "Retain review results without expiry.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "main",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:02.000Z"
+              },
+              "scope": "canonical",
+              "lifecycle": "canonical-current",
+              "humanStatus": "disputed",
+              "materiality": "new",
+              "priority": "high"
+            },
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDTXXR0C1G60R30C1G60R3",
+                "reviewId": "review_01M1QDTXXR0C1G60R30C1G60R3",
+                "reviewEntryId": "review-entry_01M1QDTXXR0C1G60R30C1G60R3",
+                "decisionKey": "storage.review-retention",
+                "effect": "assert",
+                "assertion": {
+                  "retain": "forever"
+                },
+                "assertionFingerprint": "85c818d55a98a27a60634b5362fa9a92edc4d1f2f249bf09d52eb417680d56ae",
+                "summary": "Keep every review result.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "main",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:03.000Z"
+              },
+              "scope": "canonical",
+              "lifecycle": "canonical-replay",
+              "humanStatus": "unconfirmed",
+              "materiality": "unchanged",
+              "priority": "normal"
+            },
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDTYX00G2081040G208104",
+                "reviewId": "review_01M1QDTYX00G2081040G208104",
+                "reviewEntryId": "review-entry_01M1QDTYX00G2081040G208104",
+                "decisionKey": "storage.review-retention",
+                "effect": "assert",
+                "assertion": {
+                  "retain": "365-days"
+                },
+                "assertionFingerprint": "19c752b1a05c64f739371e0d47d3e07eec2149bcbadf0fecd144862659832c14",
+                "summary": "Retain review results for one year.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "main",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:04.000Z"
+              },
+              "scope": "canonical",
+              "lifecycle": "pending-supersession",
+              "humanStatus": "unconfirmed",
+              "materiality": "material-change",
+              "priority": "high",
+              "pendingReason": "change",
+              "pendingFromObservationId": "decision-observation_01M1QDTWYG081040G2081040G2"
+            },
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDTZW80M2GA1850M2GA185",
+                "reviewId": "review_01M1QDTZW80M2GA1850M2GA185",
+                "reviewEntryId": "review-entry_01M1QDTZW80M2GA1850M2GA185",
+                "decisionKey": "storage.review-retention",
+                "effect": "remove",
+                "assertion": null,
+                "assertionFingerprint": "3f81da6f855d4ab83e62783475e47dd6f20e0880dd6cd2bc9506180c2a9e69e4",
+                "summary": "Remove the review-retention policy.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "main",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:05.000Z"
+              },
+              "scope": "canonical",
+              "lifecycle": "pending-supersession",
+              "humanStatus": "unconfirmed",
+              "materiality": "removal",
+              "priority": "high",
+              "pendingReason": "removal",
+              "pendingFromObservationId": "decision-observation_01M1QDTWYG081040G2081040G2"
+            },
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDV0VG0R30C1G60R30C1G6",
+                "reviewId": "review_01M1QDV0VG0R30C1G60R30C1G6",
+                "reviewEntryId": "review-entry_01M1QDV0VG0R30C1G60R30C1G6",
+                "decisionKey": "storage.review-retention",
+                "effect": "contradict",
+                "assertion": {
+                  "retain": "session-only"
+                },
+                "assertionFingerprint": "6381828c92930b28599a5ac3ce535b3f7b20e2154dcb39f967e101f3052b6aff",
+                "summary": "A newer constraint requires session-only retention.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "main",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:06.000Z"
+              },
+              "scope": "canonical",
+              "lifecycle": "pending-supersession",
+              "humanStatus": "unconfirmed",
+              "materiality": "contradiction",
+              "priority": "high",
+              "pendingReason": "contradiction",
+              "pendingFromObservationId": "decision-observation_01M1QDTWYG081040G2081040G2"
+            }
+          ]
+        }
+      ],
+      "diagnostics": []
+    },
+    {
+      "name": "dispute resolution",
+      "explanation": "Resolving the active dispute restores the prior confirmed status while preserving both append-only actions.",
+      "focus": {
+        "observationId": "decision-observation_01M1QDTWYG081040G2081040G2",
+        "summary": "Retain review results without expiry.",
+        "lifecycle": "canonical-current",
+        "humanStatus": "confirmed",
+        "priority": "normal"
+      },
+      "stateFingerprint": "55af772d3b9af84caf17925998d55e60422b2e7a301ae6305b318a69344ffd77",
+      "lineages": [
+        {
+          "decisionKey": "storage.review-retention",
+          "currentObservationId": "decision-observation_01M1QDTWYG081040G2081040G2",
+          "observations": [
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDTVZ8040G2081040G2081",
+                "reviewId": "review_01M1QDTVZ8040G2081040G2081",
+                "reviewEntryId": "review-entry_01M1QDTVZ8040G2081040G2081",
+                "decisionKey": "storage.review-retention",
+                "effect": "assert",
+                "assertion": {
+                  "retain": "30-days"
+                },
+                "assertionFingerprint": "3de748ada0dff6a9840d693d78fba0b2b7a01e3de1bb77cae811f8231791ec4a",
+                "summary": "Retain review results for 30 days.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "feature/retention",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:01.000Z"
+              },
+              "scope": "proposal",
+              "lifecycle": "rejected",
+              "humanStatus": "unconfirmed",
+              "materiality": "new",
+              "priority": "normal"
+            },
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDTWYG081040G2081040G2",
+                "reviewId": "review_01M1QDTWYG081040G2081040G2",
+                "reviewEntryId": "review-entry_01M1QDTWYG081040G2081040G2",
+                "decisionKey": "storage.review-retention",
+                "effect": "assert",
+                "assertion": {
+                  "retain": "forever"
+                },
+                "assertionFingerprint": "85c818d55a98a27a60634b5362fa9a92edc4d1f2f249bf09d52eb417680d56ae",
+                "summary": "Retain review results without expiry.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "main",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:02.000Z"
+              },
+              "scope": "canonical",
+              "lifecycle": "canonical-current",
+              "humanStatus": "confirmed",
+              "materiality": "new",
+              "priority": "normal"
+            },
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDTXXR0C1G60R30C1G60R3",
+                "reviewId": "review_01M1QDTXXR0C1G60R30C1G60R3",
+                "reviewEntryId": "review-entry_01M1QDTXXR0C1G60R30C1G60R3",
+                "decisionKey": "storage.review-retention",
+                "effect": "assert",
+                "assertion": {
+                  "retain": "forever"
+                },
+                "assertionFingerprint": "85c818d55a98a27a60634b5362fa9a92edc4d1f2f249bf09d52eb417680d56ae",
+                "summary": "Keep every review result.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "main",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:03.000Z"
+              },
+              "scope": "canonical",
+              "lifecycle": "canonical-replay",
+              "humanStatus": "unconfirmed",
+              "materiality": "unchanged",
+              "priority": "normal"
+            },
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDTYX00G2081040G208104",
+                "reviewId": "review_01M1QDTYX00G2081040G208104",
+                "reviewEntryId": "review-entry_01M1QDTYX00G2081040G208104",
+                "decisionKey": "storage.review-retention",
+                "effect": "assert",
+                "assertion": {
+                  "retain": "365-days"
+                },
+                "assertionFingerprint": "19c752b1a05c64f739371e0d47d3e07eec2149bcbadf0fecd144862659832c14",
+                "summary": "Retain review results for one year.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "main",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:04.000Z"
+              },
+              "scope": "canonical",
+              "lifecycle": "pending-supersession",
+              "humanStatus": "unconfirmed",
+              "materiality": "material-change",
+              "priority": "high",
+              "pendingReason": "change",
+              "pendingFromObservationId": "decision-observation_01M1QDTWYG081040G2081040G2"
+            },
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDTZW80M2GA1850M2GA185",
+                "reviewId": "review_01M1QDTZW80M2GA1850M2GA185",
+                "reviewEntryId": "review-entry_01M1QDTZW80M2GA1850M2GA185",
+                "decisionKey": "storage.review-retention",
+                "effect": "remove",
+                "assertion": null,
+                "assertionFingerprint": "3f81da6f855d4ab83e62783475e47dd6f20e0880dd6cd2bc9506180c2a9e69e4",
+                "summary": "Remove the review-retention policy.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "main",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:05.000Z"
+              },
+              "scope": "canonical",
+              "lifecycle": "pending-supersession",
+              "humanStatus": "unconfirmed",
+              "materiality": "removal",
+              "priority": "high",
+              "pendingReason": "removal",
+              "pendingFromObservationId": "decision-observation_01M1QDTWYG081040G2081040G2"
+            },
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDV0VG0R30C1G60R30C1G6",
+                "reviewId": "review_01M1QDV0VG0R30C1G60R30C1G6",
+                "reviewEntryId": "review-entry_01M1QDV0VG0R30C1G60R30C1G6",
+                "decisionKey": "storage.review-retention",
+                "effect": "contradict",
+                "assertion": {
+                  "retain": "session-only"
+                },
+                "assertionFingerprint": "6381828c92930b28599a5ac3ce535b3f7b20e2154dcb39f967e101f3052b6aff",
+                "summary": "A newer constraint requires session-only retention.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "main",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:06.000Z"
+              },
+              "scope": "canonical",
+              "lifecycle": "pending-supersession",
+              "humanStatus": "unconfirmed",
+              "materiality": "contradiction",
+              "priority": "high",
+              "pendingReason": "contradiction",
+              "pendingFromObservationId": "decision-observation_01M1QDTWYG081040G2081040G2"
+            }
+          ]
+        }
+      ],
+      "diagnostics": []
+    },
+    {
+      "name": "explicit supersession",
+      "explanation": "The accepted transition marks the prior observation superseded and makes the selected pending assertion current; competing pending evidence remains visible.",
+      "focus": {
+        "observationId": "decision-observation_01M1QDTYX00G2081040G208104",
+        "summary": "Retain review results for one year.",
+        "lifecycle": "canonical-current",
+        "humanStatus": "unconfirmed",
+        "priority": "normal"
+      },
+      "stateFingerprint": "b6dc71e1992e982758e5acc885f26fe7edeedc5f30ede636b78978b8ac9e214d",
+      "lineages": [
+        {
+          "decisionKey": "storage.review-retention",
+          "currentObservationId": "decision-observation_01M1QDTYX00G2081040G208104",
+          "observations": [
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDTVZ8040G2081040G2081",
+                "reviewId": "review_01M1QDTVZ8040G2081040G2081",
+                "reviewEntryId": "review-entry_01M1QDTVZ8040G2081040G2081",
+                "decisionKey": "storage.review-retention",
+                "effect": "assert",
+                "assertion": {
+                  "retain": "30-days"
+                },
+                "assertionFingerprint": "3de748ada0dff6a9840d693d78fba0b2b7a01e3de1bb77cae811f8231791ec4a",
+                "summary": "Retain review results for 30 days.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "feature/retention",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:01.000Z"
+              },
+              "scope": "proposal",
+              "lifecycle": "rejected",
+              "humanStatus": "unconfirmed",
+              "materiality": "new",
+              "priority": "normal"
+            },
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDTWYG081040G2081040G2",
+                "reviewId": "review_01M1QDTWYG081040G2081040G2",
+                "reviewEntryId": "review-entry_01M1QDTWYG081040G2081040G2",
+                "decisionKey": "storage.review-retention",
+                "effect": "assert",
+                "assertion": {
+                  "retain": "forever"
+                },
+                "assertionFingerprint": "85c818d55a98a27a60634b5362fa9a92edc4d1f2f249bf09d52eb417680d56ae",
+                "summary": "Retain review results without expiry.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "main",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:02.000Z"
+              },
+              "scope": "canonical",
+              "lifecycle": "superseded",
+              "humanStatus": "confirmed",
+              "materiality": "new",
+              "priority": "normal"
+            },
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDTXXR0C1G60R30C1G60R3",
+                "reviewId": "review_01M1QDTXXR0C1G60R30C1G60R3",
+                "reviewEntryId": "review-entry_01M1QDTXXR0C1G60R30C1G60R3",
+                "decisionKey": "storage.review-retention",
+                "effect": "assert",
+                "assertion": {
+                  "retain": "forever"
+                },
+                "assertionFingerprint": "85c818d55a98a27a60634b5362fa9a92edc4d1f2f249bf09d52eb417680d56ae",
+                "summary": "Keep every review result.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "main",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:03.000Z"
+              },
+              "scope": "canonical",
+              "lifecycle": "canonical-replay",
+              "humanStatus": "unconfirmed",
+              "materiality": "unchanged",
+              "priority": "normal"
+            },
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDTYX00G2081040G208104",
+                "reviewId": "review_01M1QDTYX00G2081040G208104",
+                "reviewEntryId": "review-entry_01M1QDTYX00G2081040G208104",
+                "decisionKey": "storage.review-retention",
+                "effect": "assert",
+                "assertion": {
+                  "retain": "365-days"
+                },
+                "assertionFingerprint": "19c752b1a05c64f739371e0d47d3e07eec2149bcbadf0fecd144862659832c14",
+                "summary": "Retain review results for one year.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "main",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:04.000Z"
+              },
+              "scope": "canonical",
+              "lifecycle": "canonical-current",
+              "humanStatus": "unconfirmed",
+              "materiality": "material-change",
+              "priority": "normal"
+            },
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDTZW80M2GA1850M2GA185",
+                "reviewId": "review_01M1QDTZW80M2GA1850M2GA185",
+                "reviewEntryId": "review-entry_01M1QDTZW80M2GA1850M2GA185",
+                "decisionKey": "storage.review-retention",
+                "effect": "remove",
+                "assertion": null,
+                "assertionFingerprint": "3f81da6f855d4ab83e62783475e47dd6f20e0880dd6cd2bc9506180c2a9e69e4",
+                "summary": "Remove the review-retention policy.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "main",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:05.000Z"
+              },
+              "scope": "canonical",
+              "lifecycle": "pending-supersession",
+              "humanStatus": "unconfirmed",
+              "materiality": "removal",
+              "priority": "high",
+              "pendingReason": "removal",
+              "pendingFromObservationId": "decision-observation_01M1QDTYX00G2081040G208104"
+            },
+            {
+              "observation": {
+                "schemaVersion": 1,
+                "observationId": "decision-observation_01M1QDV0VG0R30C1G60R30C1G6",
+                "reviewId": "review_01M1QDV0VG0R30C1G60R30C1G6",
+                "reviewEntryId": "review-entry_01M1QDV0VG0R30C1G60R30C1G6",
+                "decisionKey": "storage.review-retention",
+                "effect": "contradict",
+                "assertion": {
+                  "retain": "session-only"
+                },
+                "assertionFingerprint": "6381828c92930b28599a5ac3ce535b3f7b20e2154dcb39f967e101f3052b6aff",
+                "summary": "A newer constraint requires session-only retention.",
+                "source": {
+                  "kind": "workspace",
+                  "branch": "main",
+                  "exactSnapshot": true
+                },
+                "confidence": "high",
+                "observedAt": "2026-09-05T00:00:06.000Z"
+              },
+              "scope": "canonical",
+              "lifecycle": "pending-supersession",
+              "humanStatus": "unconfirmed",
+              "materiality": "contradiction",
+              "priority": "high",
+              "pendingReason": "contradiction",
+              "pendingFromObservationId": "decision-observation_01M1QDTYX00G2081040G208104"
+            }
+          ]
+        }
+      ],
+      "diagnostics": []
+    }
+  ],
+  "determinism": {
+    "shuffledInputsMatch": true
+  }
+}

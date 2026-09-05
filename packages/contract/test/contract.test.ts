@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 
 import {
   canonicalJson,
+  decisionAssertionFingerprint,
   decodeGitPath,
   encodeGitPath,
   githubRepositoryKey,
@@ -435,9 +436,15 @@ describe('public repository contract', () => {
           observationId: recordId('decision'),
           reviewId: recordId('review'),
           reviewEntryId: recordId('entry'),
-          subject: { path: 'src/index.ts' },
+          decisionKey: 'repository.single-writer',
+          effect: 'assert',
+          assertion: { owner: 'repository' },
+          assertionFingerprint: decisionAssertionFingerprint({
+            effect: 'assert',
+            assertion: { owner: 'repository' },
+          }),
           summary: 'Fixture decision',
-          canonicalBranch: true,
+          source: { kind: 'workspace', branch: 'main', exactSnapshot: true },
           confidence: 'high',
           observedAt: timestamp,
         },
@@ -447,9 +454,11 @@ describe('public repository contract', () => {
         {
           schemaVersion: 1,
           actionId: recordId('action'),
+          previousActionId: null,
           kind: 'confirm',
-          observationIds: [recordId('decision')],
+          targetObservationId: recordId('decision'),
           actor: { kind: 'human' },
+          expectedStateFingerprint: '0'.repeat(64),
           createdAt: timestamp,
         },
       ],
@@ -496,25 +505,29 @@ describe('public repository contract', () => {
     ).toThrow('limitations[0]')
   })
 
-  test('rejects malformed decision actions and actions with no observations', () => {
+  test('rejects malformed decision action targets and actors', () => {
     expect(() =>
       validatePublicRecord(makeOwnedPath('decisions', ['actions', `${recordId('action')}.json`]), {
         schemaVersion: 1,
         actionId: recordId('action'),
+        previousActionId: null,
         kind: 'confirm',
-        observationIds: [],
+        targetObservationId: '',
         actor: { kind: 'human' },
+        expectedStateFingerprint: '0'.repeat(64),
         createdAt: '2026-09-04T00:00:00Z',
       }),
-    ).toThrow('observationIds')
+    ).toThrow('targetObservationId')
 
     expect(() =>
       validatePublicRecord(makeOwnedPath('decisions', ['actions', `${recordId('action')}.json`]), {
         schemaVersion: 1,
         actionId: recordId('action'),
+        previousActionId: null,
         kind: 'confirm',
-        observationIds: [recordId('decision')],
+        targetObservationId: recordId('decision'),
         actor: { kind: 'review' },
+        expectedStateFingerprint: '0'.repeat(64),
         createdAt: '2026-09-04T00:00:00Z',
       }),
     ).toThrow('reviewId')
@@ -1127,9 +1140,12 @@ describe('public repository contract', () => {
           observationId: recordId('decision', '1'),
           reviewId: recordId('review'),
           reviewEntryId: recordId('entry'),
-          subject: null,
+          decisionKey: 'fixture',
+          effect: 'assert',
+          assertion: null,
+          assertionFingerprint: decisionAssertionFingerprint({ effect: 'assert', assertion: null }),
           summary: 'Fixture',
-          canonicalBranch: false,
+          source: { kind: 'workspace', branch: 'feature', exactSnapshot: true },
           confidence: 'low',
           observedAt: timestamp,
         },
@@ -1139,9 +1155,11 @@ describe('public repository contract', () => {
         {
           schemaVersion: 1,
           actionId: recordId('action', '1'),
+          previousActionId: null,
           kind: 'confirm',
-          observationIds: [recordId('decision')],
+          targetObservationId: recordId('decision'),
           actor: { kind: 'human' },
+          expectedStateFingerprint: '0'.repeat(64),
           createdAt: timestamp,
         },
       ],

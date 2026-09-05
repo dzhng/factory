@@ -107,7 +107,6 @@ export type RepositoryConfig = Record<string, JsonValue> & {
   canonicalBranch?: string
   reviewer?: ConfiguredReviewer
   automaticReview?: boolean
-  decisionConfirmation?: 'required' | 'automatic'
   reviewLimits?: Record<string, JsonValue> & {
     maxBundleBytes?: number
     maxSessions?: number
@@ -521,7 +520,16 @@ type ReviewLedgerEntryBase = {
 
 export type ReviewLedgerEntry =
   | (ReviewLedgerEntryBase & { kind: 'finding'; severity: 'low' | 'medium' | 'high' | 'critical' })
-  | (ReviewLedgerEntryBase & { kind: 'decision' | 'summary' })
+  | (ReviewLedgerEntryBase & { kind: 'summary' })
+  | (ReviewLedgerEntryBase & {
+      kind: 'decision'
+      /** Explicit semantic identity copied across reviews; never inferred from prose. */
+      decisionKey: string
+      effect: 'assert' | 'remove' | 'contradict'
+      /** Structured meaning used for exact material-change detection. */
+      assertion: JsonValue
+      confidence: 'low' | 'medium' | 'high'
+    })
 
 export type CoverageAction = {
   schemaVersion: 1
@@ -546,21 +554,63 @@ export type DecisionObservation = {
   observationId: RecordId
   reviewId: RecordId
   reviewEntryId: RecordId
-  subject: JsonValue
+  /** Stable identity supplied explicitly by the analyzer or a human link. */
+  decisionKey: string
+  effect: 'assert' | 'remove' | 'contradict'
+  assertion: JsonValue
+  /** SHA-256 of the canonical effect and assertion, excluding presentation prose. */
+  assertionFingerprint: Sha256
   summary: string
-  canonicalBranch: boolean
+  source:
+    | { kind: 'workspace'; branch: string | null; exactSnapshot: boolean }
+    | {
+        kind: 'pull-request'
+        provider: 'github'
+        repositoryKey: string
+        number: number
+        observationId: RecordId
+      }
   confidence: 'low' | 'medium' | 'high'
   observedAt: string
 }
 
-export type DecisionAction = {
+type DecisionActionBase = {
   schemaVersion: 1
   actionId: RecordId
-  kind: 'confirm' | 'reject' | 'dispute' | 'resolve' | 'supersede'
-  observationIds: readonly RecordId[]
+  /** Exact accepted action head observed by the writer; null starts the log. */
+  previousActionId: RecordId | null
   actor: { kind: 'review'; reviewId: RecordId } | { kind: 'human'; label?: string }
+  /** Fold fingerprint the caller saw; append validation rejects stale requests. */
+  expectedStateFingerprint: Sha256
   createdAt: string
-  note?: string
+}
+
+export type DecisionAction =
+  | (DecisionActionBase & {
+      kind: 'confirm' | 'reject'
+      targetObservationId: RecordId
+      note?: string
+    })
+  | (DecisionActionBase & {
+      kind: 'dispute'
+      targetObservationId: RecordId
+      note: string
+    })
+  | (DecisionActionBase & { kind: 'resolve'; disputeActionId: RecordId; note: string })
+  | (DecisionActionBase & {
+      kind: 'supersede'
+      fromObservationId: RecordId
+      toObservationId: RecordId
+      note: string
+    })
+
+/** Material equality deliberately excludes summary wording and confidence. */
+export function decisionAssertionFingerprint(
+  value: Pick<DecisionObservation, 'effect' | 'assertion'>,
+): Sha256 {
+  return createHash('sha256')
+    .update(canonicalJson({ effect: value.effect, assertion: value.assertion }))
+    .digest('hex')
 }
 
 export const OWNED_AREAS = [
@@ -643,13 +693,6 @@ export function parseRepositoryConfig(value: unknown): RepositoryConfig {
   }
   if ('automaticReview' in value && typeof value.automaticReview !== 'boolean') {
     throw new TypeError('automaticReview must be a boolean')
-  }
-  if (
-    'decisionConfirmation' in value &&
-    value.decisionConfirmation !== 'required' &&
-    value.decisionConfirmation !== 'automatic'
-  ) {
-    throw new TypeError('decisionConfirmation is unsupported')
   }
   if ('reviewer' in value) {
     if (value.reviewer !== 'auto') {
@@ -995,9 +1038,12 @@ const RECORD_KEYS = {
     'observationId',
     'reviewId',
     'reviewEntryId',
-    'subject',
+    'decisionKey',
+    'effect',
+    'assertion',
+    'assertionFingerprint',
     'summary',
-    'canonicalBranch',
+    'source',
     'confidence',
     'observedAt',
   ],
@@ -1005,8 +1051,13 @@ const RECORD_KEYS = {
     'schemaVersion',
     'actionId',
     'kind',
-    'observationIds',
+    'previousActionId',
+    'targetObservationId',
+    'disputeActionId',
+    'fromObservationId',
+    'toObservationId',
     'actor',
+    'expectedStateFingerprint',
     'createdAt',
     'note',
   ],
@@ -1505,7 +1556,15 @@ function validateRecordShape(
     ledger: RECORD_KEYS.ledger,
     coverage: RECORD_KEYS.coverage.filter(key => key !== 'acceptedSubject'),
     decisionObservation: RECORD_KEYS.decisionObservation,
-    decisionAction: RECORD_KEYS.decisionAction.filter(key => key !== 'note'),
+    decisionAction: [
+      'schemaVersion',
+      'actionId',
+      'kind',
+      'previousActionId',
+      'actor',
+      'expectedStateFingerprint',
+      'createdAt',
+    ],
   }
   requireFields(value, required[kind], kind)
 
@@ -2606,7 +2665,18 @@ function validateRecordShape(
           entry,
           entry.kind === 'finding'
             ? ['entryId', 'kind', 'severity', 'summary', 'evidence']
-            : ['entryId', 'kind', 'summary', 'evidence'],
+            : entry.kind === 'decision'
+              ? [
+                  'entryId',
+                  'kind',
+                  'decisionKey',
+                  'effect',
+                  'assertion',
+                  'confidence',
+                  'summary',
+                  'evidence',
+                ]
+              : ['entryId', 'kind', 'summary', 'evidence'],
           label,
         )
         requireFields(entry, ['entryId', 'kind', 'summary', 'evidence'], label)
@@ -2615,6 +2685,17 @@ function validateRecordShape(
         if (entry.kind === 'finding') {
           requireFields(entry, ['severity'], label)
           assertEnum(entry.severity, ['low', 'medium', 'high', 'critical'], `${label}.severity`)
+        }
+        if (entry.kind === 'decision') {
+          requireFields(entry, ['decisionKey', 'effect', 'assertion', 'confidence'], label)
+          assertString(entry.decisionKey, `${label}.decisionKey`)
+          if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/.test(entry.decisionKey as string))
+            throw new TypeError(`${label}.decisionKey is invalid`)
+          assertEnum(entry.effect, ['assert', 'remove', 'contradict'], `${label}.effect`)
+          canonicalJson(entry.assertion)
+          if (entry.effect === 'remove' && entry.assertion !== null)
+            throw new TypeError(`${label}.remove assertion must be null`)
+          assertEnum(entry.confidence, ['low', 'medium', 'high'], `${label}.confidence`)
         }
         assertString(entry.summary, `${label}.summary`)
         assertArray(entry.evidence, `${label}.evidence`)
@@ -2709,9 +2790,54 @@ function validateRecordShape(
       assertRecordId(value.observationId, 'decisionObservation.observationId')
       assertRecordId(value.reviewId, 'decisionObservation.reviewId')
       assertRecordId(value.reviewEntryId, 'decisionObservation.reviewEntryId')
-      canonicalJson(value.subject)
+      assertString(value.decisionKey, 'decisionObservation.decisionKey')
+      if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/.test(value.decisionKey as string))
+        throw new TypeError('decisionObservation.decisionKey is invalid')
+      assertEnum(value.effect, ['assert', 'remove', 'contradict'], 'decisionObservation.effect')
+      canonicalJson(value.assertion)
+      if (value.effect === 'remove' && value.assertion !== null)
+        throw new TypeError('decisionObservation.remove assertion must be null')
+      assertSha256(value.assertionFingerprint, 'decisionObservation.assertionFingerprint')
+      if (
+        value.assertionFingerprint !==
+        decisionAssertionFingerprint({
+          effect: value.effect as DecisionObservation['effect'],
+          assertion: value.assertion as JsonValue,
+        })
+      )
+        throw new TypeError('decisionObservation.assertionFingerprint must match its assertion')
       assertString(value.summary, 'decisionObservation.summary')
-      assertBoolean(value.canonicalBranch, 'decisionObservation.canonicalBranch')
+      assertRecord(value.source, 'decisionObservation.source')
+      if (value.source.kind === 'workspace') {
+        assertExactKeys(
+          value.source,
+          ['kind', 'branch', 'exactSnapshot'],
+          'decisionObservation.source',
+        )
+        requireFields(
+          value.source,
+          ['kind', 'branch', 'exactSnapshot'],
+          'decisionObservation.source',
+        )
+        if (value.source.branch !== null)
+          assertString(value.source.branch, 'decisionObservation.source.branch')
+        assertBoolean(value.source.exactSnapshot, 'decisionObservation.source.exactSnapshot')
+      } else if (value.source.kind === 'pull-request') {
+        assertExactKeys(
+          value.source,
+          ['kind', 'provider', 'repositoryKey', 'number', 'observationId'],
+          'decisionObservation.source',
+        )
+        requireFields(
+          value.source,
+          ['kind', 'provider', 'repositoryKey', 'number', 'observationId'],
+          'decisionObservation.source',
+        )
+        assertEnum(value.source.provider, ['github'], 'decisionObservation.source.provider')
+        assertString(value.source.repositoryKey, 'decisionObservation.source.repositoryKey')
+        assertPositiveInteger(value.source.number, 'decisionObservation.source.number')
+        assertRecordId(value.source.observationId, 'decisionObservation.source.observationId')
+      } else throw new TypeError('decisionObservation.source.kind is unsupported')
       assertEnum(value.confidence, ['low', 'medium', 'high'], 'decisionObservation.confidence')
       assertTimestamp(value.observedAt, 'decisionObservation.observedAt')
       assertIdentity(value.observationId, path.observationId, 'decisionObservation.observationId')
@@ -2723,10 +2849,64 @@ function validateRecordShape(
         ['confirm', 'reject', 'dispute', 'resolve', 'supersede'],
         'decisionAction.kind',
       )
-      assertRecordIdArray(value.observationIds, 'decisionAction.observationIds')
-      if (value.observationIds.length === 0) {
-        throw new TypeError('decisionAction.observationIds must not be empty')
+      if (value.kind === 'confirm' || value.kind === 'reject' || value.kind === 'dispute') {
+        assertExactKeys(
+          value,
+          [
+            'schemaVersion',
+            'actionId',
+            'kind',
+            'previousActionId',
+            'targetObservationId',
+            'actor',
+            'expectedStateFingerprint',
+            'createdAt',
+            'note',
+          ],
+          'decisionAction',
+        )
+        assertRecordId(value.targetObservationId, 'decisionAction.targetObservationId')
+      } else if (value.kind === 'resolve') {
+        assertExactKeys(
+          value,
+          [
+            'schemaVersion',
+            'actionId',
+            'kind',
+            'previousActionId',
+            'disputeActionId',
+            'actor',
+            'expectedStateFingerprint',
+            'createdAt',
+            'note',
+          ],
+          'decisionAction',
+        )
+        assertRecordId(value.disputeActionId, 'decisionAction.disputeActionId')
+      } else {
+        assertExactKeys(
+          value,
+          [
+            'schemaVersion',
+            'actionId',
+            'kind',
+            'previousActionId',
+            'fromObservationId',
+            'toObservationId',
+            'actor',
+            'expectedStateFingerprint',
+            'createdAt',
+            'note',
+          ],
+          'decisionAction',
+        )
+        assertRecordId(value.fromObservationId, 'decisionAction.fromObservationId')
+        assertRecordId(value.toObservationId, 'decisionAction.toObservationId')
+        if (value.fromObservationId === value.toObservationId)
+          throw new TypeError('decisionAction supersede targets must differ')
       }
+      if (value.previousActionId !== null)
+        assertRecordId(value.previousActionId, 'decisionAction.previousActionId')
       assertRecord(value.actor, 'decisionAction.actor')
       if (value.actor.kind === 'review') {
         assertExactKeys(value.actor, ['kind', 'reviewId'], 'decisionAction.actor')
@@ -2737,7 +2917,10 @@ function validateRecordShape(
         if ('label' in value.actor) assertString(value.actor.label, 'decisionAction.actor.label')
       } else throw new TypeError('decisionAction.actor.kind is unsupported')
       assertTimestamp(value.createdAt, 'decisionAction.createdAt')
+      assertSha256(value.expectedStateFingerprint, 'decisionAction.expectedStateFingerprint')
       assertOptionalString(value, 'note', 'decisionAction')
+      if (['dispute', 'resolve', 'supersede'].includes(value.kind as string) && !('note' in value))
+        throw new TypeError(`decisionAction ${value.kind as string} requires a note`)
       assertIdentity(value.actionId, path.actionId, 'decisionAction.actionId')
       break
   }

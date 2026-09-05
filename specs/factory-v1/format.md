@@ -63,7 +63,7 @@ not infer or migrate repository lineage.
 
 `.factory/config.json` is the only ordinary mutable Factory file. It contains
 schema-defined repository policy, including `canonicalBranch`, `reviewer`,
-automatic review, decision confirmation policy, and review limits. Unknown
+automatic review, and review limits. Unknown
 fields are preserved by read-modify-write operations.
 
 `reviewer` is either `"auto"`, which defers provider selection until a review
@@ -251,7 +251,11 @@ Disposition is one of `complete`, `partial`, or `failed`:
 
 `ledger.json` contains only validated semantic entries with evidence citations.
 Findings carry an explicit low, medium, high, or critical severity so advisory
-results and opt-in enforcement use the same durable authority.
+results and opt-in enforcement use the same durable authority. Decision entries
+also carry an explicit stable `decisionKey`, structured `assertion`,
+`assert`/`remove`/`contradict` effect, and confidence. A reviewer may reuse a key
+only when evidence establishes the same semantic decision. Missing output never
+means removal.
 `response.txt` preserves the reviewer response for inspection. Failed attempts
 store a sanitized reason in the manifest; transient full logs remain runtime
 state.
@@ -282,11 +286,42 @@ decisions/observations/<decision-observation-id>.json
 decisions/actions/<decision-action-id>.json
 ```
 
-An observation references its originating review entry and exact code subject.
-It records canonical-branch scope separately from confidence or human status.
-An action confirms, rejects, disputes, resolves, or supersedes one or more
-observations and cites the acting review or local human action. Current
-canonical decisions are a deterministic fold of these append-only records.
+An observation references its originating review and validated decision entry.
+Its explicit decision key is the only grouping authority; Factory never matches
+summary prose. The structured assertion and effect have a canonical fingerprint
+that excludes summary wording and confidence, so exact replays and material
+changes are reproducible. A derived observation enters the fold only when its
+exact bytes reproduce from the accepted review, entry, and subject record. Its
+source records either an exact/inexact workspace
+branch snapshot or an exact pull-request observation. Pull-request and
+non-canonical workspace observations remain proposals. Only an exact workspace
+snapshot whose branch equals the committed `canonicalBranch` is canonical.
+
+Actions are discriminated append-only records. Confirm, reject, and dispute name
+one exact observation; resolve names one dispute action; supersede names the
+directional old and replacement observations. Dispute, resolve, and supersede
+require an explanation. Each action names the previously accepted action head,
+or null for the first action. Concurrent Git branches from the same head
+therefore produce one deterministic winner after merge; the other branch and
+its descendants remain stale diagnostics. Every request includes a
+decision-view fingerprint
+that commits to both the projection and its complete observation/action
+history. The repository appends only while the exact observation and
+action record set and configured canonical branch used for validation are still
+current. An identical retry converges on the first immutable action and keeps
+its first timestamp. Reviewers emit observations only; v1 actions require a
+human actor.
+
+The deterministic fold keeps canonical scope, analyzer confidence, exact
+materiality, and human status separate. A first canonical assertion is current
+but unconfirmed. An exact semantic replay is another unconfirmed observation;
+different content under the same explicit key, removal, and contradiction are
+high-priority pending supersessions. They do not replace the current assertion
+until an explicit supersede action. An action changes only the exact observation
+it names. Resolving a dispute closes that alert and restores the target's prior
+human status; reject or supersede records a substantive outcome. Invalid
+actions remain visible as
+high-priority diagnostics instead of making the decision history unreadable.
 
 ## Content-addressed objects
 

@@ -131,7 +131,7 @@ describe('immutable review acceptance', () => {
     const { bundle, manifest: bundleManifest, sha256 } = await fixture()
     const citation = bundleManifest.inventory[0]
     const response = new TextEncoder().encode(
-      `${JSON.stringify({ kind: 'summary', summary: 'Review completed', evidence: [{ object: citation }] })}\n`,
+      `${JSON.stringify({ kind: 'summary', summary: 'Review completed', evidence: [{ object: citation }] })}\n${JSON.stringify({ kind: 'decision', decisionKey: 'repository.single-writer', effect: 'assert', assertion: { owner: 'repository' }, confidence: 'high', summary: 'Repository owns durable writes', evidence: [{ object: citation }] })}\n`,
     )
     const validated = await validateReview(
       bundle,
@@ -153,6 +153,7 @@ describe('immutable review acceptance', () => {
     let published:
       | { records: readonly { path: string; bytes: Uint8Array }[]; commitPath: string }
       | undefined
+    const decisionRecords: { path: string; bytes: Uint8Array }[] = []
     const store = await authorizedStore(bundle, {
       async publishImmutableGroup(
         records: readonly { path: string; bytes: Uint8Array }[],
@@ -160,6 +161,10 @@ describe('immutable review acceptance', () => {
       ) {
         published = { records, commitPath }
         return { path: commitPath, sha256: '', bytes: 0 }
+      },
+      async createImmutable(path: string, bytes: Uint8Array) {
+        decisionRecords.push({ path, bytes })
+        return { path, sha256: '', bytes: bytes.byteLength }
       },
     })
     const accepted = await acceptReview(validated, store)
@@ -176,6 +181,13 @@ describe('immutable review acceptance', () => {
     expect(review.reviewer).toEqual(bundleManifest.plan.policies.reviewer)
     expect(review.bundleSha256).toHaveLength(64)
     expect(canonicalJson(review.limitations)).toBe(canonicalJson([]))
+    expect(decisionRecords).toHaveLength(1)
+    expect(decisionRecords[0]!.path).toMatch(/^decisions\/observations\/decision_.*\.json$/)
+    expect(JSON.parse(new TextDecoder().decode(decisionRecords[0]!.bytes))).toMatchObject({
+      decisionKey: 'repository.single-writer',
+      effect: 'assert',
+      source: { kind: 'workspace', exactSnapshot: true },
+    })
   })
 
   test('carries prior ledger bytes into CAS publication authority', async () => {

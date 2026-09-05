@@ -51,9 +51,12 @@ function parseLine(
   if (parsed === null || Array.isArray(parsed) || typeof parsed !== 'object') return undefined
   const value = parsed as Record<string, unknown>
   const finding = value.kind === 'finding'
+  const decision = value.kind === 'decision'
   const expectedKeys = finding
     ? ['evidence', 'kind', 'severity', 'summary']
-    : ['evidence', 'kind', 'summary']
+    : decision
+      ? ['assertion', 'confidence', 'decisionKey', 'effect', 'evidence', 'kind', 'summary']
+      : ['evidence', 'kind', 'summary']
   if (canonicalJson(Object.keys(value).sort()) !== canonicalJson(expectedKeys)) return undefined
   if (!['decision', 'finding', 'summary'].includes(value.kind as string)) return undefined
   if (
@@ -67,6 +70,22 @@ function parseLine(
     return undefined
   if (finding && !['low', 'medium', 'high', 'critical'].includes(value.severity as string)) {
     return undefined
+  }
+  if (
+    decision &&
+    (typeof value.decisionKey !== 'string' ||
+      !/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/.test(value.decisionKey) ||
+      !['assert', 'remove', 'contradict'].includes(value.effect as string) ||
+      !['low', 'medium', 'high'].includes(value.confidence as string))
+  )
+    return undefined
+  if (decision) {
+    try {
+      canonicalJson(value.assertion)
+    } catch {
+      return undefined
+    }
+    if (value.effect === 'remove' && value.assertion !== null) return undefined
   }
   const evidence: { object: ObjectRef; locator?: string }[] = []
   for (const candidate of value.evidence) {
@@ -102,6 +121,14 @@ function parseLine(
   const semantic = {
     kind: value.kind,
     ...(finding ? { severity: value.severity } : {}),
+    ...(decision
+      ? {
+          decisionKey: value.decisionKey,
+          effect: value.effect,
+          assertion: value.assertion,
+          confidence: value.confidence,
+        }
+      : {}),
     summary: value.summary,
     evidence,
   }

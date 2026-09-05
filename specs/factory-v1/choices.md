@@ -1175,3 +1175,152 @@ second normative schema; the master specification and format own mechanics.
 - **Verdict:** Sound. One semantic channel matches the v1 review contract and
   keeps aggregate output auditable.
 - **Confidence:** Medium.
+
+### Require explicit decision keys and structured assertions
+
+- **When:** Slice 10 decision-fold fixtures.
+- **The choice:** Every decision entry supplies a bounded stable key, structured
+  assertion, explicit assert/remove/contradict effect, and confidence. Factory
+  groups only by that key. Exact material equality hashes the effect and
+  assertion; summary wording and confidence do not participate. Omission never
+  proves removal.
+- **The gap:** The initial scaffold exposed only an opaque subject and summary,
+  which could not distinguish a replay, change, removal, or contradiction
+  without fuzzy inference.
+- **The reach:** Reviewers must copy a prior key only when cited evidence proves
+  continuity. A decision without that link remains separate until a human
+  supplies one; Factory will not guess from prose.
+- **Verdict:** Sound. It makes the grouping rule inspectable and deterministic
+  while preserving uncertainty rather than disguising it.
+- **Confidence:** High.
+
+### Derive canonical scope only from exact configured-branch evidence
+
+- **When:** Slice 10 canonical-scope fold.
+- **The choice:** Pull-request decisions and non-canonical workspace decisions
+  are proposals. A workspace observation is canonical only when its repository
+  snapshot is exact and its observed branch equals the committed
+  `canonicalBranch`. Canonical scope does not confer human confirmation.
+- **The gap:** A stored boolean plus a separate canonical-branch fold argument
+  duplicated authority and could let later GitHub diagnostics reclassify
+  committed evidence.
+- **The reach:** A GitHub default-branch disagreement remains diagnostic. The
+  repository override is the fold authority, branches remain source evidence
+  rather than durable work identities, and exact canonical changes receive
+  high priority without claiming approval.
+- **Verdict:** Sound. This follows the configured policy and preserves the
+  product's distinction between observation and confirmation.
+- **Confidence:** High.
+
+### Make decision actions directional and stale-safe
+
+- **When:** Slice 10 append-only action implementation.
+- **The choice:** Confirm/reject/dispute target an observation, resolve targets
+  an active dispute action, and supersede names explicit old and replacement
+  observations. Each request carries the fold fingerprint the caller saw; the
+  repository compares the exact decision-record authority under its mutation
+  lock before create-only append. Identical action retries converge and retain
+  the first successful append timestamp. Every action also names the accepted
+  action head it extends; after a Git merge, only one concurrent child can
+  advance that linear head.
+- **The gap:** An undifferentiated observation-ID array could not say which side
+  of a supersession was old, what a resolution closed, or whether a concurrent
+  user action made the request stale.
+- **The reach:** Changed assertions, explicit removal, and contradiction remain
+  pending until a valid supersession. Resolve clears one dispute rather than
+  silently choosing a competing assertion. Actions that become invalid through
+  merged history remain high-priority diagnostics in the fold. The fingerprint
+  includes complete action history, so an intervening dispute and resolution
+  cannot masquerade as an unchanged view merely because their net status is
+  equal.
+- **Verdict:** Sound. The durable record says exactly what changed and the sole
+  writer closes the validation-to-append race.
+- **Confidence:** High.
+
+### Apply actions only to the exact target they name
+
+- **When:** Slice 10 action-fold review.
+- **The choice:** An action changes only its named observation or dispute. A
+  confirmation or dispute does not silently propagate to equal replays. A
+  replay of an assertion that is no longer current becomes an invalid target
+  after supersession.
+- **The gap:** The first implementation copied human status across equal
+  assertions even though the durable action encoded only one target.
+- **The reach:** Every projection can recover an action's full effect from its
+  record. A future assertion-wide action needs an explicit scope and
+  fingerprint rather than hidden lineage behavior.
+- **Verdict:** Sound. Exact targeting preserves append-only auditability.
+- **Confidence:** High.
+
+### Require human actors for v1 decision actions
+
+- **When:** Slice 10 action-authority review.
+- **The choice:** Reviews create observations but cannot confirm, reject,
+  dispute, resolve, or supersede them. The unused automatic-confirmation config
+  option was removed. A future automatic policy must define narrower authority
+  before the schema or fold permits it.
+- **The gap:** The actor union existed without an authorization matrix, and the
+  configuration switch had no implemented meaning.
+- **The reach:** No analyzer silently changes the canonical decision view.
+  Adding automation later is a deliberate policy and schema change.
+- **Verdict:** Needs-user. Human-only is the conservative reversible default
+  until automatic action semantics are explicitly chosen.
+- **Confidence:** Low.
+
+### Resolve closes a dispute without adjudicating it
+
+- **When:** Slice 10 dispute-fold review.
+- **The choice:** Resolve restores the exact target's human status from before
+  the dispute. Its note explains closure; reject or supersede records a
+  substantive outcome.
+- **The gap:** The spec named resolve but did not say whether it meant dismissing
+  the alert or deciding which assertion wins.
+- **The reach:** The current action stays simple and reversible, but cannot by
+  itself encode that a dispute was upheld.
+- **Verdict:** Needs-user. Keep this provisional meaning until UI feedback shows
+  whether resolution needs an explicit outcome field.
+- **Confidence:** Medium.
+
+### Replay history by event time with stable tie-breakers
+
+- **When:** Slice 10 deterministic fold.
+- **The choice:** Observations and actions replay by their stored timestamps.
+  Observations precede actions at the same timestamp, then record IDs break
+  ties. Discovery and filesystem enumeration order never participate.
+- **The gap:** The spec required deterministic replay without selecting the
+  historical ordering rule.
+- **The reach:** Late-discovered records reconstruct the same historical state
+  on every machine, and action validity has one reproducible interpretation.
+- **Verdict:** Sound. Stored event time plus explicit tie-breakers is stable and
+  inspectable.
+- **Confidence:** Medium.
+
+### Treat decision observations as verified review projections
+
+- **When:** Slice 10 stored-fold hardening.
+- **The choice:** Factory admits an observation only when it exactly reproduces
+  from an accepted review's validated decision entry and exact subject record.
+  Recovery retries immutable creation even when the deterministic ID is already
+  present, so unequal bytes are a conflict rather than false success.
+- **The gap:** A schema-valid orphan or same-ID replacement could otherwise
+  manufacture canonical evidence in Git-visible storage.
+- **The reach:** Observation files remain rebuildable projections; accepted raw
+  review evidence is their authority. Missing projections are recoverable and
+  conflicting ones fail visibly.
+- **Verdict:** Sound. Validated review entries, rather than standalone derived
+  files, create observations.
+- **Confidence:** High.
+
+### Reject predecessor-free transitions as invalid evidence
+
+- **When:** Slice 10 canonical transition review.
+- **The choice:** A first canonical remove or contradict entry is high-priority
+  invalid evidence, not a pending supersession. There is no old observation for
+  the directional supersede action to name.
+- **The gap:** The original fold could create a pending state with no valid
+  terminal action path.
+- **The reach:** Every pending transition can be completed by the stored action
+  schema; malformed transitions remain visible as diagnostics.
+- **Verdict:** Sound. The UI never promises an action that the durable model
+  cannot express.
+- **Confidence:** High.

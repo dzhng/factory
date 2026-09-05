@@ -28,10 +28,12 @@ import {
   validatePublicRecord,
   type JsonValue,
   type CoverageAction,
+  type DecisionAction,
   type ObjectRef,
   type OwnedPath,
   type RepositoryConfig,
   type RepositoryManifest,
+  type Sha256,
 } from '@factory/contract'
 
 import { withAdvisoryFileLock } from './confined-writer'
@@ -68,11 +70,13 @@ export type RepositoryRecords = {
   records: readonly { path: OwnedPath; value: JsonValue | string }[]
 }
 
+export type DecisionRecordAuthority = {
+  canonicalBranch: string
+  records: readonly { path: OwnedPath; sha256: Sha256 }[]
+}
+
 export type ConfigChange = Partial<
-  Pick<
-    RepositoryConfig,
-    'canonicalBranch' | 'reviewer' | 'automaticReview' | 'decisionConfirmation' | 'reviewLimits'
-  >
+  Pick<RepositoryConfig, 'canonicalBranch' | 'reviewer' | 'automaticReview' | 'reviewLimits'>
 >
 
 export type VerificationIssue = {
@@ -99,6 +103,13 @@ export class ImmutableRecordConflictError extends Error {
   constructor(readonly path: OwnedPath) {
     super(`immutable Factory record already exists with different bytes: ${path}`)
     this.name = 'ImmutableRecordConflictError'
+  }
+}
+
+export class DecisionAuthorityConflictError extends Error {
+  constructor(readonly path: OwnedPath) {
+    super(`decision authority changed before append: ${path}`)
+    this.name = 'DecisionAuthorityConflictError'
   }
 }
 
@@ -391,7 +402,7 @@ function collectObjectRefs(value: unknown, refs: ObjectRef[]): void {
     refs.push(record as ObjectRef)
   }
   Object.entries(record).forEach(([key, entry]) => {
-    if (key !== 'parsed' && key !== 'subject') collectObjectRefs(entry, refs)
+    if (key !== 'parsed' && key !== 'subject' && key !== 'assertion') collectObjectRefs(entry, refs)
   })
 }
 
@@ -751,6 +762,47 @@ export class RepositoryStore {
         ...semantic,
         createdAt: now().toISOString(),
       }
+      const bytes = new TextEncoder().encode(canonicalJson(action))
+      validateStructuredRecord(path, bytes)
+      await atomicCreate(destination, path, bytes, this.stagingRoot)
+      return { path, sha256: sha256(bytes), bytes: bytes.byteLength }
+    })
+  }
+
+  /** Append one validated action iff the exact decision records used for validation are current. */
+  async createDecisionAction(
+    action: DecisionAction,
+    authority: DecisionRecordAuthority,
+  ): Promise<RecordRef> {
+    const path = makeOwnedPath('decisions', ['actions', `${action.actionId}.json`])
+    return await this.withMutationLock(async () => {
+      const destination = await ensureOwnedParent(this.factoryRoot, path)
+      if ((await pathKind(destination)) === 'file') {
+        const bytes = await readBoundedOrdinary(destination, 4 * 1024 * 1024)
+        validateStructuredRecord(path, bytes)
+        const existing = JSON.parse(decodeUtf8(bytes)) as DecisionAction
+        const { createdAt: _existingAt, ...existingSemantic } = existing
+        const { createdAt: _requestedAt, ...requestedSemantic } = action
+        if (canonicalJson(existingSemantic) !== canonicalJson(requestedSemantic))
+          throw new ImmutableRecordConflictError(path)
+        return { path, sha256: sha256(bytes), bytes: bytes.byteLength }
+      }
+      const current = (await this.readRecords()).records
+        .filter(record => record.path.startsWith('decisions/'))
+        .map(record => ({
+          path: record.path,
+          sha256: sha256(new TextEncoder().encode(canonicalJson(record.value))),
+        }))
+        .sort((left, right) => left.path.localeCompare(right.path))
+      const expected = [...authority.records].sort((left, right) =>
+        left.path.localeCompare(right.path),
+      )
+      const config = await this.readConfig()
+      if (
+        config.canonicalBranch !== authority.canonicalBranch ||
+        canonicalJson(current) !== canonicalJson(expected)
+      )
+        throw new DecisionAuthorityConflictError(path)
       const bytes = new TextEncoder().encode(canonicalJson(action))
       validateStructuredRecord(path, bytes)
       await atomicCreate(destination, path, bytes, this.stagingRoot)

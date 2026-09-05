@@ -1,5 +1,8 @@
 # 10 — Canonical decisions and append-only actions
 
+Status: **implemented; automatic action authority and dispute-outcome semantics
+remain explicit human checkpoints**
+
 ## Contract
 
 Validated review entries create decision observations. Feature/PR observations
@@ -60,3 +63,18 @@ Review output is accepted only after citation/schema validation.
 Review the fold explanation for one canonical change and one contradiction. If
 the reason confirmation is required is not predictable, split materiality from
 the core explicit-action fold before UI work.
+
+## Shipped boundary
+
+Validated decision entries create deterministic observation projections whose
+bytes must join back to the accepted review and exact subject. The pure fold
+uses explicit keys and assertions, exact configured-branch scope, event-time
+ordering, and exact-target append-only human actions. Repository compare-and-
+append authority covers both the full decision record set and canonical branch;
+recovery proves immutable equality rather than trusting an ID.
+
+The runnable replay explains proposal, current, replay, change, removal,
+contradiction, confirmation, rejection, dispute, resolution, and supersession
+states. Predecessor-free transitions and stale historical replay targets stay
+visible as high-priority diagnostics instead of entering states the action
+schema cannot complete.
