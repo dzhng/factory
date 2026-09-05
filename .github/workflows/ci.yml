@@ -42,10 +42,6 @@ jobs:
             authority: package-only
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
-    permissions:
-      contents: read
-      id-token: write
-      attestations: write
     steps:
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
@@ -56,26 +52,39 @@ jobs:
         run: |
           test "$(uname -m)" = "$(test '${{ matrix.target }}' = bun-darwin-arm64 && echo arm64 || echo x86_64)"
       - name: Build verified native package
-        run: bun run release:build -- --version "0.0.0-ci.${{ github.run_number }}.${{ github.run_attempt }}" --target "${{ matrix.target }}" --output "$RUNNER_TEMP/release"
+        run: bun run release:build -- --version "0.0.0-ci.${{ github.run_number }}.${{ github.run_attempt }}" --target "${{ matrix.target }}" --output "$RUNNER_TEMP/candidate/release"
       - name: Certify exact Linux package journey
         if: matrix.authority == 'certified'
-        run: bun run release:verify -- --version "0.0.0-ci.${{ github.run_number }}.${{ github.run_attempt }}" --output "$RUNNER_TEMP/certification"
+        run: bun run release:verify -- --version "0.0.0-ci.${{ github.run_number }}.${{ github.run_attempt }}" --artifact-root "$RUNNER_TEMP/candidate/release" --output "$RUNNER_TEMP/candidate/certification"
       - name: Record unavailable macOS reviewer authority
         if: matrix.authority == 'package-only'
         run: echo 'The native macOS package is verified, but full journey certification remains unavailable because GitHub-hosted macOS runners do not provide the required Docker reviewer authority.' >> "$GITHUB_STEP_SUMMARY"
-      - name: Attest release candidate
-        if: github.event_name == 'push'
-        uses: actions/attest@v4
-        with:
-          subject-path: |
-            ${{ runner.temp }}/release/*.tar.gz
-            ${{ runner.temp }}/release/*.json
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.target }}-${{ matrix.authority }}
-          path: |
-            ${{ runner.temp }}/release/*.tar.gz
-            ${{ runner.temp }}/release/*.json
-            ${{ runner.temp }}/certification/*.json
-            ${{ runner.temp }}/certification/*.html
+          path: ${{ runner.temp }}/candidate
           if-no-files-found: error
+
+  attest:
+    if: github.event_name == 'push'
+    needs: native
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    strategy:
+      matrix:
+        candidate:
+          - bun-linux-x64-baseline-certified
+          - bun-darwin-arm64-package-only
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: ${{ matrix.candidate }}
+          path: candidate
+      - uses: actions/attest@v4
+        with:
+          subject-path: |
+            candidate/release/*.tar.gz
+            candidate/release/*.json

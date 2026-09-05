@@ -32,17 +32,22 @@ const target = hostTarget()
 if (target === undefined) throw new Error('release certification requires a supported native host')
 const version = option('--version')
 if (version === undefined) throw new Error('--version is required')
-const buildRoot = await mkdtemp(join(tmpdir(), 'factory-release-build-'))
-await run([
-  process.execPath,
-  join(repositoryRoot, 'scripts', 'build-release.ts'),
-  '--version',
-  version,
-  '--target',
-  target,
-  '--output',
-  buildRoot,
-])
+const artifactRoot = option('--artifact-root')
+const buildRoot =
+  artifactRoot === undefined
+    ? await mkdtemp(join(tmpdir(), 'factory-release-build-'))
+    : resolve(artifactRoot)
+if (artifactRoot === undefined)
+  await run([
+    process.execPath,
+    join(repositoryRoot, 'scripts', 'build-release.ts'),
+    '--version',
+    version,
+    '--target',
+    target,
+    '--output',
+    buildRoot,
+  ])
 const stem = `factory-v${version}-${target.replace(/^bun-/, '')}`
 const archive = join(buildRoot, `${stem}.tar.gz`)
 const manifest = join(buildRoot, `${stem}.json`)
