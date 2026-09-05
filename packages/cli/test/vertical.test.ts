@@ -16,9 +16,13 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { canonicalJson } from '@factory/contract'
+import { canonicalJson, type RecordId } from '@factory/contract'
+import { initializeRepositoryStore, type RepositoryStore } from '@factory/repository'
+import { acceptReview, validateReview } from '@factory/review'
+import { openVerifiedReviewBundle, readVerifiedReviewBundle } from '@factory/reviewer'
 import type { LocalUiHandle } from '@factory/web'
 
+import { sealReviewerRawAttempt } from '../../reviewer/src/attempt'
 import { runFactoryCli } from '../src'
 
 if (process.env.FACTORY_DOCKER_TEST !== '1') {
@@ -164,6 +168,90 @@ async function treeDigest(root: string): Promise<string> {
   return hash.digest('hex')
 }
 
+async function treeFiles(root: string): Promise<Map<string, string>> {
+  const files = new Map<string, string>()
+  const visit = async (directory: string, relative = ''): Promise<void> => {
+    for (const name of (await readdir(directory)).sort()) {
+      const path = join(directory, name)
+      const item = await lstat(path)
+      const key = relative === '' ? name : `${relative}/${name}`
+      if (item.isDirectory()) await visit(path, key)
+      else
+        files.set(
+          key,
+          createHash('sha256')
+            .update(await readFile(path))
+            .digest('hex'),
+        )
+    }
+  }
+  await visit(root)
+  return files
+}
+
+async function importBundleRecords(repository: string, name: 'complete-bundle' | 'partial-bundle') {
+  const source = join('/workspace/specs/factory-v1/assets/review-plan', name, '.factory')
+  const destination = join(repository, '.factory')
+  for (const entry of await readdir(source)) {
+    await cp(join(source, entry), join(destination, entry), {
+      recursive: true,
+      force: false,
+      errorOnExist: false,
+    })
+  }
+}
+
+async function acceptBundleReview(
+  store: RepositoryStore,
+  name: 'complete-bundle' | 'partial-bundle',
+  reviewId: RecordId,
+): Promise<void> {
+  const root = '/workspace/specs/factory-v1/assets/review-plan'
+  const report = JSON.parse(await readFile(join(root, 'report.json'), 'utf8')) as {
+    bundles: { complete: string; partial: string }
+  }
+  const bundle = await openVerifiedReviewBundle(
+    join(root, name),
+    name === 'complete-bundle' ? report.bundles.complete : report.bundles.partial,
+  )
+  const verified = await readVerifiedReviewBundle(bundle)
+  const citation = verified.manifest.inventory[0]!
+  const semantic =
+    name === 'complete-bundle'
+      ? {
+          kind: 'decision',
+          decisionKey: 'repository.writer',
+          effect: 'assert',
+          assertion: { owner: 'repository' },
+          confidence: 'high',
+          summary: 'Repository owns durable writes',
+          evidence: [{ object: citation }],
+        }
+      : {
+          kind: 'summary',
+          summary: 'Reviewed the readable evidence prefix',
+          evidence: [{ object: citation }],
+        }
+  const validated = await validateReview(
+    bundle,
+    sealReviewerRawAttempt({
+      reviewId,
+      bundleSha256: name === 'complete-bundle' ? report.bundles.complete : report.bundles.partial,
+      response: new TextEncoder().encode(`${JSON.stringify(semantic)}\n`),
+      termination: 'completed',
+      exitCode: 0,
+      outputTruncated: false,
+      reviewer: { settings: verified.manifest.plan.policies.reviewer },
+      imageDigest: `sha256:${'b'.repeat(64)}`,
+      providerCliVersion: 'test',
+      hostPlatform: 'linux/arm64',
+      startedAt: '2026-09-05T00:00:00Z',
+      completedAt: name === 'complete-bundle' ? '2026-09-05T00:00:08Z' : '2026-09-05T00:00:09Z',
+    }),
+  )
+  await acceptReview(validated, store)
+}
+
 describe('installed capture vertical', () => {
   test('serves factory open only for the foreground CLI lifetime', async () => {
     const value = await createFixture()
@@ -205,6 +293,126 @@ describe('installed capture vertical', () => {
     controller.abort()
     expect(await running).toBe(0)
     await expect(fetch(handle.origin)).rejects.toThrow()
+  })
+
+  test('honors a signal that was aborted before factory open starts', async () => {
+    const value = await createFixture()
+    expect(await command(value.factory, ['init'], value.repository, value.env)).toMatchObject({
+      code: 0,
+    })
+    const controller = new AbortController()
+    controller.abort()
+    let handle: LocalUiHandle | undefined
+    const code = await runFactoryCli(['open'], {
+      cwd: value.repository,
+      environment: value.env,
+      output: { stdout: () => undefined, stderr: () => undefined },
+      open: {
+        signal: controller.signal,
+        launchBrowser: async () => undefined,
+        onStarted: value => {
+          handle = value
+        },
+      },
+    })
+    expect(code).toBe(0)
+    expect(handle).toBeDefined()
+    await expect(fetch(handle!.origin)).rejects.toThrow()
+  })
+
+  test('routes browser actions through the real repository append-only seams', async () => {
+    const value = await createFixture()
+    const store = await initializeRepositoryStore(
+      value.repository,
+      {
+        schemaVersion: 1,
+        format: 'factory-repository',
+        minimumReaderVersion: '0.1.0',
+        repositoryId: 'repo_review_lab',
+        createdAt: '2026-09-05T00:00:00Z',
+      },
+      { canonicalBranch: 'feature/review' },
+    )
+    await importBundleRecords(value.repository, 'complete-bundle')
+    await importBundleRecords(value.repository, 'partial-bundle')
+    const completeReviewId = 'review_00000000000000000000000018' as RecordId
+    const partialReviewId = 'review_00000000000000000000000019' as RecordId
+    await acceptBundleReview(store, 'complete-bundle', completeReviewId)
+    await acceptBundleReview(store, 'partial-bundle', partialReviewId)
+
+    const before = await treeFiles(join(value.repository, '.factory'))
+    const controller = new AbortController()
+    let started!: (handle: LocalUiHandle) => void
+    const ready = new Promise<LocalUiHandle>(resolve => {
+      started = resolve
+    })
+    const running = runFactoryCli(['open'], {
+      cwd: value.repository,
+      environment: value.env,
+      output: { stdout: () => undefined, stderr: () => undefined },
+      open: {
+        signal: controller.signal,
+        launchBrowser: async () => undefined,
+        onStarted: started,
+      },
+    })
+    const handle = await ready
+    const [snapshot, session] = (await Promise.all([
+      fetch(`${handle.origin}/api/snapshot`).then(response => response.json()),
+      fetch(`${handle.origin}/api/session`).then(response => response.json()),
+    ])) as [
+      {
+        decisions: {
+          stateFingerprint: string
+          lineages: {
+            observations: { humanStatus: string; observation: { observationId: string } }[]
+          }[]
+        }
+      },
+      { csrfToken: string },
+    ]
+    expect(snapshot).toMatchObject({
+      state: 'ready',
+      canonicalBranch: 'feature/review',
+      counts: { reviews: 2 },
+    })
+    const decision = snapshot.decisions.lineages[0]!.observations.find(
+      (item: { humanStatus: string }) => item.humanStatus === 'unconfirmed',
+    )
+    expect(decision).toBeDefined()
+    const headers = {
+      'Content-Type': 'application/json',
+      Origin: handle.origin,
+      'X-Factory-CSRF': session.csrfToken,
+    }
+    const decisionResponse = await fetch(`${handle.origin}/api/actions/decision`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        actionId: 'action_00000000000000000000000021',
+        kind: 'confirm',
+        targetObservationId: decision!.observation.observationId,
+        expectedStateFingerprint: snapshot.decisions.stateFingerprint,
+      }),
+    })
+    expect(decisionResponse.status).toBe(201)
+    const coverageResponse = await fetch(`${handle.origin}/api/actions/coverage`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ reviewId: partialReviewId }),
+    })
+    expect(coverageResponse.status).toBe(201)
+    controller.abort()
+    expect(await running).toBe(0)
+
+    const after = await treeFiles(join(value.repository, '.factory'))
+    for (const [path, digest] of before) expect(after.get(path)).toBe(digest)
+    const added = [...after.keys()].filter(path => !before.has(path)).sort()
+    expect(added).toHaveLength(2)
+    expect(added).toContain('decisions/actions/action_00000000000000000000000021.json')
+    expect(added.some(path => /^reviews\/coverage-actions\/action_[^/]+\.json$/.test(path))).toBe(
+      true,
+    )
   })
 
   test('initializes, installs direct hooks, materializes both providers, and rebuilds projection', async () => {
@@ -252,6 +460,31 @@ describe('installed capture vertical', () => {
     ).toEqual(['claude', 'codex'])
     expect(report.projection.triggers).toBe(2)
     expect(report.projection.issues).toEqual([])
+    const openController = new AbortController()
+    let openStarted!: (handle: LocalUiHandle) => void
+    const openReady = new Promise<LocalUiHandle>(resolve => {
+      openStarted = resolve
+    })
+    const open = runFactoryCli(['open'], {
+      cwd: value.repository,
+      environment: value.env,
+      output: { stdout: () => undefined, stderr: () => undefined },
+      open: {
+        signal: openController.signal,
+        launchBrowser: async () => undefined,
+        onStarted: openStarted,
+      },
+    })
+    const openHandle = await openReady
+    const openSnapshot = await fetch(`${openHandle.origin}/api/snapshot`).then(response =>
+      response.json(),
+    )
+    expect(openSnapshot).toMatchObject({
+      state: 'ready',
+      counts: { sessions: 2, turns: 2, pendingTriggers: 2 },
+    })
+    openController.abort()
+    expect(await open).toBe(0)
     for (const session of report.projection.sessions) {
       const turns = join(
         value.repository,

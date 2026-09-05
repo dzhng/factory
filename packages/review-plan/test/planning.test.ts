@@ -17,8 +17,9 @@ import type {
   SessionIdentity,
   TurnManifest,
 } from '@factory/contract'
+import { foldCoverage } from '@factory/domain'
 
-import { foldCoverage, planReviewForTesting as planReview, type ReviewInputs } from '../src'
+import { planReviewForTesting as planReview, type ReviewInputs } from '../src'
 
 const firstReviewId = newRecordId('review', 0, new Uint8Array(10))
 const secondReviewId = newRecordId('review', 1, new Uint8Array(10))
@@ -179,6 +180,9 @@ describe('review planning', () => {
     ]
     const coverage = foldCoverage(input)
     expect(coverage.settledWatermarks).toEqual({ 'session-a': 1 })
+    expect(() =>
+      foldCoverage({ ...input, reviews: [input.reviews[0]!, input.reviews[0]!] }),
+    ).toThrow('prior review identity is not unique')
     const plan = planReview(input)
     expect(plan.status).toBe('ready')
     expect(plan.sessions).toEqual([

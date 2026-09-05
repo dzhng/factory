@@ -5,7 +5,6 @@ import {
   acceptPartialCoverageByReviewId,
   appendDecisionAction,
   StaleDecisionActionError,
-  type DecisionActionInput,
 } from '@factory/review'
 import {
   serveLocalUi,
@@ -71,7 +70,7 @@ export async function openCommand(
     actions: {
       async appendDecision(action: UiDecisionAction) {
         try {
-          await appendDecisionAction(requireStore(), action as DecisionActionInput)
+          await appendDecisionAction(requireStore(), action)
         } catch (error) {
           if (error instanceof StaleDecisionActionError) throw new UiActionConflictError()
           throw error
@@ -94,7 +93,8 @@ export async function openCommand(
   const stop = () => controller.abort()
   const external = options.signal
   const externalStop = () => controller.abort()
-  external?.addEventListener('abort', externalStop, { once: true })
+  if (external?.aborted) controller.abort()
+  else external?.addEventListener('abort', externalStop, { once: true })
   if (options.signal === undefined) {
     process.once('SIGINT', stop)
     process.once('SIGTERM', stop)

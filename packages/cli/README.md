@@ -14,3 +14,8 @@ Global hook ownership is private operational state. Exact recorded
 fingerprints authorize removal; foreign, duplicate-looking, and user-edited
 entries remain untouched. `factory doctor` is read-only unless `--repair` is
 explicit.
+
+`factory open` rebuilds a presentation projection from portable repository
+records, serves it only on `127.0.0.1`, and stops when the command exits. The
+browser receives two narrow append-only action seams—decision actions and
+explicit partial-coverage acceptance—not a generic repository writer.

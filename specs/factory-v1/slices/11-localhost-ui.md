@@ -1,5 +1,7 @@
 # 11 — Short-lived localhost UI
 
+Status: **implemented**
+
 ## Contract
 
 `factory open` starts a short-lived server bound to `127.0.0.1` and displays
@@ -26,10 +28,16 @@ filesystem access, process execution, or generic record mutation endpoint.
 
 ## Playable artifact
 
-`factory open` runs against deterministic fixture repositories covering empty,
-active capture, workspace review, exact and ambiguous PR association, partial
-coverage, failed review, canonical confirmation, detached HEAD, missing GitHub,
-corrupt data, and upgrade-required data.
+The browser lab renders deterministic states covering empty, active capture,
+workspace review, exact and ambiguous PR association, partial coverage, failed
+review, canonical confirmation, detached HEAD, missing GitHub, corrupt data,
+and upgrade-required data. Its action callbacks capture and assert the exact
+intent sent by the browser. The packaged CLI vertical separately runs
+`factory open` against a materialized two-provider repository, proving the
+projection is rebuilt from real portable records. A second repository-backed
+journey sends both action kinds through the real HTTP server and verifies that
+all existing evidence stays byte-identical while only the declared action
+directories gain files.
 
 ## Verification
 

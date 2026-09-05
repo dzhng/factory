@@ -6,8 +6,9 @@ import {
   type ReviewLedger,
   type ReviewManifest,
 } from '@factory/contract'
+import { loadStoredReviews } from '@factory/domain'
 
-import { loadStoredReviews, storedReviewFindingsMeetThreshold } from '../src'
+import { storedReviewFindingsMeetThreshold } from '../src'
 
 function review(
   reviewId: ReviewManifest['reviewId'],

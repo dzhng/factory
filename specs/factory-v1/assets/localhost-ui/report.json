@@ -50,6 +50,7 @@
         "named heading and navigation",
         "partial review label",
         "repository text rendered literally",
+        "partial coverage action intent",
         "keyboard skip link"
       ]
     },
@@ -67,6 +68,7 @@
       "assertions": [
         "named heading and navigation",
         "canonical confirmation and pending change labels",
+        "decision action intent",
         "keyboard skip link"
       ]
     },
@@ -124,8 +126,8 @@
     },
     {
       "file": "partial-coverage--wide.png",
-      "sha256": "021ed5ad29ef35305cb71dc02bfe5fae583a37f9f711be9978f99660b6bf8952",
-      "bytes": 116373
+      "sha256": "3975e8ac8780f6a7e432f2c26bd9cdcdb0b2abf59ddad5a1f68eecff62b66216",
+      "bytes": 116423
     },
     {
       "file": "partial-coverage--narrow.png",

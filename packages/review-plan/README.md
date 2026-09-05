@@ -11,9 +11,10 @@ content-addressed, so verification in a fresh directory needs neither the live
 checkout nor Git metadata. `@factory/reviewer` may execute only after this
 package returns a verified bundle.
 
-Repository discovery, candidate graph loading, history folding, coverage, and
-portable bundle verification have separate owners under `src/`. That split is
-a trust boundary: planning consumes only immutable projections produced from a
+Repository discovery, candidate graph loading, planning, and portable bundle
+verification have separate owners under `src/`. Exact review grouping and
+coverage folding belong to the domain package so every consumer sees the same
+history. Planning consumes those immutable projections from a
 descriptor-confined repository snapshot, while bundle verification rebuilds
 the same joins without consulting the live repository.
 

@@ -1,16 +1,11 @@
-import { createHash } from 'node:crypto'
-
 import {
-  canonicalJson,
   type AssociationBatch,
   type CoverageAction,
-  type DecisionAction,
-  type DecisionObservation,
   type LifecycleRecord,
   type PullRequestObservation,
+  type RecordId,
   type RepositoryObservation,
   type RepositoryRecords,
-  type ReviewLedger,
   type ReviewManifest,
   type ReviewTrigger,
   type SessionIdentity,
@@ -18,7 +13,11 @@ import {
   type TurnManifest,
 } from '@factory/contract'
 
-import { deriveDecisionObservations, foldDecisions, type DecisionView } from './decisions'
+import { verifyAssociationBatch } from './associations'
+import { foldCoverage, type PriorCoverageReview } from './coverage'
+import { loadVerifiedDecisionRecords } from './decision-records'
+import { foldDecisions, type DecisionView } from './decisions'
+import { loadStoredReviews, resolveStoredReviewSubject } from './stored-reviews'
 
 export type UiLimitation = { code: string; detail: string }
 
@@ -121,7 +120,7 @@ export type UiReadySnapshot = {
   triggers: readonly UiTrigger[]
   reviews: readonly UiReview[]
   decisions: DecisionView | null
-  decisionActions: readonly DecisionAction[]
+  unresolvedDisputes: readonly { actionId: RecordId; targetObservationId: RecordId }[]
   diagnostics: readonly { priority: 'normal' | 'high'; message: string }[]
 }
 
@@ -137,10 +136,6 @@ export type UiSnapshot = UiReadySnapshot | UiUnavailableSnapshot
 const textEncoder = new TextEncoder()
 const MAX_RESPONSE_PREVIEW_BYTES = 16 * 1024
 
-function hash(value: unknown): string {
-  return createHash('sha256').update(canonicalJson(value)).digest('hex')
-}
-
 function limitText(value: string): { value: string; truncated: boolean } {
   const bytes = textEncoder.encode(value)
   if (bytes.byteLength <= MAX_RESPONSE_PREVIEW_BYTES) return { value, truncated: false }
@@ -155,16 +150,6 @@ function limitations(value: { limitations: readonly UiLimitation[] }): readonly 
   return [...value.limitations].sort(
     (left, right) => left.code.localeCompare(right.code) || left.detail.localeCompare(right.detail),
   )
-}
-
-function recordMap(records: RepositoryRecords): Map<string, unknown[]> {
-  const values = new Map<string, unknown[]>()
-  for (const record of records.records) {
-    const existing = values.get(record.path)
-    if (existing === undefined) values.set(record.path, [record.value])
-    else existing.push(record.value)
-  }
-  return values
 }
 
 function completedAssociations(records: RepositoryRecords): UiAssociation[] {
@@ -198,16 +183,7 @@ function completedAssociations(records: RepositoryRecords): UiAssociation[] {
       .map(item => associations.get(item.evidenceId))
       .filter((item): item is SessionPullRequestAssociation => item !== undefined)
     if (observation === undefined || evidence.length !== batch.evidence.length) continue
-    if (batch.evidence.some(item => hash(associations.get(item.evidenceId)) !== item.sha256))
-      continue
-    if (
-      evidence.some(
-        item =>
-          item.pullRequestObservationId !== observation.observationId ||
-          item.observedAt !== batch.observedAt,
-      )
-    )
-      continue
+    if (!verifyAssociationBatch(batch, observation, evidence)) continue
     evidence.forEach(item => visible.set(item.evidenceId, item))
   }
   return [...visible.values()]
@@ -229,70 +205,6 @@ function completedAssociations(records: RepositoryRecords): UiAssociation[] {
     }))
 }
 
-function reviewGroups(
-  records: RepositoryRecords,
-): { manifest: ReviewManifest; ledger?: ReviewLedger; response: string }[] {
-  const map = recordMap(records)
-  const groups: { manifest: ReviewManifest; ledger?: ReviewLedger; response: string }[] = []
-  for (const record of records.records) {
-    if (
-      !/^reviews\/(?:workspace|pull-requests\/github\/[^/]+\/[1-9]\d*)\/[^/]+\/manifest\.json$/.test(
-        record.path,
-      )
-    )
-      continue
-    const root = record.path.slice(0, -'/manifest.json'.length)
-    const manifest = record.value as unknown as ReviewManifest
-    const response = map.get(`${root}/response.txt`)?.[0]
-    const ledger = map.get(`${root}/ledger.json`)?.[0]
-    if (typeof response !== 'string') continue
-    if (manifest.disposition !== 'failed' && ledger === undefined) continue
-    groups.push({
-      manifest,
-      ...(ledger === undefined ? {} : { ledger: ledger as ReviewLedger }),
-      response,
-    })
-  }
-  return groups.sort((left, right) => left.manifest.reviewId.localeCompare(right.manifest.reviewId))
-}
-
-function verifiedDecisionObservations(
-  input: RepositoryRecords,
-  reviews: ReturnType<typeof reviewGroups>,
-  actual: readonly DecisionObservation[],
-): readonly DecisionObservation[] {
-  const byPath = new Map(input.records.map(record => [record.path as string, record.value]))
-  const expected = new Map<string, DecisionObservation>()
-  for (const review of reviews) {
-    if (review.ledger === undefined) continue
-    const subjectPath =
-      review.manifest.subject.kind === 'workspace'
-        ? `repository-observations/${review.manifest.subject.repositoryObservationId}.json`
-        : `pull-requests/github/${review.manifest.subject.repositoryKey}/${review.manifest.subject.number}/observations/${review.manifest.subject.observationId}.json`
-    const subject = byPath.get(subjectPath)
-    if (subject === undefined) throw new TypeError('decision review subject record is absent')
-    for (const observation of deriveDecisionObservations(review.manifest, review.ledger, subject)) {
-      const prior = expected.get(observation.observationId)
-      if (prior !== undefined && canonicalJson(prior) !== canonicalJson(observation))
-        throw new TypeError('accepted reviews derive conflicting decision observations')
-      expected.set(observation.observationId, observation)
-    }
-  }
-  const observed = new Map<string, DecisionObservation>(
-    actual.map(item => [item.observationId, item]),
-  )
-  for (const observation of actual) {
-    const source = expected.get(observation.observationId)
-    if (source === undefined || canonicalJson(source) !== canonicalJson(observation))
-      throw new TypeError('decision observation is not derived from its accepted review entry')
-  }
-  for (const observationId of expected.keys()) {
-    if (!observed.has(observationId))
-      throw new TypeError('accepted review decision observation has not been recovered')
-  }
-  return actual
-}
-
 /** Rebuild the complete presentation-safe UI state exclusively from validated portable records. */
 export function buildUiProjection(input: RepositoryRecords): UiSnapshot {
   const identities = new Map<string, SessionIdentity>()
@@ -301,8 +213,6 @@ export function buildUiProjection(input: RepositoryRecords): UiSnapshot {
   const repositoryObservations: RepositoryObservation[] = []
   const pullRequestObservations: PullRequestObservation[] = []
   const triggers: ReviewTrigger[] = []
-  const decisionObservations: DecisionObservation[] = []
-  const decisionActions: DecisionAction[] = []
   const coverageActions: CoverageAction[] = []
   const lineCounts = new Map<string, number>()
   for (const record of input.records) {
@@ -326,32 +236,79 @@ export function buildUiProjection(input: RepositoryRecords): UiSnapshot {
       pullRequestObservations.push(record.value as unknown as PullRequestObservation)
     else if (/^review-triggers\/[^/]+\.json$/.test(record.path))
       triggers.push(record.value as unknown as ReviewTrigger)
-    else if (/^decisions\/observations\/[^/]+\.json$/.test(record.path))
-      decisionObservations.push(record.value as unknown as DecisionObservation)
-    else if (/^decisions\/actions\/[^/]+\.json$/.test(record.path))
-      decisionActions.push(record.value as unknown as DecisionAction)
     else if (/^reviews\/coverage-actions\/[^/]+\.json$/.test(record.path))
       coverageActions.push(record.value as unknown as CoverageAction)
   }
 
-  const reviews = reviewGroups(input)
-  const verifiedDecisions = verifiedDecisionObservations(input, reviews, decisionObservations)
+  const reviews = loadStoredReviews(input.records)
+  const { observations: decisionObservations, actions: decisionActions } =
+    loadVerifiedDecisionRecords(input)
   const acceptedReviews = new Set(coverageActions.map(action => action.reviewId))
   const triggerCoverage = new Map<string, UiTrigger['coverage']>()
-  for (const review of reviews) {
-    for (const selection of review.manifest.evidenceSelections) {
-      const coverage: UiTrigger['coverage'] = acceptedReviews.has(review.manifest.reviewId)
-        ? 'accepted-partial'
-        : review.manifest.disposition === 'partial'
-          ? 'partial'
-          : review.manifest.disposition === 'complete'
-            ? 'reviewed'
-            : 'pending'
-      const prior = triggerCoverage.get(selection.triggerId)
-      const rank = { pending: 0, partial: 1, 'accepted-partial': 2, reviewed: 3 }
-      if (prior === undefined || rank[coverage] > rank[prior])
-        triggerCoverage.set(selection.triggerId, coverage)
+  const reviewsById = new Map(reviews.map(review => [review.manifest.reviewId, review]))
+  if (reviewsById.size !== reviews.length)
+    throw new TypeError('stored review identity is not unique')
+  if (coverageActions.some(action => !reviewsById.has(action.reviewId)))
+    throw new TypeError('coverage action names no review')
+  const reviewsByLineage = Map.groupBy(reviews, review => review.lineage)
+  const coverageActionsByLineage = Map.groupBy(
+    coverageActions,
+    action => reviewsById.get(action.reviewId)!.lineage,
+  )
+  const acceptedWatermarks: Record<string, number> = {}
+  const settledWatermarks: Record<string, number> = {}
+  const reviewedWatermarks = new Map<string, Set<number>>()
+  const reviewedTriggerIds = new Set<RecordId>()
+  const acceptedPartialTriggerIds = new Set<RecordId>()
+  for (const [lineage, lineageReviews] of reviewsByLineage) {
+    const priorReviews: PriorCoverageReview[] = lineageReviews.map(review => ({
+      reviewId: review.manifest.reviewId,
+      subject: review.subject ?? resolveStoredReviewSubject(review.manifest, input),
+      subjectFingerprint: review.manifest.subjectFingerprint,
+      subjectAttempt: review.manifest.subjectAttempt,
+      sessionWatermarks: review.manifest.sessionWatermarks,
+      coverageTargetWatermarks: review.manifest.coverageTargetWatermarks,
+      selections: review.manifest.evidenceSelections,
+      inputProblems: review.manifest.inputProblems,
+      limitations: review.manifest.limitations,
+      triggerIds: review.manifest.triggerIds,
+      disposition: review.manifest.disposition,
+    }))
+    const acceptedActions = coverageActionsByLineage.get(lineage) ?? []
+    const coverage = foldCoverage({
+      subject: priorReviews[0]!.subject,
+      reviews: priorReviews,
+      coverageActions: acceptedActions,
+    })
+    coverage.acceptedTriggerIds.forEach(id => reviewedTriggerIds.add(id))
+    for (const [sessionKey, watermark] of Object.entries(coverage.settledWatermarks)) {
+      settledWatermarks[sessionKey] = Math.max(settledWatermarks[sessionKey] ?? -1, watermark)
     }
+    for (const [sessionKey, watermarks] of Object.entries(coverage.reviewedWatermarks)) {
+      const values = reviewedWatermarks.get(sessionKey) ?? new Set<number>()
+      watermarks.forEach(watermark => values.add(watermark))
+      reviewedWatermarks.set(sessionKey, values)
+    }
+    for (const action of acceptedActions) {
+      action.acceptedTriggerIds.forEach(id => acceptedPartialTriggerIds.add(id))
+      for (const [sessionKey, watermark] of Object.entries(action.settledWatermarks)) {
+        acceptedWatermarks[sessionKey] = Math.max(acceptedWatermarks[sessionKey] ?? -1, watermark)
+      }
+    }
+  }
+  for (const trigger of triggers) {
+    triggerCoverage.set(
+      trigger.triggerId,
+      acceptedPartialTriggerIds.has(trigger.triggerId) ||
+        trigger.evidenceWatermark <= (acceptedWatermarks[trigger.sessionKey] ?? -1)
+        ? 'accepted-partial'
+        : reviewedTriggerIds.has(trigger.triggerId) ||
+            trigger.evidenceWatermark <= (settledWatermarks[trigger.sessionKey] ?? -1)
+          ? 'reviewed'
+          : reviewedWatermarks.get(trigger.sessionKey)?.has(trigger.evidenceWatermark)
+            ? 'partial'
+            : 'pending',
+    )
   }
 
   const sessions = [...identities.values()]
@@ -388,7 +345,7 @@ export function buildUiProjection(input: RepositoryRecords): UiSnapshot {
   const decisions =
     input.config.canonicalBranch === undefined
       ? null
-      : foldDecisions(verifiedDecisions, decisionActions, input.config.canonicalBranch)
+      : foldDecisions(decisionObservations, decisionActions, input.config.canonicalBranch)
   const diagnostics: { priority: 'normal' | 'high'; message: string }[] = []
   if (input.config.canonicalBranch === undefined)
     diagnostics.push({
@@ -459,42 +416,59 @@ export function buildUiProjection(input: RepositoryRecords): UiSnapshot {
         coverage: triggerCoverage.get(trigger.triggerId) ?? 'pending',
         limitations: limitations(trigger),
       })),
-    reviews: reviews.map(review => {
-      const preview = limitText(review.response)
-      return {
-        reviewId: review.manifest.reviewId,
-        subject: review.manifest.subject,
-        completedAt: review.manifest.completedAt,
-        disposition: review.manifest.disposition,
-        coverageEffect: review.manifest.subjectAttempt.effect,
-        coverageAccepted: acceptedReviews.has(review.manifest.reviewId),
-        ...(review.manifest.failureReason === undefined
-          ? {}
-          : { failureReason: review.manifest.failureReason }),
-        limitations: limitations(review.manifest),
-        findings: (review.ledger?.entries ?? [])
-          .filter(entry => entry.kind === 'finding')
-          .map(entry => ({
-            entryId: entry.entryId,
-            severity: entry.severity,
-            summary: entry.summary,
-          })),
-        decisions: (review.ledger?.entries ?? [])
-          .filter(entry => entry.kind === 'decision')
-          .map(entry => ({
-            entryId: entry.entryId,
-            decisionKey: entry.decisionKey,
-            effect: entry.effect,
-            summary: entry.summary,
-          })),
-        responsePreview: preview.value,
-        responseTruncated: preview.truncated,
-      }
-    }),
+    reviews: [...reviews]
+      .sort(
+        (left, right) =>
+          Date.parse(left.manifest.completedAt) - Date.parse(right.manifest.completedAt) ||
+          left.manifest.reviewId.localeCompare(right.manifest.reviewId),
+      )
+      .map(review => {
+        const preview = limitText(review.response)
+        return {
+          reviewId: review.manifest.reviewId,
+          subject: review.manifest.subject,
+          completedAt: review.manifest.completedAt,
+          disposition: review.manifest.disposition,
+          coverageEffect: review.manifest.subjectAttempt.effect,
+          coverageAccepted: acceptedReviews.has(review.manifest.reviewId),
+          ...(review.manifest.failureReason === undefined
+            ? {}
+            : { failureReason: review.manifest.failureReason }),
+          limitations: limitations(review.manifest),
+          findings: (review.ledger?.entries ?? [])
+            .filter(entry => entry.kind === 'finding')
+            .map(entry => ({
+              entryId: entry.entryId,
+              severity: entry.severity,
+              summary: entry.summary,
+            })),
+          decisions: (review.ledger?.entries ?? [])
+            .filter(entry => entry.kind === 'decision')
+            .map(entry => ({
+              entryId: entry.entryId,
+              decisionKey: entry.decisionKey,
+              effect: entry.effect,
+              summary: entry.summary,
+            })),
+          responsePreview: preview.value,
+          responseTruncated: preview.truncated,
+        }
+      }),
     decisions,
-    decisionActions: decisionActions.sort((left, right) =>
-      left.actionId.localeCompare(right.actionId),
-    ),
+    unresolvedDisputes:
+      decisions?.lineages
+        .flatMap(lineage => lineage.observations)
+        .flatMap(item =>
+          item.activeDisputeActionId === undefined
+            ? []
+            : [
+                {
+                  actionId: item.activeDisputeActionId,
+                  targetObservationId: item.observation.observationId,
+                },
+              ],
+        )
+        .sort((left, right) => left.actionId.localeCompare(right.actionId)) ?? [],
     diagnostics,
   }
 }

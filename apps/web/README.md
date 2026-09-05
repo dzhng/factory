@@ -6,4 +6,7 @@ path, store handle, runtime database, object reader, or generic mutation port.
 
 Two narrow callbacks connect user intent to the review services that already
 validate append-only decision and partial-coverage actions. Closing the CLI
-closes this server; there is no daemon or hosted authority.
+closes this server; there is no daemon or hosted authority. The browser sees
+compact presentation records and unresolved action identifiers, never raw
+decision actions or repository storage objects. Repositories that cannot be
+validated render an unavailable, read-only state.

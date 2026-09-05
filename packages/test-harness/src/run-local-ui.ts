@@ -69,15 +69,17 @@ const report: {
 
 try {
   for (const fixture of localUiFixtures()) {
+    const decisionActions: unknown[] = []
+    const coverageActions: unknown[] = []
     const handle = await serveLocalUi({
       host: '127.0.0.1',
       snapshot: async () => fixture.snapshot,
       actions: {
-        async appendDecision() {
-          throw new Error('fixture actions are disabled')
+        async appendDecision(action) {
+          decisionActions.push(action)
         },
-        async acceptCoverage() {
-          throw new Error('fixture actions are disabled')
+        async acceptCoverage(reviewId) {
+          coverageActions.push(reviewId)
         },
       },
     })
@@ -117,6 +119,15 @@ try {
           await page.getByText('State · pending-supersession', { exact: true }).waitFor()
           await page.getByText('Human · confirmed', { exact: true }).waitFor()
           assertions.push('canonical confirmation and pending change labels')
+          await page.getByRole('button', { name: 'Confirm', exact: true }).first().click()
+          await page.getByText('Action recorded in append-only Factory history.').waitFor()
+          if (
+            decisionActions.length !== 1 ||
+            (decisionActions[0] as { kind?: string }).kind !== 'confirm'
+          )
+            throw new Error('decision intent did not cross the browser action seam')
+          assertions.push('decision action intent')
+          await page.locator('.status').evaluate(node => node.remove())
         }
         if (fixture.id === 'partial-coverage') {
           if ((await page.locator('img').count()) !== 0)
@@ -125,10 +136,20 @@ try {
           if (!responseText?.includes('<img src=x onerror=alert'))
             throw new Error('review text was not preserved literally')
           assertions.push('repository text rendered literally')
+          await page.getByRole('button', { name: 'Record reviewed-partial coverage' }).click()
+          await page.getByText('Action recorded in append-only Factory history.').waitFor()
+          if (coverageActions.length !== 1)
+            throw new Error('coverage intent did not cross the browser action seam')
+          assertions.push('partial coverage action intent')
+          await page.locator('.status').evaluate(node => node.remove())
         }
-        await page.keyboard.press('Tab')
-        if ((await page.evaluate('document.activeElement?.className')) !== 'skip-link')
+        const keyboardPage = await context.newPage()
+        await keyboardPage.goto(handle.origin)
+        await keyboardPage.locator('#app[data-ready]').waitFor()
+        await keyboardPage.keyboard.press('Tab')
+        if ((await keyboardPage.evaluate('document.activeElement?.className')) !== 'skip-link')
           throw new Error('skip link is not first in keyboard order')
+        await keyboardPage.close()
         assertions.push('keyboard skip link')
       } else {
         await page.getByRole('heading', { name: fixture.snapshot.title }).waitFor()

@@ -459,11 +459,42 @@ describe('canonical decision fold', () => {
       [confirm, dispute],
       at(7),
     )
+    expect(
+      foldDecisions([canonical], [confirm, dispute], 'main').lineages[0]!.observations[0],
+    ).toMatchObject({
+      humanStatus: 'disputed',
+      activeDisputeActionId: dispute.actionId,
+    })
     const items = foldDecisions([laterReplay, canonical], [resolve, dispute, confirm], 'main')
       .lineages[0]!.observations
     expect(items.map(item => item.humanStatus)).toEqual(['confirmed', 'unconfirmed'])
+    expect(items[0]!.activeDisputeActionId).toBeUndefined()
     expect(
       foldDecisions([canonical], [confirm, dispute, resolve], 'main').stateFingerprint,
     ).not.toBe(foldDecisions([canonical], [confirm], 'main').stateFingerprint)
+
+    const invalidResolve = preparedAction(
+      '04',
+      {
+        kind: 'resolve',
+        disputeActionId: id('action', '99'),
+        actor: { kind: 'human' },
+        note: 'Wrong dispute',
+      },
+      [canonical],
+      [confirm, dispute],
+      at(8),
+    )
+    const invalidView = foldDecisions([canonical], [confirm, dispute, invalidResolve], 'main')
+    expect(invalidView.lineages[0]!.observations[0]).toMatchObject({
+      humanStatus: 'disputed',
+      activeDisputeActionId: dispute.actionId,
+    })
+    expect(invalidView.diagnostics).toContainEqual(
+      expect.objectContaining({
+        actionId: invalidResolve.actionId,
+        reason: 'resolve target is not an active dispute',
+      }),
+    )
   })
 })

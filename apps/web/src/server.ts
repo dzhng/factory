@@ -9,11 +9,20 @@ export type UiDecisionAction =
   | {
       schemaVersion: 1
       actionId: RecordId
-      kind: 'confirm' | 'reject' | 'dispute'
+      kind: 'confirm' | 'reject'
       targetObservationId: RecordId
       actor: { kind: 'human'; label: string }
       expectedStateFingerprint: Sha256
       note?: string
+    }
+  | {
+      schemaVersion: 1
+      actionId: RecordId
+      kind: 'dispute'
+      targetObservationId: RecordId
+      actor: { kind: 'human'; label: string }
+      expectedStateFingerprint: Sha256
+      note: string
     }
   | {
       schemaVersion: 1
@@ -124,12 +133,31 @@ function parseDecision(value: unknown): UiDecisionAction {
     actor: { kind: 'human' as const, label: 'factory open' },
     expectedStateFingerprint: input.expectedStateFingerprint,
   }
-  if (input.kind === 'confirm' || input.kind === 'reject' || input.kind === 'dispute') {
+  if (input.kind === 'dispute') {
+    if (
+      !exactKeys(input, [
+        'actionId',
+        'expectedStateFingerprint',
+        'kind',
+        'note',
+        'targetObservationId',
+      ]) ||
+      !isRecordId(input.targetObservationId)
+    )
+      throw new TypeError('invalid dispute action')
+    return {
+      ...base,
+      kind: 'dispute',
+      targetObservationId: input.targetObservationId,
+      note: note(input.note, true)!,
+    }
+  }
+  if (input.kind === 'confirm' || input.kind === 'reject') {
     const keys = ['actionId', 'expectedStateFingerprint', 'kind', 'targetObservationId']
     if (input.note !== undefined) keys.push('note')
     if (!exactKeys(input, keys) || !isRecordId(input.targetObservationId))
       throw new TypeError('invalid observation action')
-    const actionNote = note(input.note, input.kind === 'dispute')
+    const actionNote = note(input.note, false)
     return {
       ...base,
       kind: input.kind,

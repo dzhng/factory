@@ -1,18 +1,59 @@
-import { canonicalJson, type LimitationCode, type RecordId } from '@factory/contract'
+import {
+  canonicalJson,
+  type AvailablePullRequestObservation,
+  type CoverageAction,
+  type Limitation,
+  type LimitationCode,
+  type RecordId,
+  type RepositoryObservation,
+  type ReviewEvidenceSelection,
+  type ReviewInputProblem,
+} from '@factory/contract'
 
-import type {
-  CoverageView,
-  PriorReview,
-  ReviewEvidenceSelection,
-  ReviewInputs,
-  ReviewSubject,
-  ReviewSubjectAttempt,
-} from './index'
+export type CoverageSubject =
+  | { kind: 'workspace'; observation: RepositoryObservation }
+  | { kind: 'pull-request'; observation: AvailablePullRequestObservation }
+
+export type CoverageSubjectAttempt = {
+  fingerprint: string
+  coverageId: string
+  effect: 'current-included' | 'reviewed-partial' | 'previously-analyzed-unsettled' | 'settled'
+  limitations: readonly Limitation[]
+}
+
+export type PriorCoverageReview = {
+  reviewId: RecordId
+  subject: CoverageSubject
+  subjectFingerprint: string
+  subjectAttempt: CoverageSubjectAttempt
+  sessionWatermarks: Readonly<Record<string, number>>
+  coverageTargetWatermarks: Readonly<Record<string, number>>
+  selections: readonly ReviewEvidenceSelection[]
+  inputProblems: readonly ReviewInputProblem[]
+  limitations?: readonly Limitation[]
+  triggerIds: readonly RecordId[]
+  disposition: 'complete' | 'partial' | 'failed'
+}
+
+export type CoverageFoldInput = {
+  subject: CoverageSubject
+  reviews: readonly PriorCoverageReview[]
+  coverageActions: readonly CoverageAction[]
+}
+
+export type CoverageView = {
+  settledWatermarks: Readonly<Record<string, number>>
+  reviewedWatermarks: Readonly<Record<string, readonly number[]>>
+  acceptedTriggerIds: readonly RecordId[]
+  acceptedProblemIds: readonly string[]
+  priorSelections: Readonly<Record<string, ReviewEvidenceSelection>>
+  subject?: CoverageSubjectAttempt
+}
 
 const compareCanonical = (left: unknown, right: unknown) =>
   canonicalJson(left).localeCompare(canonicalJson(right))
 
-function sameSubject(review: PriorReview, subject: ReviewSubject): boolean {
+function sameSubject(review: PriorCoverageReview, subject: CoverageSubject): boolean {
   if (review.subject.kind !== subject.kind) return false
   if (subject.kind === 'workspace')
     return (
@@ -26,7 +67,7 @@ function sameSubject(review: PriorReview, subject: ReviewSubject): boolean {
   )
 }
 
-function acceptedReviewWatermarks(review: PriorReview): Map<string, Set<number>> {
+function acceptedReviewWatermarks(review: PriorCoverageReview): Map<string, Set<number>> {
   const accepted = new Map<string, Set<number>>()
   if (review.disposition === 'failed') return accepted
   for (const selection of review.selections) {
@@ -40,7 +81,7 @@ function acceptedReviewWatermarks(review: PriorReview): Map<string, Set<number>>
   return accepted
 }
 
-function assertExactAttemptMetadata(review: PriorReview): void {
+function assertExactAttemptMetadata(review: PriorCoverageReview): void {
   const attempted = review.selections.filter(selection =>
     ['eligible-included', 'eligible-gap'].includes(selection.coverageEffect),
   )
@@ -117,7 +158,7 @@ function assertExactAttemptMetadata(review: PriorReview): void {
 }
 
 function exactBlockingCodes(
-  review: PriorReview,
+  review: PriorCoverageReview,
   watermarkBySession: Readonly<Record<string, number>>,
   acceptedTriggerIds: readonly RecordId[],
   acceptedProblemIds: readonly string[],
@@ -147,18 +188,19 @@ function exactBlockingCodes(
 }
 
 /** Fold accepted coverage and analyzed ranges without editing append-only reviews or triggers. */
-export function foldCoverage(
-  input: Pick<ReviewInputs, 'subject' | 'reviews' | 'coverageActions'>,
-): CoverageView {
+export function foldCoverage(input: CoverageFoldInput): CoverageView {
   const settled: Record<string, number> = {}
   const reviewed = new Map<string, Set<number>>()
   const acceptedOpaque = new Set<RecordId>()
   const acceptedProblems = new Set<string>()
   const priorSelections = new Map<RecordId, ReviewEvidenceSelection>()
-  let subjectCoverage: ReviewSubjectAttempt | undefined
+  let subjectCoverage: CoverageSubjectAttempt | undefined
   const allReviews = [...input.reviews].sort((left, right) =>
     left.reviewId.localeCompare(right.reviewId),
   )
+  if (new Set(allReviews.map(review => review.reviewId)).size !== allReviews.length) {
+    throw new TypeError('prior review identity is not unique')
+  }
   const reviews = allReviews.filter(review => sameSubject(review, input.subject))
   for (const review of reviews) {
     assertExactAttemptMetadata(review)

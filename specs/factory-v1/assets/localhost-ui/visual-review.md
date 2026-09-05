@@ -11,7 +11,12 @@ GitHub observations.
   twelve scenarios.
 - Browser assertions verified named landmarks, exact-versus-ambiguous PR copy,
   partial review copy, canonical decision states, literal rendering of hostile
-  repository text, keyboard skip navigation, and absence of horizontal overflow.
+  repository text, both action intents, keyboard skip navigation in a clean
+  page, and absence of horizontal overflow.
+- A repository-backed CLI journey sent decision and partial-coverage actions
+  through the real loopback server. Existing evidence remained byte-identical;
+  only the declared decision-action and coverage-action directories gained one
+  immutable record each.
 - Image telemetry found no transparent or empty frames. Candidate edge density
   remained between roughly 0.12 and 0.22; the increased contrast and edge energy
   match the deliberate typography, navigation, and action-hierarchy changes.

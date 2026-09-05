@@ -1,23 +1,14 @@
-import { dirname } from 'node:path'
-
 import {
   canonicalJson,
   type OwnedPath,
   type RecordId,
-  type ReviewLedger,
   type ReviewManifest,
 } from '@factory/contract'
+import type { StoredReview } from '@factory/domain'
 import type { RepositoryStore } from '@factory/repository'
 
 type RepositoryRecords = Awaited<ReturnType<RepositoryStore['readRecords']>>['records']
 export type ReviewFindingThreshold = 'low' | 'medium' | 'high' | 'critical'
-
-export type StoredReview = {
-  manifest: ReviewManifest
-  lineage: string
-  paths: { manifest: OwnedPath; response: OwnedPath; ledger?: OwnedPath }
-  ledger?: ReviewLedger
-}
 
 export type StoredReviewResult = {
   schemaVersion: 1
@@ -29,71 +20,6 @@ export type StoredReviewResult = {
   coverageEffect: ReviewManifest['subjectAttempt']['effect']
   paths: StoredReview['paths']
   executionFailed: boolean
-}
-
-function reviewLineage(review: ReviewManifest, byPath: ReadonlyMap<OwnedPath, unknown>): string {
-  if (review.subject.kind === 'pull-request')
-    return canonicalJson({
-      kind: review.subject.kind,
-      repositoryKey: review.subject.repositoryKey,
-      number: review.subject.number,
-    })
-  const observation = byPath.get(
-    `repository-observations/${review.subject.repositoryObservationId}.json` as OwnedPath,
-  )
-  if (
-    typeof observation !== 'object' ||
-    observation === null ||
-    Array.isArray(observation) ||
-    !('repositoryId' in observation) ||
-    typeof observation.repositoryId !== 'string'
-  )
-    throw new Error('stored workspace review does not resolve to its subject lineage')
-  return canonicalJson({ kind: review.subject.kind, repositoryId: observation.repositoryId })
-}
-
-/** Index and validate every exact manifest-last review group in one linear pass. */
-export function loadStoredReviews(records: RepositoryRecords): StoredReview[] {
-  const byPath = new Map<OwnedPath, unknown>()
-  const groups = new Map<string, (typeof records)[number][]>()
-  for (const record of records) {
-    byPath.set(record.path, record.value)
-    if (!record.path.startsWith('reviews/')) continue
-    const root = dirname(record.path)
-    const group = groups.get(root)
-    if (group === undefined) groups.set(root, [record])
-    else group.push(record)
-  }
-
-  const reviews: StoredReview[] = []
-  for (const [root, group] of groups) {
-    const manifestRecord = group.find(record => record.path === `${root}/manifest.json`)
-    if (manifestRecord === undefined) continue
-    const manifest = manifestRecord.value as unknown as ReviewManifest
-    const responsePath = `${root}/response.txt` as OwnedPath
-    const ledgerPath = `${root}/ledger.json` as OwnedPath
-    const expected = [manifestRecord.path, responsePath]
-    if (manifest.disposition !== 'failed') expected.push(ledgerPath)
-    if (canonicalJson(group.map(record => record.path).sort()) !== canonicalJson(expected.sort()))
-      throw new Error('stored review does not have an exact committed record group')
-    const ledger =
-      manifest.disposition === 'failed'
-        ? undefined
-        : (byPath.get(ledgerPath) as ReviewLedger | undefined)
-    if (manifest.disposition !== 'failed' && ledger?.reviewId !== manifest.reviewId)
-      throw new Error('stored review ledger does not match its manifest')
-    reviews.push({
-      manifest,
-      lineage: reviewLineage(manifest, byPath),
-      paths: {
-        manifest: manifestRecord.path,
-        response: responsePath,
-        ...(manifest.disposition === 'failed' ? {} : { ledger: ledgerPath }),
-      },
-      ...(ledger === undefined ? {} : { ledger }),
-    })
-  }
-  return reviews.sort((left, right) => left.paths.manifest.localeCompare(right.paths.manifest))
 }
 
 export function storedReviewResult(

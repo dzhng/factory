@@ -30,7 +30,7 @@ function ready(): UiReadySnapshot {
       lineages: [],
       diagnostics: [],
     },
-    decisionActions: [],
+    unresolvedDisputes: [],
     diagnostics: [],
   }
 }
@@ -336,18 +336,7 @@ function withDecisions(snapshot: UiReadySnapshot): UiReadySnapshot {
       ],
       diagnostics: [],
     },
-    decisionActions: [
-      {
-        schemaVersion: 1,
-        actionId: id('action', '1'),
-        previousActionId: null,
-        actor: { kind: 'human', label: 'maintainer' },
-        expectedStateFingerprint: 'a'.repeat(64),
-        kind: 'confirm',
-        targetObservationId: current.observationId,
-        createdAt: at(28),
-      },
-    ],
+    unresolvedDisputes: [],
   }
 }
 

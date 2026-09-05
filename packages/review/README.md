@@ -13,13 +13,9 @@ Readable semantic prefixes survive timeout, cancellation, and malformed tails
 as execution-partial reviews; no valid entry produces a failed review with a
 closed sanitized reason and no ledger.
 
-Stored-review projections also belong here. Clients receive only exact
-manifest-last groups, their resolved paths and subject lineage, and findings
-from the ledger that actually establishes coverage.
-
-Validated decision entries produce rebuildable observation records. Before an
-observation enters the shared fold, this package proves its exact bytes against
-the accepted review entry and subject record. It also validates human actions
-against the current fold and delegates the final compare-and-append to the
-repository writer, so a concurrent history or canonical-branch change becomes
-a stale request rather than an action on unseen state.
+The domain package owns verified stored-review grouping, subject resolution,
+coverage, and decision folds. This package uses those shared projections to
+publish rebuildable decision observations and validate human actions. The
+repository writer performs the final compare-and-append, so a concurrent
+history or canonical-branch change becomes a stale request rather than an
+action on unseen state.

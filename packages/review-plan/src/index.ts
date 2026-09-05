@@ -23,7 +23,13 @@ import {
   type ReviewTrigger,
   type SessionPullRequestAssociation,
 } from '@factory/contract'
-import { verifyAssociationBatch } from '@factory/github'
+import {
+  foldCoverage,
+  verifyAssociationBatch,
+  type CoverageSubject,
+  type CoverageSubjectAttempt,
+  type CoverageView as DomainCoverageView,
+} from '@factory/domain'
 import { loadCodeManifestObject } from '@factory/repository'
 
 import {
@@ -34,7 +40,6 @@ import {
   type EvidenceClassification,
   type ReviewCandidate,
 } from './candidate-loader'
-import { foldCoverage } from './coverage'
 import { getLoadedReviewHistoryState, selectReviewHistory } from './history-loader'
 import {
   isTrustedReviewRepositoryReader,
@@ -54,7 +59,6 @@ export {
   type ReviewCandidate,
 } from './candidate-loader'
 export { loadReviewHistory, loadReviewHistoryForTesting } from './history-loader'
-export { foldCoverage } from './coverage'
 export {
   buildBundle,
   validateReviewPlanRecord,
@@ -66,9 +70,7 @@ export {
   type ReviewPlanRecord,
 } from './bundle'
 
-export type ReviewSubject =
-  | { kind: 'workspace'; observation: RepositoryObservation }
-  | { kind: 'pull-request'; observation: AvailablePullRequestObservation }
+export type ReviewSubject = CoverageSubject
 
 function decodeCanonicalRecord(path: string, bytes: Uint8Array): unknown {
   const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
@@ -149,12 +151,7 @@ export type ReviewPolicies = {
   formatVersion: 1
 }
 
-export type ReviewSubjectAttempt = {
-  fingerprint: string
-  coverageId: string
-  effect: 'current-included' | 'reviewed-partial' | 'previously-analyzed-unsettled' | 'settled'
-  limitations: readonly Limitation[]
-}
+export type ReviewSubjectAttempt = CoverageSubjectAttempt
 
 export type ReviewInputs = {
   mode: 'incremental' | 'full' | 'force'
@@ -200,14 +197,7 @@ export type EffectiveReviewLimits = {
   maxStructuredRecordBytes: number
 }
 
-export type CoverageView = {
-  settledWatermarks: Readonly<Record<string, number>>
-  reviewedWatermarks: Readonly<Record<string, readonly number[]>>
-  acceptedTriggerIds: readonly RecordId[]
-  acceptedProblemIds: readonly string[]
-  priorSelections: Readonly<Record<string, ReviewEvidenceSelection>>
-  subject?: ReviewSubjectAttempt
-}
+export type CoverageView = DomainCoverageView
 
 export type PlannedSessionRange = {
   sessionKey: string

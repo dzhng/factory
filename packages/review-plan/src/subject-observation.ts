@@ -8,13 +8,12 @@ import {
   type RecordId,
   type SessionPullRequestAssociation,
 } from '@factory/contract'
-import { deriveAssociations } from '@factory/domain'
+import { deriveAssociations, verifyAssociationBatch } from '@factory/domain'
 import {
   GithubPrObserver,
   observeGithubRepositoryMapping,
   persistGithubRepositoryMapping,
   persistPullRequestEvidence,
-  verifyAssociationBatch,
 } from '@factory/github'
 import { GitObserver, type RepositoryStore } from '@factory/repository'
 

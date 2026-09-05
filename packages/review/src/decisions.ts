@@ -11,7 +11,12 @@ import {
   type ReviewLedger,
   type ReviewManifest,
 } from '@factory/contract'
-import { deriveDecisionObservations, foldDecisions } from '@factory/domain'
+import {
+  deriveDecisionObservations,
+  deriveStoredDecisionObservations,
+  foldDecisions,
+  loadVerifiedDecisionRecords,
+} from '@factory/domain'
 import {
   DecisionAuthorityConflictError,
   type DecisionRecordAuthority,
@@ -19,8 +24,6 @@ import {
   type RepositoryRecords,
   type RepositoryStore,
 } from '@factory/repository'
-
-import { loadStoredReviews } from './stored-reviews'
 
 export type { DecisionObservationSource } from '@factory/domain'
 export type DecisionActionInput = DecisionAction extends infer Action
@@ -57,27 +60,6 @@ export async function appendDecisionObservations(
   return refs
 }
 
-function subjectRecordForStoredReview(
-  manifest: ReviewManifest,
-  records: RepositoryRecords,
-): unknown {
-  const path =
-    manifest.subject.kind === 'pull-request'
-      ? makeOwnedPath('pull-requests', [
-          manifest.subject.provider,
-          manifest.subject.repositoryKey,
-          String(manifest.subject.number),
-          'observations',
-          `${manifest.subject.observationId}.json`,
-        ])
-      : makeOwnedPath('repository-observations', [
-          `${manifest.subject.repositoryObservationId}.json`,
-        ])
-  const value = records.records.find(record => record.path === path)?.value
-  if (value === undefined) throw new TypeError('decision review subject record is absent')
-  return value
-}
-
 /** Repair a crash after manifest-last review publication but before derived observations append. */
 export async function recoverDecisionObservations(
   store: RepositoryStore,
@@ -89,22 +71,14 @@ export async function recoverDecisionObservations(
       .map(record => (record.value as DecisionObservation).observationId),
   )
   let created = 0
-  for (const review of loadStoredReviews(records.records)) {
-    if (review.ledger === undefined) continue
-    const subjectRecord = subjectRecordForStoredReview(review.manifest, records)
-    for (const observation of deriveDecisionObservations(
-      review.manifest,
-      review.ledger,
-      subjectRecord,
-    )) {
-      await store.createImmutable(
-        makeOwnedPath('decisions', ['observations', `${observation.observationId}.json`]),
-        new TextEncoder().encode(canonicalJson(observation)),
-      )
-      if (!existing.has(observation.observationId)) {
-        existing.add(observation.observationId)
-        created += 1
-      }
+  for (const observation of deriveStoredDecisionObservations(records)) {
+    await store.createImmutable(
+      makeOwnedPath('decisions', ['observations', `${observation.observationId}.json`]),
+      new TextEncoder().encode(canonicalJson(observation)),
+    )
+    if (!existing.has(observation.observationId)) {
+      existing.add(observation.observationId)
+      created += 1
     }
   }
   return created
@@ -134,52 +108,6 @@ function recordAuthority(
   }
 }
 
-function decisionRecords(records: RepositoryRecords): {
-  observations: DecisionObservation[]
-  actions: DecisionAction[]
-} {
-  const observations: DecisionObservation[] = []
-  const actions: DecisionAction[] = []
-  for (const record of records.records) {
-    if (/^decisions\/observations\/[^/]+\.json$/.test(record.path))
-      observations.push(record.value as DecisionObservation)
-    if (/^decisions\/actions\/[^/]+\.json$/.test(record.path))
-      actions.push(record.value as DecisionAction)
-  }
-  const expected = new Map<RecordId, DecisionObservation>()
-  for (const review of loadStoredReviews(records.records)) {
-    if (review.ledger === undefined) continue
-    const subjectRecord = subjectRecordForStoredReview(review.manifest, records)
-    for (const observation of deriveDecisionObservations(
-      review.manifest,
-      review.ledger,
-      subjectRecord,
-    )) {
-      const prior = expected.get(observation.observationId)
-      if (prior !== undefined && canonicalJson(prior) !== canonicalJson(observation))
-        throw new TypeError('accepted reviews derive conflicting decision observations')
-      expected.set(observation.observationId, observation)
-    }
-  }
-  const actual = new Map(observations.map(observation => [observation.observationId, observation]))
-  for (const observation of observations) {
-    const source = expected.get(observation.observationId)
-    if (source === undefined || canonicalJson(source) !== canonicalJson(observation))
-      throw new TypeError('decision observation is not derived from its accepted review entry')
-  }
-  for (const observationId of expected.keys()) {
-    if (!actual.has(observationId))
-      throw new TypeError('accepted review decision observation has not been recovered')
-  }
-  return { observations, actions }
-}
-
-/** Project validated repository records through the one pure decision fold. */
-export function foldStoredDecisions(records: RepositoryRecords, canonicalBranch: string) {
-  const { observations, actions } = decisionRecords(records)
-  return foldDecisions(observations, actions, canonicalBranch)
-}
-
 /** Validate against the shared fold, then atomically append against exact record authority. */
 export async function appendDecisionAction(
   store: RepositoryStore,
@@ -190,7 +118,7 @@ export async function appendDecisionAction(
   if (config.canonicalBranch === undefined)
     throw new TypeError('decision actions require a configured canonical branch')
   const canonicalBranch = config.canonicalBranch
-  const { observations, actions } = decisionRecords(await store.readRecords())
+  const { observations, actions } = loadVerifiedDecisionRecords(await store.readRecords())
   const existing = actions.find(action => action.actionId === input.actionId)
   if (existing !== undefined) {
     const { createdAt: _createdAt, previousActionId: _previousActionId, ...semantic } = existing

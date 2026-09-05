@@ -25,7 +25,7 @@ import {
   type ReviewInputProblem,
   type SessionPullRequestAssociation,
 } from '@factory/contract'
-import { verifyAssociationBatch } from '@factory/github'
+import { verifyAssociationBatch } from '@factory/domain'
 import {
   inventoryConfinedTree,
   loadCodeManifestObject,

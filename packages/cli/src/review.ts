@@ -3,6 +3,7 @@ import { lstat, mkdtemp, realpath, rm } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 
 import { canonicalJson, type RecordId } from '@factory/contract'
+import { foldStoredDecisions, loadStoredReviews } from '@factory/domain'
 import {
   openRepositoryStore,
   withAdvisoryFileLock,
@@ -11,8 +12,6 @@ import {
 import {
   acceptPartialCoverageByReviewId,
   acceptReview,
-  foldStoredDecisions,
-  loadStoredReviews,
   recoverDecisionObservations,
   storedReviewFindingsMeetThreshold,
   storedReviewResult,

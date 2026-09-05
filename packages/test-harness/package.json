@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "bun build src/*.ts --target=bun --outdir=dist",
+    "build": "bun build src/*.ts --target=bun --outdir=dist --external playwright-core",
     "check-types": "tsc --noEmit",
     "lab:git-observation": "bun run src/run-git-observation.ts",
     "lab:provider-capture": "bun run src/run-provider-oracle.ts",

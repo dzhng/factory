@@ -169,7 +169,7 @@ describe('UI projection', () => {
       scope: 'canonical',
       lifecycle: 'canonical-current',
     })
-    expect(first.decisionActions).toEqual([])
+    expect(first.unresolvedDisputes).toEqual([])
   })
 
   test('makes missing canonical policy explicit', () => {
@@ -179,5 +179,100 @@ describe('UI projection', () => {
     expect(snapshot.diagnostics).toEqual([
       { priority: 'high', message: expect.stringContaining('Canonical branch') },
     ])
+  })
+
+  test('rejects a review group that is not an exact committed unit', () => {
+    expect(() =>
+      buildUiProjection({
+        config: { canonicalBranch: 'main' },
+        records: [
+          ...records,
+          {
+            path: `reviews/workspace/${reviewId}/unexpected.json` as never,
+            value: { forged: true },
+          },
+        ],
+      }),
+    ).toThrow('stored review does not have an exact committed record group')
+  })
+
+  test('does not describe context-only evidence as reviewed coverage', () => {
+    const triggerId = `trigger_${'0'.repeat(25)}1` as const
+    const contextManifest: ReviewManifest = {
+      ...manifest,
+      evidenceSelections: [
+        {
+          kind: 'range',
+          triggerId,
+          sessionKey: identity.sessionKey,
+          turnId: turn.turnId,
+          evidenceWatermark: turn.eventRange.last,
+          selectedForReview: true,
+          coverageEffect: 'context-only',
+          classification: 'weak-context',
+          reason: 'context-only',
+          limitations: [],
+        },
+      ],
+    }
+    const snapshot = buildUiProjection({
+      config: { canonicalBranch: 'main' },
+      records: [
+        ...records.map(record =>
+          record.path === `reviews/workspace/${reviewId}/manifest.json`
+            ? { ...record, value: contextManifest as unknown as JsonValue }
+            : record,
+        ),
+        {
+          path: `review-triggers/${triggerId}.json` as never,
+          value: {
+            schemaVersion: 1,
+            triggerId,
+            sessionKey: identity.sessionKey,
+            turnId: turn.turnId,
+            evidenceWatermark: turn.eventRange.last,
+            provider: 'codex',
+            createdAt: '2026-09-05T00:00:03Z',
+            materialization: 'complete',
+            limitations: [],
+          },
+        },
+      ],
+    })
+    if (snapshot.state !== 'ready') throw new Error('fixture is ready')
+    expect(snapshot.triggers[0]?.coverage).toBe('pending')
+  })
+
+  test('orders reviews chronologically rather than by subject path or timestamp spelling', () => {
+    const laterReviewId = `review_${'0'.repeat(26)}` as const
+    const laterManifest: ReviewManifest = {
+      ...manifest,
+      reviewId: laterReviewId,
+      completedAt: '2026-09-05T00:00:05.1Z',
+    }
+    const snapshot = buildUiProjection({
+      config: { canonicalBranch: 'main' },
+      records: [
+        ...records,
+        {
+          path: `reviews/workspace/${laterReviewId}/manifest.json` as never,
+          value: laterManifest as unknown as JsonValue,
+        },
+        {
+          path: `reviews/workspace/${laterReviewId}/ledger.json` as never,
+          value: {
+            schemaVersion: 1,
+            reviewId: laterReviewId,
+            entries: [],
+          },
+        },
+        {
+          path: `reviews/workspace/${laterReviewId}/response.txt` as never,
+          value: 'later response',
+        },
+      ],
+    })
+    if (snapshot.state !== 'ready') throw new Error('fixture is ready')
+    expect(snapshot.reviews.map(review => review.reviewId)).toEqual([reviewId, laterReviewId])
   })
 })

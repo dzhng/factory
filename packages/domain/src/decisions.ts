@@ -147,6 +147,7 @@ export type DecisionObservationView = {
   priority: 'normal' | 'high'
   pendingReason?: 'change' | 'removal' | 'contradiction'
   pendingFromObservationId?: RecordId
+  activeDisputeActionId?: RecordId
 }
 
 export type DecisionLineageView = {
@@ -180,6 +181,7 @@ type MutableObservationView = {
   priority: 'normal' | 'high'
   pendingReason?: 'change' | 'removal' | 'contradiction'
   pendingFromObservationId?: RecordId
+  activeDisputeActionId?: RecordId
 }
 
 type MutableLineage = {
@@ -403,6 +405,7 @@ export function foldDecisions(
       dispute.target.humanStatus = dispute.prior
       dispute.target.priority =
         dispute.target.lifecycle === 'pending-supersession' ? 'high' : 'normal'
+      delete dispute.target.activeDisputeActionId
       dispute.active = false
       return
     }
@@ -497,6 +500,7 @@ export function foldDecisions(
       prior: target.humanStatus,
       active: true,
     })
+    target.activeDisputeActionId = action.actionId
     target.humanStatus = 'disputed'
     target.priority = 'high'
   }

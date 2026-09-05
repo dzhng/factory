@@ -12,14 +12,13 @@ import {
   type RepositoryId,
   type Sha256,
 } from '../../contract/src/index'
-import { deriveAssociations } from '../../domain/src/index'
+import { deriveAssociations, verifyAssociationBatch } from '../../domain/src/index'
 import { initializeRepositoryStore, type RepositoryStore } from '../../repository/src/index'
 import {
   GithubPrObserver,
   observeGithubRepositoryMapping,
   persistPullRequestEvidence,
   runBoundedGh,
-  verifyAssociationBatch,
   type GhCommandResult,
   type PrObjectStore,
 } from '../src/index'

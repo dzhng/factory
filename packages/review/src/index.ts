@@ -2,7 +2,6 @@ export { parseSemanticOutput, type ParsedSemanticOutput } from './output.js'
 export {
   appendDecisionAction,
   appendDecisionObservations,
-  foldStoredDecisions,
   recoverDecisionObservations,
   StaleDecisionActionError,
   type DecisionActionInput,
@@ -10,12 +9,10 @@ export {
   type DecisionObservationSource,
 } from './decisions.js'
 export {
-  loadStoredReviews,
   storedReviewFindingsMeetThreshold,
   storedReviewResult,
   subjectPathLineage,
   type ReviewFindingThreshold,
-  type StoredReview,
   type StoredReviewResult,
 } from './stored-reviews.js'
 export {

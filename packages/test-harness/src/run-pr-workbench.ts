@@ -10,12 +10,11 @@ import {
   ObjectRef,
   RecordId,
 } from '@factory/contract'
-import { deriveAssociations, explainAssociations } from '@factory/domain'
+import { deriveAssociations, explainAssociations, verifyAssociationBatch } from '@factory/domain'
 import {
   GithubPrObserver,
   observeGithubRepositoryMapping,
   persistPullRequestEvidence,
-  verifyAssociationBatch,
   type GhCommandResult,
   type PrObjectStore,
 } from '@factory/github'

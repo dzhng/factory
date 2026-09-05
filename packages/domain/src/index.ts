@@ -1,6 +1,10 @@
 import { createHash } from 'node:crypto'
 
 export * from './decisions'
+export * from './decision-records'
+export * from './associations'
+export * from './coverage'
+export * from './stored-reviews'
 export * from './ui'
 
 import {

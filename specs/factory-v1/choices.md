@@ -1324,3 +1324,74 @@ second normative schema; the master specification and format own mechanics.
 - **Verdict:** Sound. The UI never promises an action that the durable model
   cannot express.
 - **Confidence:** High.
+
+## Implementation choices — Slice 11
+
+### Keep the localhost interface short-lived and dependency-light
+
+- **When:** Slice 11 browser implementation.
+- **The choice:** `factory open` serves compiled static assets from a process
+  bound only to `127.0.0.1`; closing the command removes its authority. The UI
+  uses platform browser APIs and no client framework or hosted dependency.
+- **The gap:** The spec delegated the presentation implementation while fixing
+  the loopback-only and short-lived boundary.
+- **The reach:** There is no daemon, account model, public bind, or second
+  durable state. A future richer client must preserve the same narrow server
+  contract.
+- **Verdict:** Sound. The implementation is easy to inspect and carries little
+  runtime authority.
+- **Confidence:** High.
+
+### Give every interface the same exact historical folds
+
+- **When:** Slice 11 projection review.
+- **The choice:** The domain package verifies association batches and stored
+  review groups, resolves exact review subjects, and folds coverage and
+  decision history. The browser receives a compact projection, including only
+  the unresolved dispute identifier needed for a valid action; it never
+  receives raw action or storage records. Reviews and coverage actions are
+  grouped once by lineage, while the visible review history is ordered by
+  parsed completion time rather than storage path or timestamp spelling.
+- **The gap:** Separate planning, review, and UI interpretations made partial
+  coverage and stale disputes liable to diverge.
+- **The reach:** A trigger shown as reviewed has the same meaning as a trigger
+  excluded from the next review plan. Invalid or ambiguous history fails safe
+  instead of producing an optimistic UI.
+- **Verdict:** Sound. One validated owner prevents presentation logic from
+  inventing authority.
+- **Confidence:** High.
+
+### Expose only typed append-only human intents
+
+- **When:** Slice 11 HTTP action seam.
+- **The choice:** The server accepts schema-checked decision and exact
+  partial-coverage intents, enforces same-origin and CSRF checks, and delegates
+  semantic validation plus compare-and-append to review services. An
+  unavailable repository has no action seam.
+- **The gap:** A generic record mutation endpoint would have made the browser a
+  second repository writer.
+- **The reach:** New UI actions require an explicit domain command and existing
+  sole-writer authority; arbitrary `.factory` paths never cross HTTP.
+- **Verdict:** Sound. The browser expresses intent without gaining storage
+  authority.
+- **Confidence:** High.
+
+### Separate deterministic browser states from repository-backed opening
+
+- **When:** Slice 11 visual and vertical verification.
+- **The choice:** Twelve stable browser states cover information hierarchy,
+  responsive behavior, unavailable modes, and real action intent. Packaged CLI
+  verticals open actual repositories, assert the rebuilt projection, send both
+  action kinds through HTTP, and prove only the declared append-only paths
+  change. Stable screenshots receive regression comparison and fresh unprimed
+  critique.
+- **The gap:** Fully constructing twelve repository histories would couple
+  visual composition tests to storage fixture mechanics, while hand-built
+  screens alone would not prove the production projection path.
+- **The reach:** Presentation failures remain easy to reproduce, and one real
+  vertical guards the storage-to-browser seam. Additional semantic states
+  should be pinned in domain tests first, then represented visually where they
+  change user understanding.
+- **Verdict:** Sound. The two layers prove different boundaries without
+  pretending fixture snapshots are repository histories.
+- **Confidence:** High.

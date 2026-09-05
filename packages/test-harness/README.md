@@ -25,3 +25,11 @@ container boundaries are owned by [`SECURITY.md`](../../SECURITY.md).
 home, replays both provider fixtures, deletes the journal's derived index, and
 promotes the rebuilt portable tree and diagnostic report into the Slice 06
 evidence directory.
+
+`bun run check:localhost-ui` exercises twelve deterministic browser states at
+wide and narrow viewports, including partial coverage and decision actions,
+and compares their stable screenshots. The CLI vertical separately opens a
+real two-provider repository and proves the interface projection is rebuilt
+from its portable records. A repository-backed action journey sends decision
+and coverage requests through the same HTTP server and verifies that only
+their two declared append-only directories gain files.
