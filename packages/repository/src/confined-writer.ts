@@ -82,6 +82,7 @@ export async function withAdvisoryFileLock<T>(
   path: string,
   timeoutMs: number,
   operation: () => Promise<T>,
+  onUnavailable?: () => T,
 ): Promise<T> {
   const backend = await loadBackend()
   const handle = await open(
@@ -95,7 +96,10 @@ export async function withAdvisoryFileLock<T>(
     if (!state.isFile()) throw new Error('advisory lock is not an ordinary file')
     await handle.chmod(0o600)
     while (backend.library.symbols.flock(handle.fd, 2 | 4) !== 0) {
-      if (Date.now() >= deadline) throw new Error('advisory file lock is unavailable')
+      if (Date.now() >= deadline) {
+        if (onUnavailable !== undefined) return onUnavailable()
+        throw new Error('advisory file lock is unavailable')
+      }
       await new Promise(resolve => setTimeout(resolve, 10))
     }
     try {

@@ -21,14 +21,17 @@ import type { UiReadySnapshot } from '@factory/domain'
 import {
   initializeRepositoryStore,
   openRepositoryStore,
+  withAdvisoryFileLock,
   type RepositoryStore,
 } from '@factory/repository'
 import { acceptReview, validateReview } from '@factory/review'
 import { openVerifiedReviewBundle, readVerifiedReviewBundle } from '@factory/reviewer'
+import { inspectRuntimeJournal } from '@factory/runtime-journal'
 import type { LocalUiHandle } from '@factory/web'
 
 import { sealReviewerRawAttempt } from '../../reviewer/src/attempt'
 import { runFactoryCli } from '../src'
+import { automaticReviewLockPath } from '../src/automatic-review'
 
 if (process.env.FACTORY_DOCKER_TEST !== '1') {
   throw new Error('capture vertical tests must run in the project Docker environment')
@@ -538,6 +541,165 @@ describe('installed capture vertical', () => {
       controller.abort()
       expect(await running).toBe(0)
     }
+  })
+
+  test.each(['script', 'native'])('automatic review drains durable triggers (%s)', async kind => {
+    const value = await createFixture()
+    if (kind === 'native') {
+      value.factory = join(value.root, 'native-factory')
+      expect(
+        (
+          await command(
+            'bun',
+            [
+              'build',
+              '/workspace/packages/cli/src/main.ts',
+              '--compile',
+              '--outfile',
+              value.factory,
+            ],
+            value.root,
+            value.env,
+          )
+        ).code,
+      ).toBe(0)
+    }
+    expect((await command(value.factory, ['init'], value.repository, value.env)).code).toBe(0)
+    const transcript = join(value.home, '.codex', 'sessions', 'automatic-review.jsonl')
+    await writeFile(transcript, '{"type":"message"}\n')
+    const captureEvent = (hook_event_name: string) =>
+      command(
+        value.factory,
+        ['capture', '--provider', 'codex'],
+        value.repository,
+        value.env,
+        JSON.stringify({
+          session_id: 'automatic-review',
+          hook_event_name,
+          cwd: value.repository,
+          ...(hook_event_name === 'Stop' ? { turn_id: 'stop-1', transcript_path: transcript } : {}),
+        }) + '\n',
+      )
+    const manifests = async () =>
+      await Array.fromAsync(
+        new Bun.Glob('reviews/**/manifest.json').scan({ cwd: join(value.repository, '.factory') }),
+      )
+    expect(await captureEvent('SessionStart')).toMatchObject({ code: 0, stdout: '{}\n' })
+    expect(await captureEvent('Stop')).toMatchObject({ code: 0, stdout: '{}\n' })
+    expect(await manifests()).toEqual([])
+    expect(
+      (
+        await command(
+          value.factory,
+          ['configure', '--global', '--automatic-review', 'true'],
+          value.repository,
+          value.env,
+        )
+      ).code,
+    ).toBe(0)
+    expect(
+      (
+        await command(
+          value.factory,
+          ['configure', '--repo', '--automatic-review', 'false'],
+          value.repository,
+          value.env,
+        )
+      ).code,
+    ).toBe(0)
+    expect(await captureEvent('SessionStart')).toMatchObject({ code: 0, stdout: '{}\n' })
+    expect(
+      (await command(value.factory, ['review', '--automatic'], value.repository, value.env)).code,
+    ).toBe(0)
+    expect(await manifests()).toEqual([])
+    expect(
+      (
+        await command(
+          value.factory,
+          ['configure', '--repo', '--automatic-review', 'true'],
+          value.repository,
+          value.env,
+        )
+      ).code,
+    ).toBe(0)
+    await withAdvisoryFileLock(await automaticReviewLockPath(value.repository), 0, async () => {
+      expect(await captureEvent('SessionStart')).toMatchObject({ code: 0, stdout: '{}\n' })
+      expect(
+        (await command(value.factory, ['review', '--automatic'], value.repository, value.env)).code,
+      ).toBe(0)
+      expect(await manifests()).toEqual([])
+      await cp(join(value.repository, '.factory'), join(value.root, 'captured-factory'), {
+        recursive: true,
+      })
+    })
+    expect(await captureEvent('SessionStart')).toMatchObject({ code: 0, stdout: '{}\n' })
+    const deadline = Date.now() + 3_000
+    while ((await manifests()).length === 0 && Date.now() < deadline) await Bun.sleep(20)
+    const paths = await manifests()
+    expect(paths).toHaveLength(1)
+    const review = JSON.parse(await readFile(join(value.repository, '.factory', paths[0]!), 'utf8'))
+    expect(review).toMatchObject({
+      disposition: 'failed',
+      failureReason: 'authentication-unavailable',
+    })
+    const triggers = await Array.fromAsync(
+      new Bun.Glob('review-triggers/*.json').scan({ cwd: join(value.repository, '.factory') }),
+    )
+    expect(review.triggerIds).toEqual(
+      triggers.map(path => path.slice('review-triggers/'.length, -'.json'.length)),
+    )
+    expect(await captureEvent('Stop')).toMatchObject({ code: 0, stdout: '{}\n' })
+    expect(
+      (await command(value.factory, ['review', '--automatic'], value.repository, value.env)).code,
+    ).toBe(0)
+    expect(await manifests()).toEqual(paths)
+    let inspection = await inspectRuntimeJournal(value.repository)
+    const diagnosticDeadline = Date.now() + 1_000
+    while (
+      inspection.state === 'available' &&
+      inspection.diagnostics.length === 0 &&
+      Date.now() < diagnosticDeadline
+    ) {
+      await Bun.sleep(20)
+      inspection = await inspectRuntimeJournal(value.repository)
+    }
+    if (inspection.state !== 'available') throw new Error('runtime diagnostics unavailable')
+    const diagnostics = await Promise.all(
+      inspection.diagnostics.map(name =>
+        readFile(
+          join(value.repository, '.git', 'factory-runtime', 'journal-v1', 'diagnostics', name),
+          'utf8',
+        ),
+      ),
+    )
+    expect(diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('Error: automatic review failed; run factory review for details'),
+      ]),
+    )
+    await withAdvisoryFileLock(await automaticReviewLockPath(value.repository), 1_000, async () => {
+      const linked = join(value.root, 'linked')
+      await git(value.repository, 'worktree', 'add', '-b', 'linked', linked)
+      await cp(join(value.root, 'captured-factory'), join(linked, '.factory'), { recursive: true })
+      expect(
+        (await command(value.factory, ['review', '--automatic'], linked, value.env)).code,
+      ).toBe(1)
+      const linkedReviews = await Array.fromAsync(
+        new Bun.Glob('reviews/**/manifest.json').scan({ cwd: join(linked, '.factory') }),
+      )
+      expect(linkedReviews).toHaveLength(1)
+      expect(
+        JSON.parse(await readFile(join(linked, '.factory', linkedReviews[0]!), 'utf8')),
+      ).toMatchObject({ failureReason: 'authentication-unavailable' })
+      expect(
+        (await command(value.factory, ['review', '--automatic'], linked, value.env)).code,
+      ).toBe(0)
+      expect(
+        await Array.fromAsync(
+          new Bun.Glob('reviews/**/manifest.json').scan({ cwd: join(linked, '.factory') }),
+        ),
+      ).toEqual(linkedReviews)
+    })
   })
 
   test('configures from GitHub while preserving explicit override and source-aware drift', async () => {

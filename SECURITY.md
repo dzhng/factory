@@ -139,6 +139,12 @@ Hook failures must remain non-blocking to the coding harness. Failure to record
 evidence should be visible through Factory diagnostics, but it must not strand
 or corrupt the user's Codex or Claude session.
 
+When effective configuration enables automatic review, capture may relaunch
+the installed Factory executable in the background to review durable triggers.
+It uses the same credential and container boundaries as a manual review, not
+repository-supplied host commands. The hook does not wait for model execution;
+failures remain in review evidence or private diagnostics.
+
 ## Upgrades require release authority
 
 Factory replaces its installed executable only from a release artifact whose

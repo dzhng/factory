@@ -43,8 +43,11 @@ import {
   unavailableReviewerExecutor,
   type ReviewerDefaults,
 } from '@factory/reviewer'
+import { openRuntimeJournal } from '@factory/runtime-journal'
 
+import { automaticReviewLockPath } from './automatic-review'
 import { globalConfig } from './configuration'
+import { atomicPrivateWrite, readBoundedOrdinaryFile } from './private-files'
 
 type ReviewOutput = { stdout(value: string): void; stderr(value: string): void }
 
@@ -147,6 +150,7 @@ function requiredReviewDefaults(environment: NodeJS.ProcessEnv): ReviewerDefault
 
 type ReviewCliOptions = {
   mode: 'incremental' | 'full' | 'force'
+  automatic: boolean
   pullRequest?: number
   sessionKey?: string
   failOn?: 'low' | 'medium' | 'high' | 'critical'
@@ -155,7 +159,7 @@ type ReviewCliOptions = {
 
 function parseReviewOptions(args: readonly string[]): ReviewCliOptions {
   const valueFlags = new Set(['--pr', '--session', '--fail-on', '--accept-partial'])
-  const booleanFlags = new Set(['--full', '--force'])
+  const booleanFlags = new Set(['--full', '--force', '--automatic'])
   const seen = new Set<string>()
   const values = new Map<string, string>()
   for (let index = 1; index < args.length; index += 1) {
@@ -174,6 +178,8 @@ function parseReviewOptions(args: readonly string[]): ReviewCliOptions {
   }
   if (seen.has('--full') && seen.has('--force'))
     throw new TypeError('--full and --force are mutually exclusive')
+  if (seen.has('--automatic') && seen.size !== 1)
+    throw new TypeError('--automatic cannot be combined with review execution options')
   const pullRequestText = values.get('--pr')
   const pullRequest = pullRequestText === undefined ? undefined : pullRequestNumber(pullRequestText)
   const sessionKey = values.get('--session')
@@ -188,6 +194,7 @@ function parseReviewOptions(args: readonly string[]): ReviewCliOptions {
   if (acceptPartial !== undefined && seen.size !== 1)
     throw new TypeError('--accept-partial cannot be combined with review execution options')
   return {
+    automatic: seen.has('--automatic'),
     mode: seen.has('--force') ? 'force' : seen.has('--full') ? 'full' : 'incremental',
     ...(pullRequest === undefined ? {} : { pullRequest }),
     ...(sessionKey === undefined ? {} : { sessionKey }),
@@ -221,6 +228,14 @@ export async function reviewCommand(
   return await withAdvisoryFileLock(subjectLock, 24 * 60 * 60 * 1_000, async () => {
     const repositorySettings = await store.readConfig()
     const settings = resolveConfiguration({}, repositorySettings, await globalConfig(environment))
+    if (
+      options.automatic &&
+      (!settings.automaticReview ||
+        pendingAutomaticTriggers(await store.readRecords()).length === 0)
+    ) {
+      output.stdout(canonicalJson({ schemaVersion: 1, status: 'no-pending-automatic-review' }))
+      return 0
+    }
     if (settings.reviewer !== 'auto') {
       const configured = settings.reviewer
       reviewerAdapter({
@@ -340,4 +355,102 @@ export async function reviewCommand(
       await rm(bundleParent, { recursive: true, force: true })
     }
   })
+}
+
+function pendingAutomaticTriggers(records: RepositoryRecords): string[] {
+  const attempted = new Set(
+    loadStoredReviews(records.records)
+      .filter(review => review.manifest.subject.kind === 'workspace')
+      .flatMap(review => review.manifest.triggerIds),
+  )
+  return records.records
+    .filter(record => /^review-triggers\/[^/]+\.json$/.test(record.path))
+    .map(record => record.path.slice('review-triggers/'.length, -'.json'.length))
+    .filter(id => !attempted.has(id as RecordId))
+    .sort()
+}
+
+/** Drain new durable triggers; failed or unchanged work never creates a retry loop. */
+export async function automaticReviewCommand(
+  repositoryRoot: string,
+  environment: NodeJS.ProcessEnv,
+  output: ReviewOutput,
+): Promise<number> {
+  try {
+    const store = await openRepositoryStore(repositoryRoot)
+    const lockPath = await automaticReviewLockPath(repositoryRoot)
+    const attemptPath = `${lockPath}.attempt`
+    let observed: string[] = []
+    while (true) {
+      const code = await withAdvisoryFileLock<number | undefined>(
+        lockPath,
+        0,
+        async () => {
+          let pending = pendingAutomaticTriggers(await store.readRecords())
+          observed = pending
+          while (pending.length > 0) {
+            const settings = resolveConfiguration(
+              {},
+              await store.readConfig(),
+              await globalConfig(environment),
+            )
+            if (!settings.automaticReview) return 0
+            const fingerprint = createHash('sha256').update(canonicalJson(pending)).digest('hex')
+            const previous = await readBoundedOrdinaryFile(attemptPath, 64)
+            if (previous !== undefined && new TextDecoder().decode(previous) === fingerprint)
+              return 0
+            let code: number
+            try {
+              code = await reviewCommand(
+                repositoryRoot,
+                ['review', '--automatic'],
+                environment,
+                output,
+              )
+            } catch (error) {
+              await recordAutomaticFailure(repositoryRoot, error)
+              code = 1
+            }
+            const current = resolveConfiguration(
+              {},
+              await store.readConfig(),
+              await globalConfig(environment),
+            )
+            if (current.automaticReview)
+              await atomicPrivateWrite(attemptPath, new TextEncoder().encode(fingerprint))
+            if (code !== 0) {
+              await recordAutomaticFailure(
+                repositoryRoot,
+                new Error('automatic review failed; run factory review for details'),
+              )
+              return code
+            }
+            const next = pendingAutomaticTriggers(await store.readRecords())
+            if (!pending.some(id => !next.includes(id))) return 0
+            observed = next
+            pending = next
+          }
+          return 0
+        },
+        () => undefined,
+      )
+      if (code === undefined) return 0
+      // A contending wake can exit between the final read and unlock. Re-read
+      // after releasing ownership so either this worker or the new wake sees it.
+      const next = pendingAutomaticTriggers(await store.readRecords())
+      if (!next.some(id => !observed.includes(id))) return code
+    }
+  } catch (error) {
+    await recordAutomaticFailure(repositoryRoot, error)
+    return 1
+  }
+}
+
+async function recordAutomaticFailure(repositoryRoot: string, error: unknown): Promise<void> {
+  const journal = await openRuntimeJournal({ repositoryRoot })
+  try {
+    await journal.recordDiagnostic(error)
+  } finally {
+    await journal.close()
+  }
 }

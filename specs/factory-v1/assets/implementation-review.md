@@ -1,6 +1,6 @@
 # Implementation review
 
-Verdict: **not clean**. Scope: implementation from `c1b23a7` through
+Verdict: **findings resolved**. Original scope: implementation from `c1b23a7` through
 `2a73e3c67ff5cd21510c1b42c3a82431685cf281`.
 
 ## Behavior findings
@@ -28,13 +28,29 @@ Verdict: **not clean**. Scope: implementation from `c1b23a7` through
    existing effective-configuration fold now governs execution as well as the
    configuration command's display. The installed CLI regression proves global
    selection and repository override precedence in Docker.
-3. **P2 — Automatic review is an accepted but inert preference.**
+3. **Resolved P2 — Automatic review was an accepted but inert preference.**
    [The CLI](../../../packages/cli/src/index.ts) persists `automaticReview`, but
    no production consumer dispatches reviews from it. A Docker reproduction
    enabled repository automatic review and sent SessionStart and Stop through
    the installed CLI. Capture succeeded and created a trigger, with no review.
-   Source tracing confirms there is no dispatch or scheduler for that trigger.
-   Implement the opted-in execution path without breaking fail-open capture.
+   Capture now wakes the installed CLI asynchronously when opted in, reusing
+   durable triggers and the subject lock. SessionStart recovers missed wakes;
+   attempted triggers cannot cause an unchanged-failure retry loop. Docker
+   regressions cover script and compiled-native dispatch, repository override,
+   failure evidence, and repeated Stops without duplicate attempts.
+   Independent review additionally caught worker accumulation and invisible
+   non-exception failures. A non-waiting worker lock and private failure
+   diagnostics address both, with Docker regressions that first failed.
+   A follow-up contention finding was reproduced with a linked checkout;
+   worker ownership is now per-worktree, with a post-unlock trigger recheck.
+   A private fixed-size pending-set fingerprint also suppresses unchanged
+   no-progress and pre-manifest failures without changing manual retry or
+   coverage semantics.
+   The final contention correction preserves the pre-attempt pending set when
+   there is no progress, so newly arrived triggers survive the post-unlock check.
+   The repository-wide build, format, lint, type, and test gates passed, with
+   affected suites rerun after follow-up fixes. One CLI reconstruction-directory
+   failure did not reproduce in the focused rerun or subsequent CLI suite runs.
 4. **Resolved P2 — The UI could not report GitHub canonical-branch drift.**
    [UI composition](../../../packages/cli/src/open.ts) supplies only repository
    records to the [projection](../../../packages/domain/src/ui.ts). Neither
@@ -49,15 +65,15 @@ Verdict: **not clean**. Scope: implementation from `c1b23a7` through
    the existing mobile severity bar remains legible. Independent code review's
    latency finding was fixed and its follow-up passed.
 
-Only automatic review remains open.
+All identified behavior findings are resolved.
 
 ## Shape and documentation
 
 The main ownership boundaries are explicit: provider adaptation, private capture
 durability, portable writes, history projections, planning, container execution,
-and acceptance. The configuration defect shows a boundary that is not composed
-consistently: configuration display uses the precedence fold, while execution
-selects directly from repository settings.
+and acceptance. Configuration display and execution now share the precedence
+fold. Automatic dispatch uses the existing review owner rather than a second
+queue or acceptance path.
 
 The root documentation traversal had no broken links, but seven component
 READMEs were unreachable. The root now links each ownership boundary. The spec's

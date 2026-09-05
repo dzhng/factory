@@ -40,6 +40,7 @@ import {
   type RuntimeJournal,
 } from '@factory/runtime-journal'
 
+import { scheduleAutomaticReview } from './automatic-review'
 import { globalConfig } from './configuration'
 import { runDiagnostics } from './diagnostics'
 import {
@@ -59,7 +60,7 @@ import {
   syncDirectory,
 } from './private-files'
 import { verifyReleaseArtifact } from './release-manifest'
-import { associateCommand, reviewCommand } from './review'
+import { associateCommand, automaticReviewCommand, reviewCommand } from './review'
 import { factoryBuildIdentity } from './version'
 
 export {
@@ -348,6 +349,7 @@ async function recoverRepository(
   )
   if (common.code !== 0) throw new Error('Factory cannot locate the Git-common capture fence')
   const fencePath = join(common.stdout.trim(), 'factory-runtime', 'capture.lock')
+  const materializedRoots = new Set<string>()
   await withAdvisoryFileLock(fencePath, 50, async () => {
     for await (const work of journal.recover()) {
       if (work.availability !== 'ready') continue
@@ -408,6 +410,7 @@ async function recoverRepository(
           sessionFirstObservedAt: owner.firstObservedAt,
           providerHome,
         })
+        materializedRoots.add(targetRoot)
       } catch (error) {
         await journal.recordDiagnostic(error)
       }
@@ -449,6 +452,7 @@ async function recoverRepository(
       }
     }
   })
+  return materializedRoots
 }
 
 async function capture(
@@ -549,7 +553,26 @@ async function capture(
       ...(currentRoot === undefined ? {} : { worktreePath: currentRoot }),
     })
     if (appended.receipt === undefined) return 'failed'
-    await recoverRepository(owner.repositoryRoot, store, repositoryStores, journal, environment)
+    const materializedRoots = await recoverRepository(
+      owner.repositoryRoot,
+      store,
+      repositoryStores,
+      journal,
+      environment,
+    )
+    for (const [root, targetStore] of repositoryStores) {
+      if (
+        !materializedRoots.has(root) &&
+        envelope.eventKind !== 'stop' &&
+        envelope.eventKind !== 'session-start'
+      )
+        continue
+      try {
+        await scheduleAutomaticReview(root, targetStore, environment)
+      } catch (error) {
+        await journal.recordDiagnostic(error)
+      }
+    }
     return 'stored'
   } finally {
     await journal.close()
@@ -816,6 +839,8 @@ export async function runFactoryCli(
     if (command === 'review') {
       const root = await gitRoot(cwd, environment)
       if (root === undefined) throw new Error('factory review requires a Git repository')
+      if (args.length === 2 && args[1] === '--automatic')
+        return await automaticReviewCommand(root, environment, output)
       return await reviewCommand(root, args, environment, output)
     }
     if (command === 'associate') {

@@ -1,16 +1,14 @@
 # Factory v1 specification
 
-Status: **implementation review found open behavior gaps; authenticated exact-artifact certification passed; GitHub Release publication pending**
+Status: **implementation review findings resolved; authenticated exact-artifact certification passed for the earlier candidate; GitHub Release publication pending**
 
 ## Next Agent Prompt
 
-Continue from the [implementation review](assets/implementation-review.md).
-Acquisition starvation is resolved. Resolve effective reviewer configuration,
-automatic review dispatch, and the UI's missing canonical-branch drift observation before
-claiming implementation completion. Preserve fail-open capture and the
-repository, credential, and container boundaries in [SECURITY.md](../../SECURITY.md).
-Use the existing ownership seams and verify each fix through its production
-consumer, including repeated reviews when testing forward progress.
+The [implementation review](assets/implementation-review.md) records the resolved
+behavior findings. Preserve fail-open capture and the repository, credential,
+and container boundaries in [SECURITY.md](../../SECURITY.md). Certify the final
+release candidate before publication; earlier exact-artifact evidence does not
+certify subsequent changes.
 
 The [release report](assets/release-certification/report.json) retains the exact
 macOS arm64 artifact at `0f2ba19` that completed both authenticated provider
@@ -18,7 +16,7 @@ reviews using the existing local CLI logins without user setup. Its
 [visual review](assets/release-certification/visual-review.md) describes the
 report's evidence boundaries. Hosted macOS CI remains package-only; GitHub
 Release publication and its artifact attestation remain pending. Successful
-release journeys do not close the separate behavior findings above.
+release journeys certify only the artifact they exercised.
 
 The ordered [slices](slices/README.md) describe the implementation contracts;
 [choices](choices.md) retain rationale and [format](format.md) owns the durable
