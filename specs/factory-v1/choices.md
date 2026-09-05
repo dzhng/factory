@@ -1735,9 +1735,10 @@ second normative schema; the master specification and format own mechanics.
   moved tag.
 - **Verdict:** Sound. The channel is replaceable later without changing the
   immutable review-attempt model.
-- **Confidence:** High. Workflow run `33953530873` published and attested the
-  public amd64/arm64 digest, and that exact remote reference passed the full
-  isolation oracle on macOS arm64 Docker.
+- **Confidence:** High. Workflow run `33953530873` published and attested
+  `ghcr.io/dzhng/factory-reviewer@sha256:73edb8116985083ee5f23efac6b7a093591196799b04124cb07df98898bc767d`,
+  and that exact remote reference passed the full isolation oracle on macOS
+  arm64 Docker.
 
 ### Make authenticated certification explicit and two-provider complete
 

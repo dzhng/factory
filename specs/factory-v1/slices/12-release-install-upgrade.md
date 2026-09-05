@@ -1,6 +1,6 @@
 # 12 — Installation, diagnostics, upgrade, and release proof
 
-Status: **implementation completion in progress; release acceptance not granted**
+Status: **implementation complete; release certification blocked on dedicated provider credentials**
 
 ## Resolved release scope
 
@@ -118,14 +118,16 @@ seven deterministic stages.
 
 A completion audit found two implementable release gaps: the production image
 channel and an authenticated certification mode. Both seams now exist. The
-public, attested amd64/arm64 image digest passed the isolation oracle, and a
+public, attested amd64/arm64 image
+`ghcr.io/dzhng/factory-reviewer@sha256:73edb8116985083ee5f23efac6b7a093591196799b04124cb07df98898bc767d`
+passed the isolation oracle, and a
 local macOS arm64 host with Docker passed the exact-artifact deterministic
 journey. Release remains blocked only on the missing external authority needed
 to execute that journey with explicitly supplied dedicated Codex and Claude
 Code credentials. Automated publication must not turn credential-free or
-package-only evidence into that claim. The local HTML report screenshot is also
-an outstanding human presentation checkpoint, not a substitute for missing
-execution authority.
+package-only evidence into that claim. The local HTML report screenshot passed
+its fresh-eyes presentation checkpoint; that evidence is not a substitute for
+missing execution authority.
 
 Milestone `6fc6c64` adds the pinned multi-architecture production image,
 digest-only runtime acquisition, and the GHCR publication/provenance workflow.

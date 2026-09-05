@@ -1,6 +1,6 @@
 # Factory v1 specification
 
-Status: **implementation completion in progress; release acceptance not yet granted**
+Status: **implementation complete; release certification blocked on dedicated provider credentials**
 
 ## Next Agent Prompt
 
@@ -37,7 +37,8 @@ Status: **implementation completion in progress; release acceptance not yet gran
 > observations. The completion-audit implementation gaps are now closed: the
 > production reviewer image is public and attested, authenticated certification
 > has an explicit two-provider mode, the exact Node floor passes, and the local
-> macOS arm64 deterministic journey plus report visual gate pass. Do not publish
+> macOS arm64 deterministic journey plus report visual gate pass. Exact release
+> evidence is retained at `73e6520`. Do not publish
 > or mark v1 shipped until dedicated Codex and Claude test credentials execute
 > that packaged production path.
 > Read `AGENTS.md`, `SECURITY.md`, this README, `choices.md`, `format.md`, and
@@ -50,7 +51,9 @@ Status: **implementation completion in progress; release acceptance not yet gran
 > many-to-many Session associations, force-push invalidation, lifecycle history,
 > bounded provider/CAS/capture work, and crash-safe association batches.
 > Milestone `6fc6c64` published the public Linux amd64/arm64 production reviewer
-> image and proved its exact digest through the isolation oracle. Milestone
+> image and proved
+> `ghcr.io/dzhng/factory-reviewer@sha256:73edb8116985083ee5f23efac6b7a093591196799b04124cb07df98898bc767d`
+> through the isolation oracle. Milestone
 > `babb8e0` added an explicit two-provider authenticated certification mode and
 > passed the exact macOS arm64 deterministic release journey. The remaining
 > release blocker is external authority: no dedicated provider test credentials

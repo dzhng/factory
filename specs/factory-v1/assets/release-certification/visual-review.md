@@ -6,8 +6,8 @@ review, UI action, diagnostics, upgrade, and uninstall journeys passed. The
 report deliberately says **NOT RELEASE-CERTIFIED** because dedicated provider
 credentials and GitHub release authority were unavailable.
 
-The exact 1280×900 capture and a 2× table crop received a fresh, unprimed visual
-critique. It accepted the full report with high confidence: no clipping,
+The exact 1280-pixel-wide full-page capture and a 2× table crop received a fresh,
+unprimed visual critique. It accepted the full report with high confidence: no clipping,
 overflow, misleading status, contrast problem, or material scan-readability
 defect was visible. The accepted capture is `screenshot.png`; the temporary crop
 was used only for zoomed inspection and is not standalone journey evidence.
