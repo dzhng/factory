@@ -1,6 +1,6 @@
 import type { ResolvedReviewerSettings } from '@factory/contract'
 
-export const REVIEW_PROMPT_VERSION = 'factory-review-jsonl-v3'
+export const REVIEW_PROMPT_VERSION = 'factory-review-jsonl-v4'
 
 export type ReviewerAdapterInvocation = {
   executable: 'codex' | 'claude'
@@ -21,7 +21,7 @@ or for decisions:
 {"kind":"decision","decisionKey":"explicit stable opaque key","effect":"assert"|"remove"|"contradict","assertion":<structured JSON meaning>,"confidence":"low"|"medium"|"high","summary":"nonblank text","evidence":[{"object":<exact ObjectRef from bundle inventory>,"locator":"optional bounded locator"}]}
 or for findings:
 {"kind":"finding","severity":"low"|"medium"|"high"|"critical","summary":"nonblank text","evidence":[{"object":<exact ObjectRef from bundle inventory>,"locator":"optional bounded locator"}]}
-Every result requires at least one exact citation. Reuse a prior decisionKey only when the evidence explicitly establishes the same semantic decision. Omission never means removal; emit remove or contradict explicitly. Emit no Markdown fences or prose outside JSONL.`
+Every result requires at least one exact citation. Reuse a prior decisionKey only when the evidence explicitly establishes the same semantic decision. Omission never means removal; emit remove or contradict explicitly. The remove effect requires assertion to be null; assert and contradict require a non-null structured assertion. Emit no Markdown fences or prose outside JSONL.`
 
 export function reviewerAuthContainerPath(provider: 'codex' | 'claude') {
   return provider === 'codex'
@@ -50,8 +50,8 @@ export function reviewerAdapter(settings: ResolvedReviewerSettings): ReviewerAda
         '--ignore-rules',
         '--strict-config',
         '--skip-git-repo-check',
-      '--sandbox',
-      'danger-full-access',
+        '--sandbox',
+        'danger-full-access',
         '--color',
         'never',
         '--model',

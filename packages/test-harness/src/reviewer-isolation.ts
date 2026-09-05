@@ -111,6 +111,7 @@ function assertSuccessful(report: IsolationReport): void {
       option.startsWith('no-new-privileges'),
     ) ||
     !report.containerPolicy.tmpfsTargets.includes('/tmp') ||
+    report.containerPolicy.fileSizeBytes !== 16 * 1024 * 1024 ||
     report.mounts.some(({ role, mode }) => (role === 'output' ? mode !== 'rw' : mode !== 'ro')) ||
     expectedAbsent.some(path => !report.observation?.forbiddenPathsAbsent.includes(path)) ||
     !report.cleanup.containerRemoved

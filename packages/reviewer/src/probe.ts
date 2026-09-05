@@ -390,7 +390,7 @@ export async function runObservedReviewerContainer(
     '--security-opt',
     'no-new-privileges',
     '--ulimit',
-    'fsize=1048576:1048576',
+    'fsize=16777216:16777216',
     '--tmpfs',
     '/tmp:rw,noexec,nosuid,nodev,size=16m',
     '--tmpfs',
@@ -566,8 +566,9 @@ export async function runObservedReviewerContainer(
       containerPolicy.user !== containerUser ||
       !containerPolicy.capDrop.includes('ALL') ||
       !containerPolicy.securityOptions.some(option => option.startsWith('no-new-privileges')) ||
-      containerPolicy.fileSizeBytes !== 1024 * 1024 ||
-      container.HostConfig.Ulimits?.find(limit => limit.Name === 'fsize')?.Hard !== 1024 * 1024 ||
+      containerPolicy.fileSizeBytes !== 16 * 1024 * 1024 ||
+      container.HostConfig.Ulimits?.find(limit => limit.Name === 'fsize')?.Hard !==
+        16 * 1024 * 1024 ||
       container.HostConfig.Tmpfs?.['/review-input'] !== undefined ||
       canonicalTmpfs(container.HostConfig.Tmpfs?.[plan.providerHome.containerPath]) !==
         canonicalTmpfs(plan.providerHome.options) ||
