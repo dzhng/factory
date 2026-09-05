@@ -28,4 +28,12 @@ Credentials remain host-owned read-only files. Factory does not copy them,
 change their permissions, borrow token environment variables, or translate a
 host keyring into the container. A provider whose dedicated file cannot be read
 by its validated non-root owner identity is unavailable; changing that boundary
-requires an explicit security decision.
+requires an explicit security decision. File identity and a bounded content
+digest are checked before creation, after creation, and by the container runner
+before provider startup.
+
+Logical attempts singleflight in private Git-common runtime state. A response is
+retained there only while immutable acceptance is pending; successful
+publication replaces it with a response-free finalized marker. Recovery uses
+the recorded container name and ownership label and never cleans an unproven
+container.

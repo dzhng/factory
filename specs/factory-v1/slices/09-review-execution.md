@@ -1,5 +1,8 @@
 # 09 — Isolated review execution and immutable acceptance
 
+Status: **implemented; production image publication and authenticated provider
+certification remain explicit unavailable authorities**
+
 ## Contract
 
 Execute exactly one verified bundle in an ephemeral container. `reviewer:auto`
@@ -62,3 +65,24 @@ portable logs, or unbundled repository read is possible.
 Inspect the first complete and partial Factory reviews. Quality feedback changes
 versioned prompt policy through the fast fake/offline loop; it does not widen
 container authority or make partial output complete.
+
+## Shipped boundary
+
+The installed command observes the exact current workspace or GitHub PR,
+serializes concurrent work per subject, plans once with its resolved reviewer,
+and either reports the exact covering prior review or executes one verified
+bundle. The container receives only verified read-only evidence, content-bound
+read-only provider authentication, and one bounded semantic response channel.
+Git-common state owns recovery and transient response retention; `.factory`
+receives only manifest-last immutable review groups and explicit coverage
+actions.
+
+No dedicated provider credentials or published production image digest were
+available. Authenticated real-provider and production-image certification are
+therefore unavailable rather than inferred from developer state.
+
+Durable ownership is documented by the [capture](../../../packages/capture/README.md),
+[review planning](../../../packages/review-plan/README.md),
+[reviewer](../../../packages/reviewer/README.md),
+[review acceptance](../../../packages/review/README.md), and
+[repository](../../../packages/repository/README.md) package boundaries.

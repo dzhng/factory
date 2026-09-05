@@ -1044,3 +1044,18 @@ second normative schema; the master specification and format own mechanics.
 - **Verdict:** Sound. The lock protects the user-visible operation whose no-op
   decision depends on the review committed immediately before it.
 - **Confidence:** High.
+
+### Keep reviewer output to one size-limited response surface
+
+- **When:** Slice 09 provider execution hardening.
+- **The choice:** A reviewer receives one bounded semantic response channel.
+  Runtime diagnostics remain private, foreign output fails closed, and a
+  readable bounded prefix may still become partial review evidence.
+- **The gap:** The plan bounded semantic output but did not choose whether the
+  provider could create a general artifact tree.
+- **The reach:** Reviewers cannot use output as unbounded storage or smuggle
+  diagnostics into portable history. Supporting review artifacts later would
+  require a separately typed, bounded format rather than relaxing this surface.
+- **Verdict:** Sound. One semantic channel matches the v1 review contract and
+  keeps aggregate output auditable.
+- **Confidence:** High.

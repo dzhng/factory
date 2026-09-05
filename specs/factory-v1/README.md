@@ -1,6 +1,6 @@
 # Factory v1 specification
 
-Status: **in implementation; Slices 01–08 are complete**
+Status: **in implementation; Slices 01–09 are complete**
 
 ## Next Agent Prompt
 
@@ -18,12 +18,9 @@ Status: **in implementation; Slices 01–08 are complete**
 > observation and exact association vertical at `00425da`, and independently
 > audited code-capture deadline hardening at `396dd97`. Slice 08 adds
 > deterministic incremental coverage and independently verified portable
-> workspace/PR bundles through `c934ba8`. Slice 09 is in progress: its first
-> checkpoint defines resolved reviewer identity and severity, private ready-bundle
-> authority, exact subject acceptance projection, bounded citation validation,
-> reviewer-output partiality, and manifest-last immutable review publication.
-> Next, connect the production Docker executor and Git-common attempt journal,
-> then drive the installed CLI through deterministic fake-provider journeys.
+> workspace/PR bundles through `c934ba8`. Slice 09 implements isolated review
+> execution and immutable acceptance through `37d9a04`.
+> Next, begin Slice 10 without widening the review container authority.
 > Read `AGENTS.md`, `SECURITY.md`, this README, `choices.md`, `format.md`, and
 > Slices 08 and 09 in full.
 > Slice 06's packaged networkless Docker vertical passes both provider fixtures,

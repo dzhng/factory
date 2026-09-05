@@ -17,6 +17,13 @@ a trust boundary: planning consumes only immutable projections produced from a
 descriptor-confined repository snapshot, while bundle verification rebuilds
 the same joins without consulting the live repository.
 
+Subject acquisition belongs here as the upstream edge of planning. Workspace
+subjects delegate exact Git observation to capture; PR subjects combine a fresh
+provider observation only with verified committed Session and association
+graphs.
+
 This package decides whether execution is necessary; it does not start Docker.
-The Slice 09 execution owner must stop on every status except `ready`, then
-accept only a bundle that independently verifies.
+The execution owner stops on every status except `ready`, then accepts only a
+bundle that independently verifies. A verified bundle separately identifies
+target-repository records and CAS objects, so bundle-derived context such as a
+prior ledger cannot be mistaken for target CAS authority.
