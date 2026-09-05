@@ -1,0 +1,12 @@
+{
+  "runUrl": "https://github.com/dzhng/factory/actions/runs/33978202832",
+  "revision": "4fba91308d0d10cd156276b66de2e797adb80aeb",
+  "requestedVersion": "0.0.0-dispatch",
+  "workflowConclusion": "success",
+  "macosArtifact": {
+    "archiveSha256": "8a37e27b539c5f11d4fac047b64beae1752a08a49d9fa6732cc2bb494735a266",
+    "nativeVersionOutput": "0.0.0-dispatch",
+    "archiveAndManifestAttestations": "verified with gh against dzhng/factory/.github/workflows/ci.yml"
+  },
+  "scope": "Exact-version manual candidate dispatch, native CI gates, and attestation retrieval. Not final release certification or publication."
+}

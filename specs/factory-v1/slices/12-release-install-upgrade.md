@@ -58,6 +58,9 @@ The CI workflow accepts an explicit candidate version through manual dispatch.
 It applies the same quality, native journey, and attestation gates as main-branch
 builds; dispatch does not publish a release. Download and certify those exact
 macOS bytes locally before promoting the candidates to GitHub Release assets.
+The [dispatch evidence](../assets/release-candidate-dispatch.json) records a
+successful end-to-end workflow run and local verification of its native version
+and GitHub attestations; it is not final release certification.
 
 `bun run release:verify` either packs a clean committed checkout or accepts an
 already packed candidate, verifies and installs those exact bytes, runs the full
