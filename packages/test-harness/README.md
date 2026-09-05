@@ -9,6 +9,12 @@ Provider fixtures preserve raw bytes and provider-native vocabulary. They are
 observations, not a shared provider schema. Empirical oracle evidence informs
 Factory without becoming production behavior.
 
+The [authenticated capture certificate](../../specs/factory-v1/assets/live-capture/README.md)
+separates real lifecycle callbacks from fixture replay and model-only review
+authority. Its test-only image enables hooks and persistence in disposable
+provider homes while reusing the production attempt and Docker owners. Its
+output is never accepted as semantic review history.
+
 Release certification uses the same provider-owned CLI logins that production
 automatically discovers. The disposable journey exposes only the selected
 credential to each packaged review; it does not copy a developer's provider home

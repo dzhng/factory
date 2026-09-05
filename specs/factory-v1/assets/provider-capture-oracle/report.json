@@ -196,7 +196,7 @@
       ],
       "currentEventInventory": {
         "status": "unavailable",
-        "reason": "Current authenticated hook callbacks were not run because no dedicated test credential was available."
+        "reason": "This fixture lab does not invoke authenticated clients; the separate live-capture certificate owns actual callback authority."
       },
       "unknownBytesPreserved": true,
       "limitations": [
@@ -206,7 +206,7 @@
         },
         {
           "code": "authenticated-live-capture-unavailable",
-          "detail": "No dedicated test credential was available; no host login was read or reused."
+          "detail": "This fixture-only run does not read or reuse host authentication."
         }
       ]
     },
@@ -292,7 +292,7 @@
       ],
       "currentEventInventory": {
         "status": "unavailable",
-        "reason": "Current authenticated hook callbacks were not run because no dedicated test credential was available."
+        "reason": "This fixture lab does not invoke authenticated clients; the separate live-capture certificate owns actual callback authority."
       },
       "unknownBytesPreserved": true,
       "limitations": [
@@ -302,7 +302,7 @@
         },
         {
           "code": "authenticated-live-capture-unavailable",
-          "detail": "No dedicated test credential was available; no host login was read or reused."
+          "detail": "This fixture-only run does not read or reuse host authentication."
         }
       ]
     }

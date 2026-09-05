@@ -1,0 +1,486 @@
+{
+  "provider": "claude",
+  "firstCompleted": true,
+  "secondCompleted": true,
+  "faultCompleted": true,
+  "faultPreservedRepository": true,
+  "identities": [
+    {
+      "captureGeneration": 0,
+      "firstObservedAt": "2026-09-05T16:59:03.961Z",
+      "nativeSessionId": "38905075-d15a-422e-8d33-1e26f4330a55",
+      "provider": "claude",
+      "repositoryId": "repo_01M1S84S7DZ3B3P422WE1369XD",
+      "schemaVersion": 1,
+      "sessionKey": "claude-e6095f389dda842b11a7fdffe2dd49b4"
+    }
+  ],
+  "manifests": [
+    {
+      "branch": "main",
+      "captureAdapterVersion": "capture-v1",
+      "capturedAt": "2026-09-05T16:59:10.684Z",
+      "codeManifest": {
+        "algorithm": "sha256",
+        "bytes": 343,
+        "mediaType": "application/vnd.factory.code-manifest+json",
+        "role": "workspace-code-manifest",
+        "sha256": "ec6f1334327b73a6a0fe493ddf3a66bdd72595a5055321d946a25924529f5e4d"
+      },
+      "eventRange": {
+        "first": 7,
+        "last": 11
+      },
+      "formatVersion": 1,
+      "inventory": [
+        {
+          "algorithm": "sha256",
+          "bytes": 11464,
+          "mediaType": "application/x-ndjson",
+          "role": "provider-transcript-observation",
+          "sha256": "eada57cabb4d81c7f610b7a4ff7a841fc068f8422dd66945010b80010f7af430"
+        },
+        {
+          "algorithm": "sha256",
+          "bytes": 29,
+          "mediaType": "application/octet-stream",
+          "role": "workspace-file",
+          "sha256": "dea059b20bdb537759712c5a9cbdfcd1ffcc30b6e0d8d0aead022428ea4d79b7"
+        },
+        {
+          "algorithm": "sha256",
+          "bytes": 294,
+          "mediaType": "application/json",
+          "role": "provider-hook",
+          "sha256": "351625b3a4be08f10b35ed4ce1a66583e7579b2f3b5a6715382700cc5768d744"
+        },
+        {
+          "algorithm": "sha256",
+          "bytes": 343,
+          "mediaType": "application/vnd.factory.code-manifest+json",
+          "role": "workspace-code-manifest",
+          "sha256": "ec6f1334327b73a6a0fe493ddf3a66bdd72595a5055321d946a25924529f5e4d"
+        },
+        {
+          "algorithm": "sha256",
+          "bytes": 371,
+          "mediaType": "application/json",
+          "role": "provider-hook",
+          "sha256": "85a75295b38131683153a4c385c6962f45abaf91c9dc0f22da9bdff734039921"
+        },
+        {
+          "algorithm": "sha256",
+          "bytes": 378,
+          "mediaType": "application/json",
+          "role": "provider-hook",
+          "sha256": "d9315144d7321ae9b66d98009dd4e5d998f377e6a7ef52ac63516e882eca724f"
+        },
+        {
+          "algorithm": "sha256",
+          "bytes": 433,
+          "mediaType": "application/json",
+          "role": "provider-hook",
+          "sha256": "cac98f2e52dc845e54382d5dda24c7b11fbdd366a3aa9d26402cc1a1188a3070"
+        },
+        {
+          "algorithm": "sha256",
+          "bytes": 435,
+          "mediaType": "application/json",
+          "role": "provider-hook",
+          "sha256": "e4fa6c9484d7d55d89657a5a7e63c7b616f468d42f2896224647e3ff8744de63"
+        }
+      ],
+      "limitations": [],
+      "materializedAt": "2026-09-05T16:59:10.705Z",
+      "nativeStopId": "df8241ef-ecd4-47c0-8e02-a56ad22cc040",
+      "rawObjects": [
+        {
+          "algorithm": "sha256",
+          "bytes": 294,
+          "mediaType": "application/json",
+          "role": "provider-hook",
+          "sha256": "351625b3a4be08f10b35ed4ce1a66583e7579b2f3b5a6715382700cc5768d744"
+        },
+        {
+          "algorithm": "sha256",
+          "bytes": 371,
+          "mediaType": "application/json",
+          "role": "provider-hook",
+          "sha256": "85a75295b38131683153a4c385c6962f45abaf91c9dc0f22da9bdff734039921"
+        },
+        {
+          "algorithm": "sha256",
+          "bytes": 378,
+          "mediaType": "application/json",
+          "role": "provider-hook",
+          "sha256": "d9315144d7321ae9b66d98009dd4e5d998f377e6a7ef52ac63516e882eca724f"
+        },
+        {
+          "algorithm": "sha256",
+          "bytes": 433,
+          "mediaType": "application/json",
+          "role": "provider-hook",
+          "sha256": "cac98f2e52dc845e54382d5dda24c7b11fbdd366a3aa9d26402cc1a1188a3070"
+        },
+        {
+          "algorithm": "sha256",
+          "bytes": 435,
+          "mediaType": "application/json",
+          "role": "provider-hook",
+          "sha256": "e4fa6c9484d7d55d89657a5a7e63c7b616f468d42f2896224647e3ff8744de63"
+        }
+      ],
+      "repositoryObservationId": "observation_01M1S850FHT8AEZHEMB6ZB6M9Y",
+      "schemaVersion": 1,
+      "sessionKey": "claude-e6095f389dda842b11a7fdffe2dd49b4",
+      "transcriptObservations": [
+        {
+          "algorithm": "sha256",
+          "bytes": 11464,
+          "mediaType": "application/x-ndjson",
+          "role": "provider-transcript-observation",
+          "sha256": "eada57cabb4d81c7f610b7a4ff7a841fc068f8422dd66945010b80010f7af430"
+        }
+      ],
+      "turnId": "turn_01M1S850FHRG7NDZZ3N614QBJ5"
+    },
+    {
+      "branch": "main",
+      "captureAdapterVersion": "capture-v1",
+      "capturedAt": "2026-09-05T16:59:07.845Z",
+      "codeManifest": {
+        "algorithm": "sha256",
+        "bytes": 343,
+        "mediaType": "application/vnd.factory.code-manifest+json",
+        "role": "workspace-code-manifest",
+        "sha256": "ec6f1334327b73a6a0fe493ddf3a66bdd72595a5055321d946a25924529f5e4d"
+      },
+      "eventRange": {
+        "first": 0,
+        "last": 6
+      },
+      "formatVersion": 1,
+      "inventory": [
+        {
+          "algorithm": "sha256",
+          "bytes": 247,
+          "mediaType": "application/json",
+          "role": "provider-hook",
+          "sha256": "d385e11ba898a7b425f3135c3fac41f373b13655ecbee80eb9c294560e509152"
+        },
+        {
+          "algorithm": "sha256",
+          "bytes": 29,
+          "mediaType": "application/octet-stream",
+          "role": "workspace-file",
+          "sha256": "dea059b20bdb537759712c5a9cbdfcd1ffcc30b6e0d8d0aead022428ea4d79b7"
+        },
+        {
+          "algorithm": "sha256",
+          "bytes": 343,
+          "mediaType": "application/vnd.factory.code-manifest+json",
+          "role": "workspace-code-manifest",
+          "sha256": "ec6f1334327b73a6a0fe493ddf3a66bdd72595a5055321d946a25924529f5e4d"
+        },
+        {
+          "algorithm": "sha256",
+          "bytes": 430,
+          "mediaType": "application/json",
+          "role": "provider-hook",
+          "sha256": "043766814b28d039fe075c3fa9e37f1039edc09e3ed256135a5f909a5028ee3c"
+        },
+        {
+          "algorithm": "sha256",
+          "bytes": 434,
+          "mediaType": "application/json",
+          "role": "provider-hook",
+          "sha256": "7667e12c6e64002b07532ac7e39ef96f361c1ab318ac8ec518364aa48b7ce39c"
+        },
+        {
+          "algorithm": "sha256",
+          "bytes": 436,
+          "mediaType": "application/json",
+          "role": "provider-hook",
+          "sha256": "cc263cbef5ddc5b7b055c49b47fdbec5607cdc7894738288509ab807de2a227b"
+        },
+        {
+          "algorithm": "sha256",
+          "bytes": 461,
+          "mediaType": "application/json",
+          "role": "provider-hook",
+          "sha256": "d4de93a38d59b0a121743f787b545df8aa11d2963632e468950e424aa40f4830"
+        },
+        {
+          "algorithm": "sha256",
+          "bytes": 536,
+          "mediaType": "application/json",
+          "role": "provider-hook",
+          "sha256": "f085681bb7a21f107019c9caee71bc2e22a9afdbc55ffc7f786fac6df201e44f"
+        },
+        {
+          "algorithm": "sha256",
+          "bytes": 653,
+          "mediaType": "application/json",
+          "role": "provider-hook",
+          "sha256": "9c1ac62293de3dc27c65e8a2463da995cfa483413abb3521ca14537c5d87f457"
+        },
+        {
+          "algorithm": "sha256",
+          "bytes": 7122,
+          "mediaType": "application/x-ndjson",
+          "role": "provider-transcript-observation",
+          "sha256": "be5d394251579f55523bfee4828197519609907e6ad0967d77112352d6ac42d8"
+        }
+      ],
+      "limitations": [],
+      "materializedAt": "2026-09-05T16:59:07.865Z",
+      "nativeStopId": "e853f981-dcd3-41f4-b9d7-d5e7c9f6f751",
+      "rawObjects": [
+        {
+          "algorithm": "sha256",
+          "bytes": 247,
+          "mediaType": "application/json",
+          "role": "provider-hook",
+          "sha256": "d385e11ba898a7b425f3135c3fac41f373b13655ecbee80eb9c294560e509152"
+        },
+        {
+          "algorithm": "sha256",
+          "bytes": 430,
+          "mediaType": "application/json",
+          "role": "provider-hook",
+          "sha256": "043766814b28d039fe075c3fa9e37f1039edc09e3ed256135a5f909a5028ee3c"
+        },
+        {
+          "algorithm": "sha256",
+          "bytes": 461,
+          "mediaType": "application/json",
+          "role": "provider-hook",
+          "sha256": "d4de93a38d59b0a121743f787b545df8aa11d2963632e468950e424aa40f4830"
+        },
+        {
+          "algorithm": "sha256",
+          "bytes": 653,
+          "mediaType": "application/json",
+          "role": "provider-hook",
+          "sha256": "9c1ac62293de3dc27c65e8a2463da995cfa483413abb3521ca14537c5d87f457"
+        },
+        {
+          "algorithm": "sha256",
+          "bytes": 536,
+          "mediaType": "application/json",
+          "role": "provider-hook",
+          "sha256": "f085681bb7a21f107019c9caee71bc2e22a9afdbc55ffc7f786fac6df201e44f"
+        },
+        {
+          "algorithm": "sha256",
+          "bytes": 434,
+          "mediaType": "application/json",
+          "role": "provider-hook",
+          "sha256": "7667e12c6e64002b07532ac7e39ef96f361c1ab318ac8ec518364aa48b7ce39c"
+        },
+        {
+          "algorithm": "sha256",
+          "bytes": 436,
+          "mediaType": "application/json",
+          "role": "provider-hook",
+          "sha256": "cc263cbef5ddc5b7b055c49b47fdbec5607cdc7894738288509ab807de2a227b"
+        }
+      ],
+      "repositoryObservationId": "observation_01M1S84XPSH2HF3F65WCVX7267",
+      "schemaVersion": 1,
+      "sessionKey": "claude-e6095f389dda842b11a7fdffe2dd49b4",
+      "transcriptObservations": [
+        {
+          "algorithm": "sha256",
+          "bytes": 7122,
+          "mediaType": "application/x-ndjson",
+          "role": "provider-transcript-observation",
+          "sha256": "be5d394251579f55523bfee4828197519609907e6ad0967d77112352d6ac42d8"
+        }
+      ],
+      "turnId": "turn_01M1S84XPSC7MN0YGHCQPQRAGR"
+    }
+  ],
+  "callbacks": [
+    {
+      "phase": "capture",
+      "event": "SessionStart",
+      "sessionId": "38905075-d15a-422e-8d33-1e26f4330a55",
+      "stopId": null,
+      "rawSha256": "d385e11ba898a7b425f3135c3fac41f373b13655ecbee80eb9c294560e509152",
+      "transcriptBytes": 0,
+      "code": 0,
+      "stdout": "{}\n"
+    },
+    {
+      "phase": "capture",
+      "event": "UserPromptSubmit",
+      "sessionId": "38905075-d15a-422e-8d33-1e26f4330a55",
+      "stopId": "e853f981-dcd3-41f4-b9d7-d5e7c9f6f751",
+      "rawSha256": "043766814b28d039fe075c3fa9e37f1039edc09e3ed256135a5f909a5028ee3c",
+      "transcriptBytes": 0,
+      "code": 0,
+      "stdout": "{}\n"
+    },
+    {
+      "phase": "capture",
+      "event": "PreToolUse",
+      "sessionId": "38905075-d15a-422e-8d33-1e26f4330a55",
+      "stopId": "e853f981-dcd3-41f4-b9d7-d5e7c9f6f751",
+      "rawSha256": "d4de93a38d59b0a121743f787b545df8aa11d2963632e468950e424aa40f4830",
+      "transcriptBytes": 2160,
+      "code": 0,
+      "stdout": "{}\n"
+    },
+    {
+      "phase": "capture",
+      "event": "PostToolUse",
+      "sessionId": "38905075-d15a-422e-8d33-1e26f4330a55",
+      "stopId": "e853f981-dcd3-41f4-b9d7-d5e7c9f6f751",
+      "rawSha256": "9c1ac62293de3dc27c65e8a2463da995cfa483413abb3521ca14537c5d87f457",
+      "transcriptBytes": 3626,
+      "code": 0,
+      "stdout": "{}\n"
+    },
+    {
+      "phase": "capture",
+      "event": "PostToolBatch",
+      "sessionId": "38905075-d15a-422e-8d33-1e26f4330a55",
+      "stopId": "e853f981-dcd3-41f4-b9d7-d5e7c9f6f751",
+      "rawSha256": "f085681bb7a21f107019c9caee71bc2e22a9afdbc55ffc7f786fac6df201e44f",
+      "transcriptBytes": 3626,
+      "code": 0,
+      "stdout": "{}\n"
+    },
+    {
+      "phase": "capture",
+      "event": "MessageDisplay",
+      "sessionId": "38905075-d15a-422e-8d33-1e26f4330a55",
+      "stopId": "ad67c74c-48e7-49ed-a1f3-80d2ce0e3fbc",
+      "rawSha256": "7667e12c6e64002b07532ac7e39ef96f361c1ab318ac8ec518364aa48b7ce39c",
+      "transcriptBytes": 7122,
+      "code": 0,
+      "stdout": "{}\n"
+    },
+    {
+      "phase": "capture",
+      "event": "Stop",
+      "sessionId": "38905075-d15a-422e-8d33-1e26f4330a55",
+      "stopId": "e853f981-dcd3-41f4-b9d7-d5e7c9f6f751",
+      "rawSha256": "cc263cbef5ddc5b7b055c49b47fdbec5607cdc7894738288509ab807de2a227b",
+      "transcriptBytes": 8390,
+      "code": 0,
+      "stdout": "{}\n"
+    },
+    {
+      "phase": "capture",
+      "event": "SessionEnd",
+      "sessionId": "38905075-d15a-422e-8d33-1e26f4330a55",
+      "stopId": "e853f981-dcd3-41f4-b9d7-d5e7c9f6f751",
+      "rawSha256": "351625b3a4be08f10b35ed4ce1a66583e7579b2f3b5a6715382700cc5768d744",
+      "transcriptBytes": 9375,
+      "code": 0,
+      "stdout": "{}\n"
+    },
+    {
+      "phase": "capture",
+      "event": "SessionStart",
+      "sessionId": "38905075-d15a-422e-8d33-1e26f4330a55",
+      "stopId": null,
+      "rawSha256": "85a75295b38131683153a4c385c6962f45abaf91c9dc0f22da9bdff734039921",
+      "transcriptBytes": 9375,
+      "code": 0,
+      "stdout": "{}\n"
+    },
+    {
+      "phase": "capture",
+      "event": "UserPromptSubmit",
+      "sessionId": "38905075-d15a-422e-8d33-1e26f4330a55",
+      "stopId": "df8241ef-ecd4-47c0-8e02-a56ad22cc040",
+      "rawSha256": "d9315144d7321ae9b66d98009dd4e5d998f377e6a7ef52ac63516e882eca724f",
+      "transcriptBytes": 9375,
+      "code": 0,
+      "stdout": "{}\n"
+    },
+    {
+      "phase": "capture",
+      "event": "MessageDisplay",
+      "sessionId": "38905075-d15a-422e-8d33-1e26f4330a55",
+      "stopId": "637a15c7-caee-4a66-b617-6ce81df0daa2",
+      "rawSha256": "cac98f2e52dc845e54382d5dda24c7b11fbdd366a3aa9d26402cc1a1188a3070",
+      "transcriptBytes": 11464,
+      "code": 0,
+      "stdout": "{}\n"
+    },
+    {
+      "phase": "capture",
+      "event": "Stop",
+      "sessionId": "38905075-d15a-422e-8d33-1e26f4330a55",
+      "stopId": "df8241ef-ecd4-47c0-8e02-a56ad22cc040",
+      "rawSha256": "e4fa6c9484d7d55d89657a5a7e63c7b616f468d42f2896224647e3ff8744de63",
+      "transcriptBytes": 11464,
+      "code": 0,
+      "stdout": "{}\n"
+    },
+    {
+      "phase": "capture",
+      "event": "SessionEnd",
+      "sessionId": "38905075-d15a-422e-8d33-1e26f4330a55",
+      "stopId": "df8241ef-ecd4-47c0-8e02-a56ad22cc040",
+      "rawSha256": "edfbd80d53e5eecbd043211dc7eee99d11620c3af962551c79e7e0f1889ac121",
+      "transcriptBytes": 13823,
+      "code": 0,
+      "stdout": "{}\n"
+    },
+    {
+      "phase": "reader-refusal",
+      "event": "SessionStart",
+      "sessionId": "38905075-d15a-422e-8d33-1e26f4330a55",
+      "stopId": null,
+      "rawSha256": "7f807224955a005ed8f20581fcbb245226643ddc1455f118f632745a4220725c",
+      "transcriptBytes": 13823,
+      "code": 0,
+      "stdout": "{}\n"
+    },
+    {
+      "phase": "reader-refusal",
+      "event": "UserPromptSubmit",
+      "sessionId": "38905075-d15a-422e-8d33-1e26f4330a55",
+      "stopId": "c878282a-b535-45ee-aa71-8a8a46643479",
+      "rawSha256": "905570ce3566192c8b69de0ddc8257e7a1da62eaf5e3d1ff9d08443e16dd3635",
+      "transcriptBytes": 13823,
+      "code": 0,
+      "stdout": "{}\n"
+    },
+    {
+      "phase": "reader-refusal",
+      "event": "MessageDisplay",
+      "sessionId": "38905075-d15a-422e-8d33-1e26f4330a55",
+      "stopId": "68b0a83b-0024-4a94-9d21-d58e1d9f8976",
+      "rawSha256": "ad2b11375e7d8f926349683efca25419228be0a272a596a6488d68cc3aef7c82",
+      "transcriptBytes": 15918,
+      "code": 0,
+      "stdout": "{}\n"
+    },
+    {
+      "phase": "reader-refusal",
+      "event": "Stop",
+      "sessionId": "38905075-d15a-422e-8d33-1e26f4330a55",
+      "stopId": "c878282a-b535-45ee-aa71-8a8a46643479",
+      "rawSha256": "3294f4b670efb4c4fd9f7cf88fa36a06fcd42eadfcf38e39542331e95080ef5d",
+      "transcriptBytes": 15918,
+      "code": 0,
+      "stdout": "{}\n"
+    },
+    {
+      "phase": "reader-refusal",
+      "event": "SessionEnd",
+      "sessionId": "38905075-d15a-422e-8d33-1e26f4330a55",
+      "stopId": "c878282a-b535-45ee-aa71-8a8a46643479",
+      "rawSha256": "7a460d88cbd6857bde0724ce8b64e3e92bc92f7c2ecbdc7672b9d8847f531026",
+      "transcriptBytes": 18199,
+      "code": 0,
+      "stdout": "{}\n"
+    }
+  ]
+}

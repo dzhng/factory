@@ -1,0 +1,212 @@
+{
+  "attemptCredentialStagingCleaned": true,
+  "authority": "authenticated-live-capture",
+  "callbacks": [
+    {
+      "code": 0,
+      "event": "SessionStart",
+      "hasNativeStopId": false,
+      "nativeSessionMatches": true,
+      "phase": "capture",
+      "rawSha256": "d385e11ba898a7b425f3135c3fac41f373b13655ecbee80eb9c294560e509152",
+      "stdout": "{}\n",
+      "transcriptBytes": 0
+    },
+    {
+      "code": 0,
+      "event": "UserPromptSubmit",
+      "hasNativeStopId": true,
+      "nativeSessionMatches": true,
+      "phase": "capture",
+      "rawSha256": "043766814b28d039fe075c3fa9e37f1039edc09e3ed256135a5f909a5028ee3c",
+      "stdout": "{}\n",
+      "transcriptBytes": 0
+    },
+    {
+      "code": 0,
+      "event": "PreToolUse",
+      "hasNativeStopId": true,
+      "nativeSessionMatches": true,
+      "phase": "capture",
+      "rawSha256": "d4de93a38d59b0a121743f787b545df8aa11d2963632e468950e424aa40f4830",
+      "stdout": "{}\n",
+      "transcriptBytes": 2160
+    },
+    {
+      "code": 0,
+      "event": "PostToolUse",
+      "hasNativeStopId": true,
+      "nativeSessionMatches": true,
+      "phase": "capture",
+      "rawSha256": "9c1ac62293de3dc27c65e8a2463da995cfa483413abb3521ca14537c5d87f457",
+      "stdout": "{}\n",
+      "transcriptBytes": 3626
+    },
+    {
+      "code": 0,
+      "event": "PostToolBatch",
+      "hasNativeStopId": true,
+      "nativeSessionMatches": true,
+      "phase": "capture",
+      "rawSha256": "f085681bb7a21f107019c9caee71bc2e22a9afdbc55ffc7f786fac6df201e44f",
+      "stdout": "{}\n",
+      "transcriptBytes": 3626
+    },
+    {
+      "code": 0,
+      "event": "MessageDisplay",
+      "hasNativeStopId": true,
+      "nativeSessionMatches": true,
+      "phase": "capture",
+      "rawSha256": "7667e12c6e64002b07532ac7e39ef96f361c1ab318ac8ec518364aa48b7ce39c",
+      "stdout": "{}\n",
+      "transcriptBytes": 7122
+    },
+    {
+      "code": 0,
+      "event": "Stop",
+      "hasNativeStopId": true,
+      "nativeSessionMatches": true,
+      "phase": "capture",
+      "rawSha256": "cc263cbef5ddc5b7b055c49b47fdbec5607cdc7894738288509ab807de2a227b",
+      "stdout": "{}\n",
+      "transcriptBytes": 8390
+    },
+    {
+      "code": 0,
+      "event": "SessionEnd",
+      "hasNativeStopId": true,
+      "nativeSessionMatches": true,
+      "phase": "capture",
+      "rawSha256": "351625b3a4be08f10b35ed4ce1a66583e7579b2f3b5a6715382700cc5768d744",
+      "stdout": "{}\n",
+      "transcriptBytes": 9375
+    },
+    {
+      "code": 0,
+      "event": "SessionStart",
+      "hasNativeStopId": false,
+      "nativeSessionMatches": true,
+      "phase": "capture",
+      "rawSha256": "85a75295b38131683153a4c385c6962f45abaf91c9dc0f22da9bdff734039921",
+      "stdout": "{}\n",
+      "transcriptBytes": 9375
+    },
+    {
+      "code": 0,
+      "event": "UserPromptSubmit",
+      "hasNativeStopId": true,
+      "nativeSessionMatches": true,
+      "phase": "capture",
+      "rawSha256": "d9315144d7321ae9b66d98009dd4e5d998f377e6a7ef52ac63516e882eca724f",
+      "stdout": "{}\n",
+      "transcriptBytes": 9375
+    },
+    {
+      "code": 0,
+      "event": "MessageDisplay",
+      "hasNativeStopId": true,
+      "nativeSessionMatches": true,
+      "phase": "capture",
+      "rawSha256": "cac98f2e52dc845e54382d5dda24c7b11fbdd366a3aa9d26402cc1a1188a3070",
+      "stdout": "{}\n",
+      "transcriptBytes": 11464
+    },
+    {
+      "code": 0,
+      "event": "Stop",
+      "hasNativeStopId": true,
+      "nativeSessionMatches": true,
+      "phase": "capture",
+      "rawSha256": "e4fa6c9484d7d55d89657a5a7e63c7b616f468d42f2896224647e3ff8744de63",
+      "stdout": "{}\n",
+      "transcriptBytes": 11464
+    },
+    {
+      "code": 0,
+      "event": "SessionEnd",
+      "hasNativeStopId": true,
+      "nativeSessionMatches": true,
+      "phase": "capture",
+      "rawSha256": "edfbd80d53e5eecbd043211dc7eee99d11620c3af962551c79e7e0f1889ac121",
+      "stdout": "{}\n",
+      "transcriptBytes": 13823
+    },
+    {
+      "code": 0,
+      "event": "SessionStart",
+      "hasNativeStopId": false,
+      "nativeSessionMatches": true,
+      "phase": "reader-refusal",
+      "rawSha256": "7f807224955a005ed8f20581fcbb245226643ddc1455f118f632745a4220725c",
+      "stdout": "{}\n",
+      "transcriptBytes": 13823
+    },
+    {
+      "code": 0,
+      "event": "UserPromptSubmit",
+      "hasNativeStopId": true,
+      "nativeSessionMatches": true,
+      "phase": "reader-refusal",
+      "rawSha256": "905570ce3566192c8b69de0ddc8257e7a1da62eaf5e3d1ff9d08443e16dd3635",
+      "stdout": "{}\n",
+      "transcriptBytes": 13823
+    },
+    {
+      "code": 0,
+      "event": "MessageDisplay",
+      "hasNativeStopId": true,
+      "nativeSessionMatches": true,
+      "phase": "reader-refusal",
+      "rawSha256": "ad2b11375e7d8f926349683efca25419228be0a272a596a6488d68cc3aef7c82",
+      "stdout": "{}\n",
+      "transcriptBytes": 15918
+    },
+    {
+      "code": 0,
+      "event": "Stop",
+      "hasNativeStopId": true,
+      "nativeSessionMatches": true,
+      "phase": "reader-refusal",
+      "rawSha256": "3294f4b670efb4c4fd9f7cf88fa36a06fcd42eadfcf38e39542331e95080ef5d",
+      "stdout": "{}\n",
+      "transcriptBytes": 15918
+    },
+    {
+      "code": 0,
+      "event": "SessionEnd",
+      "hasNativeStopId": true,
+      "nativeSessionMatches": true,
+      "phase": "reader-refusal",
+      "rawSha256": "7a460d88cbd6857bde0724ce8b64e3e92bc92f7c2ecbdc7672b9d8847f531026",
+      "stdout": "{}\n",
+      "transcriptBytes": 18199
+    }
+  ],
+  "distinctNativeStops": true,
+  "events": [
+    "SessionStart",
+    "UserPromptSubmit",
+    "PreToolUse",
+    "PostToolUse",
+    "PostToolBatch",
+    "MessageDisplay",
+    "Stop",
+    "SessionEnd",
+    "SessionStart",
+    "UserPromptSubmit",
+    "MessageDisplay",
+    "Stop",
+    "SessionEnd"
+  ],
+  "hostConfigurationUnchanged": true,
+  "imageDigest": "sha256:94d4e72014f42a055048bce7baa3df4a926a8ffe9b906686d226081eb20e5d77",
+  "nativeSessionPreserved": true,
+  "provider": "claude",
+  "providerCliVersion": "2.1.261 (Claude Code)",
+  "rawStopBytesPreserved": true,
+  "readableStopTranscripts": true,
+  "readerRefusalFailOpen": true,
+  "transcriptBytesAtStops": [8390, 11464],
+  "turnLimitations": [[], []]
+}

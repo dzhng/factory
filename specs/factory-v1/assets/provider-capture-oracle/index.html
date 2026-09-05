@@ -25,6 +25,9 @@
     li strong { display: block; font-size: .82rem; margin-bottom: 2px; color: #245746; }
     section { margin-top: 40px; }
     table { border-collapse: collapse; width: 100%; background: #fffdf7; }
+    .table-scroll { overflow-x: auto; }
+    .table-hint { display: none; }
+    @media (max-width: 600px) { .table-hint { display: block; font-family: system-ui, sans-serif; } }
     th, td { border: 1px solid #201f1b; padding: 9px; text-align: left; vertical-align: top; }
     th { background: #dbe8d4; }
     td:first-child { white-space: nowrap; }
@@ -36,7 +39,7 @@
   <header>
     <p class="status">Slice 01 · evidence, not production</p>
     <h1>Provider capture oracle</h1>
-    <p class="lede">Sanitized donor fixtures support provider-native Session and Stop identity, exact unknown-byte preservation, transcript evolution, and a fail-open callback. Authenticated live capture remains explicitly unavailable until dedicated test credentials exist.</p>
+    <p class="lede">Sanitized donor fixtures support provider-native Session and Stop identity, exact unknown-byte preservation, transcript evolution, and a fail-open callback. Actual authenticated callbacks are a separate live-capture authority, not a claim made by fixture playback.</p>
   </header>
   <main><article>
         <h2>codex</h2>
@@ -50,7 +53,7 @@
         <h3>Fixture evidence</h3>
         <ul><li><a href="../../../../packages/test-harness/fixtures/providers/codex/hooks.jsonl">providers/codex/hooks.jsonl</a><code>sha256 baec608a5ab171f8c2c2471ddc5445d3ec3c0f6e3186f85bd07e8529129e6d9b</code></li><li><a href="../../../../packages/test-harness/fixtures/providers/codex/transcript.jsonl">providers/codex/transcript.jsonl</a><code>sha256 558a5d9bc20d78c54d7cdf6183e1beee30b5e567b1733f01be80e42e33688ccc</code></li></ul>
         <h3>Limitations</h3>
-        <ul><li><strong>stop-transcript-may-lag</strong><span>The Stop fixture exposes a last assistant message newer than the transcript's final assistant row.</span></li><li><strong>authenticated-live-capture-unavailable</strong><span>No dedicated test credential was available; no host login was read or reused.</span></li></ul>
+        <ul><li><strong>stop-transcript-may-lag</strong><span>The Stop fixture exposes a last assistant message newer than the transcript's final assistant row.</span></li><li><strong>authenticated-live-capture-unavailable</strong><span>This fixture-only run does not read or reuse host authentication.</span></li></ul>
       </article><article>
         <h2>claude</h2>
         <p class="version">Donor-derived fixture · client 2.1.237</p>
@@ -63,7 +66,7 @@
         <h3>Fixture evidence</h3>
         <ul><li><a href="../../../../packages/test-harness/fixtures/providers/claude/hooks.jsonl">providers/claude/hooks.jsonl</a><code>sha256 6d04fe3aeae95f57d6e1226a51ce5a7d14595a192e8e10b42473af9e2af2bdc4</code></li><li><a href="../../../../packages/test-harness/fixtures/providers/claude/transcript.jsonl">providers/claude/transcript.jsonl</a><code>sha256 2692d5ca46ced959f2574eb64e52c08f1f055148051c79e798860353accfcc8d</code></li></ul>
         <h3>Limitations</h3>
-        <ul><li><strong>stop-transcript-may-lag</strong><span>The Stop fixture exposes a last assistant message newer than the transcript's final assistant row.</span></li><li><strong>authenticated-live-capture-unavailable</strong><span>No dedicated test credential was available; no host login was read or reused.</span></li></ul>
+        <ul><li><strong>stop-transcript-may-lag</strong><span>The Stop fixture exposes a last assistant message newer than the transcript's final assistant row.</span></li><li><strong>authenticated-live-capture-unavailable</strong><span>This fixture-only run does not read or reuse host authentication.</span></li></ul>
       </article></main>
   <section>
     <h2>Current client inventory</h2>
@@ -76,7 +79,8 @@
   </section>
   <section>
     <h2>Donor disposition</h2>
-    <table><colgroup><col style="width: 15%"><col style="width: 28%"><col style="width: 24%"><col style="width: 33%"></colgroup><thead><tr><th>Disposition</th><th>Source</th><th>Behavior</th><th>Reason</th></tr></thead><tbody><tr><td>port-candidate</td><td><code>packages/<wbr>capture/<wbr>test/<wbr>provider-capture.test.ts</code></td><td>lossless raw hook and unknown-field preservation</td><td>The byte-preservation invariant survives the local-only architecture unchanged.</td></tr><tr><td>rewrite</td><td><code>packages/<wbr>capture/<wbr>test/<wbr>provider-capture.test.ts</code></td><td>transcript evolution and Stop-lag observations</td><td>The cases remain required, but the donor assertions are coupled to its outbox records.</td></tr><tr><td>rewrite</td><td><code>packages/<wbr>capture/<wbr>test/<wbr>concurrency.test.ts</code></td><td>cross-process contiguous sequence allocation</td><td>The property is required; the eventual runtime journal engine must earn it through its own public seam.</td></tr><tr><td>port-candidate</td><td><code>packages/<wbr>capture/<wbr>test/<wbr>repository.test.ts</code></td><td>hostile Git filters, paths, worktrees, and races</td><td>These observable Git safety cases belong to the later repository boundary.</td></tr><tr><td>negative-reference</td><td><code>packages/<wbr>backend/<wbr>src/<wbr>projection/<wbr>reducer.ts</code></td><td>time, branch, and worktree Epic inference</td><td>Factory explicitly forbids automatic Epic or workstream inference.</td></tr><tr><td>negative-reference</td><td><code>packages/<wbr>test-harness/<wbr>src/<wbr>provider-plugin-lifecycle.ts</code></td><td>provider plugin discovery and lifecycle</td><td>Factory v1 integrates through direct CLI hooks, not provider plugins.</td></tr><tr><td>hosted-only-delete</td><td><code>packages/<wbr>capture/<wbr>test/<wbr>uploader.test.ts</code></td><td>remote upload, leases, and commit acknowledgements</td><td>Factory v1 has no hosted transport or remote evidence store.</td></tr></tbody></table>
+    <p class="table-hint">Scroll horizontally to read all table columns.</p>
+    <div class="table-scroll"><table><colgroup><col style="width: 15%"><col style="width: 28%"><col style="width: 24%"><col style="width: 33%"></colgroup><thead><tr><th>Disposition</th><th>Source</th><th>Behavior</th><th>Reason</th></tr></thead><tbody><tr><td>port-candidate</td><td><code>packages/<wbr>capture/<wbr>test/<wbr>provider-capture.test.ts</code></td><td>lossless raw hook and unknown-field preservation</td><td>The byte-preservation invariant survives the local-only architecture unchanged.</td></tr><tr><td>rewrite</td><td><code>packages/<wbr>capture/<wbr>test/<wbr>provider-capture.test.ts</code></td><td>transcript evolution and Stop-lag observations</td><td>The cases remain required, but the donor assertions are coupled to its outbox records.</td></tr><tr><td>rewrite</td><td><code>packages/<wbr>capture/<wbr>test/<wbr>concurrency.test.ts</code></td><td>cross-process contiguous sequence allocation</td><td>The property is required; the eventual runtime journal engine must earn it through its own public seam.</td></tr><tr><td>port-candidate</td><td><code>packages/<wbr>capture/<wbr>test/<wbr>repository.test.ts</code></td><td>hostile Git filters, paths, worktrees, and races</td><td>These observable Git safety cases belong to the later repository boundary.</td></tr><tr><td>negative-reference</td><td><code>packages/<wbr>backend/<wbr>src/<wbr>projection/<wbr>reducer.ts</code></td><td>time, branch, and worktree Epic inference</td><td>Factory explicitly forbids automatic Epic or workstream inference.</td></tr><tr><td>negative-reference</td><td><code>packages/<wbr>test-harness/<wbr>src/<wbr>provider-plugin-lifecycle.ts</code></td><td>provider plugin discovery and lifecycle</td><td>Factory v1 integrates through direct CLI hooks, not provider plugins.</td></tr><tr><td>hosted-only-delete</td><td><code>packages/<wbr>capture/<wbr>test/<wbr>uploader.test.ts</code></td><td>remote upload, leases, and commit acknowledgements</td><td>Factory v1 has no hosted transport or remote evidence store.</td></tr></tbody></table></div>
   </section>
   <footer>Generated by Bun 1.3.14 on Node 24.3.0. Full machine-readable evidence: <a href="report.json">report.json</a>.</footer>
 </body>

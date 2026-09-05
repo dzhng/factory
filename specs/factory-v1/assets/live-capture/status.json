@@ -1,0 +1,16 @@
+{
+  "status": "unavailable",
+  "reason": "latest-combined-authenticated-run-incomplete",
+  "historicalSuccess": {
+    "codex": "codex-report.json",
+    "claude": "claude-report.json"
+  },
+  "latestClaudeAttempt": {
+    "status": "unavailable",
+    "reason": "provider-authentication-failed",
+    "imageDigest": "sha256:d7b32202784479bcf6dbbda4c3168ed8bde6122b132138bf3c2d87fef775173c",
+    "providerCliVersion": "2.1.261 (Claude Code)"
+  },
+  "releaseCandidateCertified": false,
+  "hostLoginChanged": false
+}

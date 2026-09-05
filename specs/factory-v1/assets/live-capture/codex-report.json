@@ -1,0 +1,137 @@
+{
+  "attemptCredentialStagingCleaned": true,
+  "authority": "authenticated-live-capture",
+  "callbacks": [
+    {
+      "code": 0,
+      "event": "SessionStart",
+      "hasNativeStopId": false,
+      "nativeSessionMatches": true,
+      "phase": "capture",
+      "rawSha256": "0ec8c2549c0e826a7b0027752c2572cf57ffb094339e17785a3ea3106be52dab",
+      "stdout": "{}\n",
+      "transcriptBytes": 30953
+    },
+    {
+      "code": 0,
+      "event": "UserPromptSubmit",
+      "hasNativeStopId": true,
+      "nativeSessionMatches": true,
+      "phase": "capture",
+      "rawSha256": "e9ccc2e0aa063276707e81833641064c749cca5e27796574923bfe8858db89f9",
+      "stdout": "{}\n",
+      "transcriptBytes": 30953
+    },
+    {
+      "code": 0,
+      "event": "PreToolUse",
+      "hasNativeStopId": true,
+      "nativeSessionMatches": true,
+      "phase": "capture",
+      "rawSha256": "7e27bd631bf6a91b37e7edc0ec260e0310ee4d1b5b512b3d410a91c01ce8ed96",
+      "stdout": "{}\n",
+      "transcriptBytes": 32705
+    },
+    {
+      "code": 0,
+      "event": "PostToolUse",
+      "hasNativeStopId": true,
+      "nativeSessionMatches": true,
+      "phase": "capture",
+      "rawSha256": "a691db5195f23e39c7f28648e19862b76cac7bc468d18c7c1a162e93641bfa7c",
+      "stdout": "{}\n",
+      "transcriptBytes": 32705
+    },
+    {
+      "code": 0,
+      "event": "Stop",
+      "hasNativeStopId": true,
+      "nativeSessionMatches": true,
+      "phase": "capture",
+      "rawSha256": "a981ad23b163c47457ba0b56a9c9d49943fd7c2d7e2e9f667645c79bdde20f5d",
+      "stdout": "{}\n",
+      "transcriptBytes": 35044
+    },
+    {
+      "code": 0,
+      "event": "SessionStart",
+      "hasNativeStopId": false,
+      "nativeSessionMatches": true,
+      "phase": "capture",
+      "rawSha256": "5be394fe39a8ee0a0bad62ee8af492ffdd9afdc4a1670f03c0351c9fa81f4dd6",
+      "stdout": "{}\n",
+      "transcriptBytes": 36737
+    },
+    {
+      "code": 0,
+      "event": "UserPromptSubmit",
+      "hasNativeStopId": true,
+      "nativeSessionMatches": true,
+      "phase": "capture",
+      "rawSha256": "6cdd506bb71ebee2f34979e9a6670d291441759f93b4055d7875aeb135af7a30",
+      "stdout": "{}\n",
+      "transcriptBytes": 36737
+    },
+    {
+      "code": 0,
+      "event": "Stop",
+      "hasNativeStopId": true,
+      "nativeSessionMatches": true,
+      "phase": "capture",
+      "rawSha256": "e0449db0e7b259d149d4458c282cb1e434ecba2962051e18c79fcccbf537f860",
+      "stdout": "{}\n",
+      "transcriptBytes": 38480
+    },
+    {
+      "code": 0,
+      "event": "SessionStart",
+      "hasNativeStopId": false,
+      "nativeSessionMatches": true,
+      "phase": "reader-refusal",
+      "rawSha256": "5be394fe39a8ee0a0bad62ee8af492ffdd9afdc4a1670f03c0351c9fa81f4dd6",
+      "stdout": "{}\n",
+      "transcriptBytes": 40171
+    },
+    {
+      "code": 0,
+      "event": "UserPromptSubmit",
+      "hasNativeStopId": true,
+      "nativeSessionMatches": true,
+      "phase": "reader-refusal",
+      "rawSha256": "0f69af1ffc66c81778e55d1074218b0af748353e9bad9f53d0e282577212b4d2",
+      "stdout": "{}\n",
+      "transcriptBytes": 40171
+    },
+    {
+      "code": 0,
+      "event": "Stop",
+      "hasNativeStopId": true,
+      "nativeSessionMatches": true,
+      "phase": "reader-refusal",
+      "rawSha256": "fee5d1e5d5fd9d31b09f48bd9df96e9dfc4b8485d71f0cb2b412864aabfd63ed",
+      "stdout": "{}\n",
+      "transcriptBytes": 41927
+    }
+  ],
+  "distinctNativeStops": true,
+  "events": [
+    "SessionStart",
+    "UserPromptSubmit",
+    "PreToolUse",
+    "PostToolUse",
+    "Stop",
+    "SessionStart",
+    "UserPromptSubmit",
+    "Stop"
+  ],
+  "hostConfigurationUnchanged": true,
+  "imageDigest": "sha256:94d4e72014f42a055048bce7baa3df4a926a8ffe9b906686d226081eb20e5d77",
+  "nativeSessionPreserved": true,
+  "provider": "codex",
+  "providerCliVersion": "codex-cli 0.144.4",
+  "rawStopBytesPreserved": true,
+  "readableStopTranscripts": true,
+  "readerRefusalFailOpen": true,
+  "transcriptBytesAtStops": [35044, 38480],
+  "turnLimitations": [[], []]
+}
