@@ -44,7 +44,7 @@ import { runDiagnostics } from './diagnostics'
 import {
   inspectInstallation,
   installHooks,
-  recoverHookTransaction,
+  recoverInstallationTransaction,
   uninstallHooks,
 } from './installation'
 import { openCommand, type OpenCommandOptions } from './open'
@@ -592,7 +592,7 @@ async function doctor(
   repair: boolean,
   environment: NodeJS.ProcessEnv,
 ): Promise<Record<string, JsonValue>> {
-  if (repair) await recoverHookTransaction(environment)
+  if (repair) await recoverInstallationTransaction(environment)
   const store = await openRepositoryStore(repositoryRoot)
   const verification = await store.verify()
   const config = await store.readConfig()

@@ -187,8 +187,9 @@ export async function inspectInstallation(
   }
 }
 
-type HookTransaction = {
+type HookReconciliationTransaction = {
   schemaVersion: 1
+  kind: 'hook-reconciliation'
   provider: CaptureProvider
   path: string
   beforeSha256: string
@@ -197,13 +198,17 @@ type HookTransaction = {
   nextState: HookState
 }
 
-function parseHookTransaction(value: unknown, environment: NodeJS.ProcessEnv): HookTransaction {
+function parseInstallationTransaction(
+  value: unknown,
+  environment: NodeJS.ProcessEnv,
+): HookReconciliationTransaction {
   if (
     value === null ||
     Array.isArray(value) ||
     typeof value !== 'object' ||
     !exactKeys(value as Record<string, unknown>, [
       'schemaVersion',
+      'kind',
       'provider',
       'path',
       'beforeSha256',
@@ -212,10 +217,11 @@ function parseHookTransaction(value: unknown, environment: NodeJS.ProcessEnv): H
       'nextState',
     ])
   )
-    throw new Error('interrupted hook transaction is invalid')
+    throw new Error('interrupted installation transaction is invalid')
   const candidate = value as Record<string, unknown>
   if (
     candidate.schemaVersion !== 1 ||
+    candidate.kind !== 'hook-reconciliation' ||
     (candidate.provider !== 'codex' && candidate.provider !== 'claude') ||
     candidate.path !== providerPath(candidate.provider, environment) ||
     typeof candidate.beforeSha256 !== 'string' ||
@@ -225,30 +231,30 @@ function parseHookTransaction(value: unknown, environment: NodeJS.ProcessEnv): H
     typeof candidate.bytes !== 'string' ||
     !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(candidate.bytes)
   )
-    throw new Error('interrupted hook transaction is invalid')
+    throw new Error('interrupted installation transaction is invalid')
   let nextState: HookState
   try {
     nextState = parseHookState(candidate.nextState, environment)
   } catch {
-    throw new Error('interrupted hook transaction is invalid')
+    throw new Error('interrupted installation transaction is invalid')
   }
-  return { ...candidate, nextState } as HookTransaction
+  return { ...candidate, nextState } as HookReconciliationTransaction
 }
 
-async function readHookTransaction(
+async function readInstallationTransaction(
   environment: NodeJS.ProcessEnv,
-): Promise<HookTransaction | undefined> {
+): Promise<HookReconciliationTransaction | undefined> {
   const bytes = await readBoundedOrdinaryFile(
-    join(configRoot(environment), 'hook-transaction.json'),
+    join(configRoot(environment), 'installation-transaction.json'),
     2 * 1024 * 1024,
   )
   return bytes === undefined
     ? undefined
-    : parseHookTransaction(JSON.parse(decoder.decode(bytes)), environment)
+    : parseInstallationTransaction(JSON.parse(decoder.decode(bytes)), environment)
 }
 
-type ValidatedHookTransaction = {
-  journal: HookTransaction
+type ValidatedHookReconciliationTransaction = {
+  journal: HookReconciliationTransaction
   bytes: Uint8Array
   currentHash: string
 }
@@ -264,14 +270,14 @@ function sameFingerprints(
   )
 }
 
-async function validateHookTransaction(
+async function validateInstallationTransaction(
   environment: NodeJS.ProcessEnv,
-): Promise<ValidatedHookTransaction | undefined> {
-  const journal = await readHookTransaction(environment)
+): Promise<ValidatedHookReconciliationTransaction | undefined> {
+  const journal = await readInstallationTransaction(environment)
   if (journal === undefined) return undefined
   const bytes = Buffer.from(journal.bytes, 'base64')
   if (createHash('sha256').update(bytes).digest('hex') !== journal.afterSha256)
-    throw new Error('interrupted hook transaction bytes are corrupt')
+    throw new Error('interrupted installation transaction bytes are corrupt')
 
   const owned = journal.nextState.providers[journal.provider]
   if (owned !== undefined) {
@@ -287,7 +293,9 @@ async function validateHookTransaction(
       inspection.events.some(event => event.state !== 'installed') ||
       !sameFingerprints(owned.fingerprints, desired)
     )
-      throw new Error('interrupted hook transaction ownership does not match provider hooks')
+      throw new Error(
+        'interrupted installation transaction ownership does not match provider hooks',
+      )
   }
 
   const current = (await readProviderConfig(journal.path)) ?? encoder.encode('{}\n')
@@ -300,12 +308,12 @@ async function validateHookTransaction(
 async function inspectTransaction(
   environment: NodeJS.ProcessEnv,
 ): Promise<{ state: InstallationStatus['transaction']; error?: string }> {
-  const path = join(configRoot(environment), 'hook-transaction.json')
+  const path = join(configRoot(environment), 'installation-transaction.json')
   const kind = await pathKind(path)
   if (kind === 'missing') return { state: 'absent' }
   if (kind !== 'file') return { state: 'invalid', error: 'installation transaction is unsafe' }
   try {
-    await validateHookTransaction(environment)
+    await validateInstallationTransaction(environment)
     return { state: 'pending' }
   } catch (error) {
     return { state: 'invalid', error: error instanceof Error ? error.message : String(error) }
@@ -344,13 +352,14 @@ async function applyHookPatch(
   environment: NodeJS.ProcessEnv,
 ): Promise<void> {
   const root = configRoot(environment)
-  const journalPath = join(root, 'hook-transaction.json')
+  const journalPath = join(root, 'installation-transaction.json')
   const before = (await readProviderConfig(path)) ?? encoder.encode('{}\n')
   const expectedBefore = expected ?? encoder.encode('{}\n')
   if (!Buffer.from(before).equals(expectedBefore))
     throw new Error('provider hooks changed while Factory prepared its patch')
   const journal = {
     schemaVersion: 1,
+    kind: 'hook-reconciliation',
     provider,
     path,
     beforeSha256: createHash('sha256').update(before).digest('hex'),
@@ -373,10 +382,12 @@ async function applyHookPatch(
   await syncDirectory(root)
 }
 
-export async function recoverHookTransaction(environment: NodeJS.ProcessEnv): Promise<void> {
+export async function recoverInstallationTransaction(
+  environment: NodeJS.ProcessEnv,
+): Promise<void> {
   const root = configRoot(environment)
-  const path = join(root, 'hook-transaction.json')
-  const validated = await validateHookTransaction(environment)
+  const path = join(root, 'installation-transaction.json')
+  const validated = await validateInstallationTransaction(environment)
   if (validated === undefined) return
   if (validated.currentHash === validated.journal.beforeSha256) {
     await unlink(path)
@@ -400,7 +411,7 @@ export async function installHooks(
   await access(executable, constants.X_OK).catch(() => {
     throw new Error('Factory hook executable must be executable')
   })
-  await recoverHookTransaction(environment)
+  await recoverInstallationTransaction(environment)
   let state: HookState = (await readHookState(environment)) ?? {
     schemaVersion: 1,
     executable,
@@ -427,7 +438,7 @@ export async function installHooks(
 }
 
 export async function uninstallHooks(environment: NodeJS.ProcessEnv): Promise<void> {
-  await recoverHookTransaction(environment)
+  await recoverInstallationTransaction(environment)
   let state = await readHookState(environment)
   if (state === undefined) return
   for (const provider of ['codex', 'claude'] as const) {

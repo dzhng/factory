@@ -1556,3 +1556,20 @@ second normative schema; the master specification and format own mechanics.
 - **Verdict:** Sound. Existing semantic owners supply the facts without giving
   diagnostic policy a filesystem or subprocess authority of its own.
 - **Confidence:** High.
+
+### Use one tagged installation recovery owner
+
+- **When:** Slice 12 installation-transaction cutover.
+- **The choice:** Hook reconciliation now journals a tagged
+  `hook-reconciliation` operation in `installation-transaction.json`. Startup,
+  install, uninstall, and explicit repair all parse and recover through this one
+  strict owner; the unlaunched hook-only filename has no compatibility reader.
+- **The gap:** The prior hook-specific journal could not be extended cleanly to
+  executable replacement without creating parallel recovery concepts.
+- **The reach:** Upgrade can add an executable-replacement operation to the same
+  tagged transaction and inspection status. Unknown kinds fail closed before
+  mutation, while ordinary interrupted hook recovery retains its exact
+  before/after and ownership proofs.
+- **Verdict:** Sound. The cutover establishes one hierarchy before upgrade adds
+  another operation.
+- **Confidence:** High.

@@ -18,6 +18,10 @@ compares actual hooks with provider-owned semantics. `factory doctor` is
 read-only unless `--repair` is explicit and reports that inspection without
 including provider configuration bytes.
 
+All install mutations journal through one tagged installation transaction.
+Hook reconciliation is its first operation kind; executable upgrade extends
+that same recovery owner rather than creating a parallel update journal.
+
 Diagnostic policy is a pure fold over typed observations supplied by the
 repository, runtime journal, GitHub, installation, and reviewer owners. A
 canonical-branch disagreement is high priority only when GitHub actually

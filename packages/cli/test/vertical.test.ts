@@ -903,10 +903,11 @@ describe('installed capture vertical', () => {
   test('refuses malformed or unsafe installation transactions before mutation', async () => {
     const value = await createFixture()
     expect((await command(value.factory, ['init'], value.repository, value.env)).code).toBe(0)
-    const transaction = join(value.home, '.config', 'factory', 'hook-transaction.json')
+    const transaction = join(value.home, '.config', 'factory', 'installation-transaction.json')
     await mkdir(join(value.home, '.config', 'factory'), { recursive: true })
     const validShape = {
       schemaVersion: 1,
+      kind: 'hook-reconciliation',
       provider: 'codex',
       path: join(value.home, '.codex', 'hooks.json'),
       beforeSha256: '0'.repeat(64),
@@ -919,11 +920,20 @@ describe('installed capture vertical', () => {
       },
     }
     for (const malformed of [
+      { ...validShape, kind: 'unknown-operation' },
+      { ...validShape, kind: undefined },
       { ...validShape, schemaVersion: 2 },
       { ...validShape, provider: 'other' },
       { ...validShape, nextState: { ...validShape.nextState, executable: 'relative' } },
     ]) {
       await writeFile(transaction, `${JSON.stringify(malformed)}\n`, { mode: 0o600 })
+      const diagnosis = JSON.parse(
+        (await command(value.factory, ['doctor'], value.repository, value.env)).stdout,
+      )
+      expect(diagnosis.installation).toMatchObject({
+        transaction: 'invalid',
+        transactionError: expect.stringContaining('transaction is invalid'),
+      })
       expect(
         await command(
           value.factory,
@@ -957,7 +967,7 @@ describe('installed capture vertical', () => {
         })
       ).code,
     ).toBe(1)
-    const transactionPath = join(value.home, '.config', 'factory', 'hook-transaction.json')
+    const transactionPath = join(value.home, '.config', 'factory', 'installation-transaction.json')
     const providerPath = join(value.home, '.codex', 'hooks.json')
     const valid = JSON.parse(await readFile(transactionPath, 'utf8'))
     const originalProvider = (await Bun.file(providerPath).exists())
