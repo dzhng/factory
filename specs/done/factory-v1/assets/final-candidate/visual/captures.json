@@ -1,0 +1,142 @@
+[
+  {
+    "kind": "a",
+    "width": 1440,
+    "file": "/tmp/factory-auth-report-visual-HuAiKC/a-1440.png",
+    "sha256": "f92cb6891f59ccc86d8eccef24a33802559daf937ee43e52be793c820dbbe14f",
+    "geometry": {
+      "width": 1440,
+      "scrollWidth": 1440,
+      "height": 1217,
+      "body": {
+        "x": 254,
+        "y": 48,
+        "width": 932,
+        "height": 1121.359375,
+        "top": 48,
+        "right": 1186,
+        "bottom": 1169.359375,
+        "left": 254
+      }
+    }
+  },
+  {
+    "kind": "a",
+    "width": 1440,
+    "feature": "authority",
+    "file": "/tmp/factory-auth-report-visual-HuAiKC/a-authority-1440-2x.png",
+    "sha256": "0e2af844b1b71737d44a2cf0c5d046d4b8a9153e55a43650fc4f80d1f3efa55f"
+  },
+  {
+    "kind": "a",
+    "width": 1440,
+    "feature": "journeys",
+    "file": "/tmp/factory-auth-report-visual-HuAiKC/a-journeys-1440-2x.png",
+    "sha256": "602f511e91f48ed13de6774cfcde0acfd6d4306c03331d48dddace5056fe0612"
+  },
+  {
+    "kind": "b",
+    "width": 1440,
+    "file": "/tmp/factory-auth-report-visual-HuAiKC/b-1440.png",
+    "sha256": "b79681e64ef293a0e47ee720a64bb5728cc31dc1ba1d337e7c1b7ca899fafc10",
+    "geometry": {
+      "width": 1440,
+      "scrollWidth": 1440,
+      "height": 1306,
+      "body": {
+        "x": 254,
+        "y": 48,
+        "width": 932,
+        "height": 1209.734375,
+        "top": 48,
+        "right": 1186,
+        "bottom": 1257.734375,
+        "left": 254
+      }
+    }
+  },
+  {
+    "kind": "b",
+    "width": 1440,
+    "feature": "authority",
+    "file": "/tmp/factory-auth-report-visual-HuAiKC/b-authority-1440-2x.png",
+    "sha256": "cca81f379f8c6d4e3c0d86d169f451bf6e1c5ae98f2ba0e883cf10c07b5aa3cb"
+  },
+  {
+    "kind": "b",
+    "width": 1440,
+    "feature": "journeys",
+    "file": "/tmp/factory-auth-report-visual-HuAiKC/b-journeys-1440-2x.png",
+    "sha256": "ec680b8419f13324ff9e98f1d3d1942fcdc1eca146a72055dd22f20b9dac5c81"
+  },
+  {
+    "kind": "a",
+    "width": 390,
+    "file": "/tmp/factory-auth-report-visual-HuAiKC/a-390.png",
+    "sha256": "c32bc81cd65678341f60e214edddaa6317bb8dc3472003e6adec3d9a092a384a",
+    "geometry": {
+      "width": 390,
+      "scrollWidth": 390,
+      "height": 1617,
+      "body": {
+        "x": 0,
+        "y": 24,
+        "width": 390,
+        "height": 1568.828125,
+        "top": 24,
+        "right": 390,
+        "bottom": 1592.828125,
+        "left": 0
+      }
+    }
+  },
+  {
+    "kind": "a",
+    "width": 390,
+    "feature": "authority",
+    "file": "/tmp/factory-auth-report-visual-HuAiKC/a-authority-390-2x.png",
+    "sha256": "37bbd04ce785f60ec57444734088595fb0b325f2aaf3d02c1bb94d4335d4ab87"
+  },
+  {
+    "kind": "a",
+    "width": 390,
+    "feature": "journeys",
+    "file": "/tmp/factory-auth-report-visual-HuAiKC/a-journeys-390-2x.png",
+    "sha256": "efa49081101e6ac13416fdc1a6212e298c6b67f6e4df47e062e63cfd3188db9e"
+  },
+  {
+    "kind": "b",
+    "width": 390,
+    "file": "/tmp/factory-auth-report-visual-HuAiKC/b-390.png",
+    "sha256": "a1f441fb81ba3f5581c82b3e98d005d6db83b8df82841e40cc7f7a1fba052284",
+    "geometry": {
+      "width": 390,
+      "scrollWidth": 390,
+      "height": 1904,
+      "body": {
+        "x": 0,
+        "y": 24,
+        "width": 390,
+        "height": 1855.703125,
+        "top": 24,
+        "right": 390,
+        "bottom": 1879.703125,
+        "left": 0
+      }
+    }
+  },
+  {
+    "kind": "b",
+    "width": 390,
+    "feature": "authority",
+    "file": "/tmp/factory-auth-report-visual-HuAiKC/b-authority-390-2x.png",
+    "sha256": "904d703bcb63943f5d556bbdc4e3b921fff3d7ac606c329c240d83fb7448be7a"
+  },
+  {
+    "kind": "b",
+    "width": 390,
+    "feature": "journeys",
+    "file": "/tmp/factory-auth-report-visual-HuAiKC/b-journeys-390-2x.png",
+    "sha256": "c41504ae1b3ff5472fc744bae4fdc49e418a91d3de502affb9bf08f612f821b6"
+  }
+]

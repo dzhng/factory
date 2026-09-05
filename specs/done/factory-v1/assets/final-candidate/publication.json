@@ -1,0 +1,57 @@
+{
+  "release": {
+    "assets": [
+      {
+        "browser_download_url": "https://github.com/dzhng/factory/releases/download/v0.1.0/factory-v0.1.0-darwin-arm64.json",
+        "digest": "sha256:9b4b99d177dfd29f4215c74a8c7785d6073dacd082f4bcd0dcf240b0a8114698",
+        "id": 546304640,
+        "name": "factory-v0.1.0-darwin-arm64.json",
+        "size": 434,
+        "state": "uploaded"
+      },
+      {
+        "browser_download_url": "https://github.com/dzhng/factory/releases/download/v0.1.0/factory-v0.1.0-darwin-arm64.tar.gz",
+        "digest": "sha256:b617652a98bec61f855b93d2e6ace2b69605555a91d79755e5e039eccca1c102",
+        "id": 546304638,
+        "name": "factory-v0.1.0-darwin-arm64.tar.gz",
+        "size": 23922650,
+        "state": "uploaded"
+      },
+      {
+        "browser_download_url": "https://github.com/dzhng/factory/releases/download/v0.1.0/factory-v0.1.0-linux-x64-baseline.json",
+        "digest": "sha256:25561a84d7574b8a8d1607dd6690302570b7c8ca4ada736c5eb171f83c70513f",
+        "id": 546304637,
+        "name": "factory-v0.1.0-linux-x64-baseline.json",
+        "size": 446,
+        "state": "uploaded"
+      },
+      {
+        "browser_download_url": "https://github.com/dzhng/factory/releases/download/v0.1.0/factory-v0.1.0-linux-x64-baseline.tar.gz",
+        "digest": "sha256:83798ac7dfc716b140635cf379289b538ceac605a46f627d51cdaae9d09ef2ed",
+        "id": 546304636,
+        "name": "factory-v0.1.0-linux-x64-baseline.tar.gz",
+        "size": 35497675,
+        "state": "uploaded"
+      }
+    ],
+    "draft": false,
+    "html_url": "https://github.com/dzhng/factory/releases/tag/v0.1.0",
+    "id": 383372101,
+    "published_at": "2026-09-05T21:01:22Z",
+    "tag_name": "v0.1.0",
+    "target_commitish": "51ea46c3698c63e358c0c23f27c15b1fa025aa42"
+  },
+  "verification": {
+    "sourceRevision": "51ea46c3698c63e358c0c23f27c15b1fa025aa42",
+    "remoteTagMatchesSource": true,
+    "downloadedDraftAssets": "All four assets were downloaded into a fresh directory and their SHA-256 digests matched the certified candidates and subsequent public release metadata.",
+    "attestations": {
+      "repository": "dzhng/factory",
+      "signerWorkflow": "dzhng/factory/.github/workflows/ci.yml",
+      "sourceDigest": "51ea46c3698c63e358c0c23f27c15b1fa025aa42",
+      "allFourDownloadedAssetsVerified": true
+    },
+    "anonymousPublicManifestFetch": "darwin-arm64 manifest returned successfully without credentials after publication",
+    "scope": "Publication proof is separate from the unchanged pre-publication native journey reports."
+  }
+}

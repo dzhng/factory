@@ -137,6 +137,10 @@ reports and deterministic UI fixtures, not user-supplied aesthetic references.
   retains its [full-page capture](assets/release-certification/screenshot.png).
   Its explicit unavailable authority is the standard; green journey rows alone
   do not mean release certification.
+- [Final candidate comparison](assets/final-candidate/visual/README.md) preserves
+  the desktop/mobile fixture and authenticated report captures. The comparison
+  verifies readable provider authority without retroactively changing the
+  pre-publication reports into publication evidence.
 - The [journal report critique](assets/journal-crash/visual-review.md) preserves
   an engineering checkpoint with its then-unavailable runtime authority. The
   [roadmap visualization](visualizations/roadmap.html) is historical design

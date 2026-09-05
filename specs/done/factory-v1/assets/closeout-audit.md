@@ -34,3 +34,10 @@ patch-related defect; its own Docker-only CLI attempt was unavailable outside
 the required environment, and does not substitute for the separately passing
 Docker run. Changes outside documentation and assets are mechanical fixture or
 report-path updates, not product behavior changes.
+
+After integration on `main`, the repository build, formatting, lint, type,
+and default test gates all passed. The browser regression gate matched its
+eight stored screenshots across twelve scenarios using the relocated evidence.
+Native platform and exact-artifact provider authority remain in the
+[candidate and publication evidence](final-candidate/README.md); this archive
+check did not rebuild or replace the published release bytes.

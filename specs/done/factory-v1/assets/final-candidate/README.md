@@ -42,3 +42,6 @@ and digests. Publication promoted the certified bytes without rebuilding them.
 
 The original report JSON retains its pre-publication unavailable authority.
 This publication evidence supplements it rather than rewriting its verdict.
+The [publication record](publication.json) retains the public release identity,
+asset digests, and verification scope. The [visual comparison](visual/README.md)
+preserves fixture and authenticated report captures at desktop and mobile widths.
