@@ -200,6 +200,22 @@ export async function verifyReleaseArtifact(input: {
     }
   }
   const sbom = parseJson(await bytes(files.get('sbom.spdx.json')!, 'release SBOM'), 'release SBOM')
+  const creationInfo = object(sbom.creationInfo, 'release SBOM creation info')
+  const creators = creationInfo.creators
+  if (
+    sbom.spdxVersion !== 'SPDX-2.3' ||
+    sbom.dataLicense !== 'CC0-1.0' ||
+    sbom.SPDXID !== 'SPDXRef-DOCUMENT' ||
+    sbom.name !== expectedStem ||
+    sbom.documentNamespace !==
+      `https://github.com/dzhng/factory/releases/download/v${contentIdentity.version}/${expectedStem}.spdx` ||
+    typeof creationInfo.created !== 'string' ||
+    !Number.isFinite(Date.parse(creationInfo.created)) ||
+    !Array.isArray(creators) ||
+    !creators.includes('Tool: factory-release-builder')
+  ) {
+    throw new TypeError('release SBOM document identity is invalid')
+  }
   const packages = sbom.packages
   if (!Array.isArray(packages)) throw new TypeError('release SBOM packages are invalid')
   const components = new Map(
@@ -210,11 +226,36 @@ export async function verifyReleaseArtifact(input: {
   )
   if (
     components.size !== 2 ||
+    components.get('factory')?.SPDXID !== 'SPDXRef-Factory' ||
     components.get('factory')?.versionInfo !== contentIdentity.version ||
     components.get('factory')?.licenseDeclared !== 'MIT' ||
+    components.get('bun-runtime')?.SPDXID !== 'SPDXRef-Bun-Runtime' ||
     components.get('bun-runtime')?.versionInfo !== bunVersion
   ) {
     throw new TypeError('release SBOM inventory does not match its artifact')
+  }
+  const relationships = sbom.relationships
+  if (
+    !Array.isArray(relationships) ||
+    relationships.length !== 2 ||
+    !relationships.some(value => {
+      const relation = object(value, 'release SBOM relationship')
+      return (
+        relation.spdxElementId === 'SPDXRef-DOCUMENT' &&
+        relation.relationshipType === 'DESCRIBES' &&
+        relation.relatedSpdxElement === 'SPDXRef-Factory'
+      )
+    }) ||
+    !relationships.some(value => {
+      const relation = object(value, 'release SBOM relationship')
+      return (
+        relation.spdxElementId === 'SPDXRef-Factory' &&
+        relation.relationshipType === 'DEPENDS_ON' &&
+        relation.relatedSpdxElement === 'SPDXRef-Bun-Runtime'
+      )
+    })
+  ) {
+    throw new TypeError('release SBOM relationships are invalid')
   }
   const executableBytes = Buffer.from(
     executable.buffer,
