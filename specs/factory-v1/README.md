@@ -60,8 +60,9 @@ Status: **implementation complete; release certification blocked on dedicated pr
 > are configured. Real Codex and Claude execution must run through the packaged
 > production path; never borrow a developer login. Earlier non-blocking evidence
 > gaps remain recorded: deterministic libc
-> `readdir` error injection was unavailable, and the Slice 03/local report
-> browser gates were blocked by local-file policy. Changed gates: all six
+> `readdir` error injection was unavailable. The earlier Slice 03/local-file
+> browser limitation was superseded by the executable repository report and its
+> accepted fresh-eyes visual gate. Changed gates: all six
 > prior runnable labs, the PR workbench, decision replay, and workspace/PR
 > review-release journeys pass; SQLite was selected from the
 > measured crash candidates;
@@ -77,12 +78,13 @@ Status: **implementation complete; release certification blocked on dedicated pr
 > with 79 assertions across every journal boundary, hostile state, contention,
 > and pre-promotion mutation; a musl x64 lane proves that unsupported libc does
 > not claim release authority. Global TODOs: rerun current-client authority when
-> define verified code-state continuity before enabling it. The journal package
+> a false-positive-heavy corpus can define verified code-state continuity before
+> enabling it. The journal package
 > now passes an exact pinned Node 22.13.1 SQLite smoke. The local macOS arm64
 > exact-artifact journey passes all seven deterministic stages; its authenticated
 > Codex/Claude extension is ready but cannot run without dedicated credentials.
-> The hosted macOS lane remains package-only because it lacks Docker. Its report
-> final sanitized report and screenshot are retained under
+> The hosted macOS lane remains package-only because it lacks Docker. The final
+> sanitized report and screenshot are retained under
 > `assets/release-certification/` and passed fresh-eyes critique.
 > After each authority attempt, update this prompt with the exact candidate,
 > evidence, remaining blockers, and changed gates.

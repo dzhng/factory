@@ -1,7 +1,7 @@
 # 09 — Isolated review execution and immutable acceptance
 
-Status: **implemented; production image publication and authenticated provider
-certification remain explicit unavailable authorities**
+Status: **implemented; production image authority passes and authenticated
+provider certification remains unavailable**
 
 ## Contract
 
@@ -77,9 +77,11 @@ Git-common state owns recovery and transient response retention; `.factory`
 receives only manifest-last immutable review groups and explicit coverage
 actions.
 
-No dedicated provider credentials or published production image digest were
-available. Authenticated real-provider and production-image certification are
-therefore unavailable rather than inferred from developer state.
+The public, attested multi-architecture production image at
+`ghcr.io/dzhng/factory-reviewer@sha256:73edb8116985083ee5f23efac6b7a093591196799b04124cb07df98898bc767d`
+passed the complete isolation oracle from its remote digest. Dedicated provider
+credentials remain unavailable, so authenticated Codex and Claude execution is
+not inferred from developer state.
 
 Durable ownership is documented by the [capture](../../../packages/capture/README.md),
 [review planning](../../../packages/review-plan/README.md),

@@ -95,11 +95,11 @@ HEAD tree instead. Exact bytes and identities retain the state required for a
 later derivation without executing repository code. Git stdout and stderr are
 bounded and every command has a deadline. The 64 MiB per-file bound,
 256 MiB observation bound, and 64 KiB read chunk are initial measured limits;
-large-repository latency and native macOS behavior remain Slice 12 release
-authorities rather than claimed passes here. The descriptor backend is loaded
-only when reconstruction is requested: this slice verifies Bun on glibc Linux;
-macOS, musl Linux, and Node import/runtime behavior remain explicit Slice 12
-release gates rather than claimed support. Native `readdir` distinguishes EOF
-from a nonzero `errno`, but deterministic fault injection for that libc branch
-also remains a Slice 12 platform-gate obligation; the v1 harness covers its
-ordinary EOF path without adding a second injectable native backend.
+large-repository latency remains a measured post-v1 input rather than an
+unbounded support claim. The descriptor backend is loaded only when
+reconstruction is requested. Slice 12 now verifies Bun on glibc Linux and native
+macOS arm64, proves the exact Node 22.13 journal floor, and proves that musl does
+not claim glibc support. Native `readdir` distinguishes EOF from a nonzero
+`errno`; deterministic fault injection for that libc branch remains an explicit
+non-blocking evidence gap, while the v1 harness covers its ordinary EOF path
+without adding a second injectable native backend.

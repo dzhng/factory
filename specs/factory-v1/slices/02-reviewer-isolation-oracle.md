@@ -75,8 +75,8 @@ cleanup, and credential-value absence.
 
 The local authority run verified Docker `linux/arm64`, and the native CI release
 lane verifies the same provider-independent boundary on glibc `linux/amd64`.
-Codex 0.144.4 and Claude Code 2.1.261 are credential-free image-certified, but
-no dedicated test credentials were configured, so neither provider was
-reported as authenticated. Real-provider execution is deliberately resliced to Slice 09,
-because it depends on the production image and provider invocation adapters;
-Slice 09 must obtain those authorities before release acceptance.
+Codex 0.144.4 and Claude Code 2.1.261 are credential-free image-certified. The
+published production digest now passes the same isolation oracle, but no
+dedicated test credentials were configured, so neither provider was reported as
+authenticated. Slice 09 owns that remaining packaged real-provider execution
+authority and must obtain it before release acceptance.

@@ -1153,17 +1153,19 @@ second normative schema; the master specification and format own mechanics.
 - **The choice:** The installed command captures the exact current workspace or
   GitHub PR and resolves versioned reviewer defaults, but it still refuses model
   execution without an immutable reviewer image digest and dedicated readable
-  provider authentication. The deterministic journey supplies a pinned fake
-  image; it is release evidence for the boundary, not a production image.
+  provider authentication. Deterministic journeys use a pinned fake image only
+  as boundary evidence; production execution uses the published digest-qualified
+  reviewer image.
 - **The gap:** The slice specifies immutable image identity but does not name a
   published production image digest or distribution channel.
-- **The reach:** Subject capture and review planning are production paths;
-  provider execution remains honestly unavailable until packaging supplies the
-  configured digest. Factory never substitutes a mutable tag or the developer's
-  host CLI.
-- **Verdict:** Needs-user. Choose and publish the production image separately;
-  keeping the missing-authority refusal is the safe reversible state.
-- **Confidence:** Medium.
+- **The reach:** Subject capture and review planning are production paths. The
+  published channel now supplies the configured immutable digest, while Factory
+  still refuses missing dedicated authentication and never substitutes a mutable
+  tag or the developer's host CLI.
+- **Verdict:** Sound. The completion audit resolved the publication choice
+  without changing the immutable execution boundary.
+- **Confidence:** High; the exact public remote digest passed the isolation
+  oracle on macOS arm64 Docker.
 
 ### Serialize one current review per subject before observing it
 
@@ -1433,9 +1435,9 @@ second normative schema; the master specification and format own mechanics.
   cross-compile target.
 - **Verdict:** Sound for a narrow v1. The two lanes cover the primary developer
   environments without turning untested cross-compilation into a support claim.
-- **Confidence:** High in the target boundary and native packaging; release
-  acceptance remains blocked until macOS has complete Docker-backed journey
-  authority.
+- **Confidence:** High. Native packaging passes on both targets, and a local
+  macOS arm64 host with Docker passes the exact-artifact deterministic journey.
+  Authenticated two-provider execution remains the release blocker.
 
 ### Bind every artifact to one clean committed checkout
 
@@ -1638,10 +1640,10 @@ second normative schema; the master specification and format own mechanics.
   canonical before transcript confinement evaluates them.
 - **The reach:** The sanitized report can prove native packaging, capture,
   review, localhost actions, diagnostics, upgrade, and uninstall without
-  retaining scratch paths or credentials. Real Codex and Claude credentials and
-  GitHub Release publication remains explicitly unavailable until independent
-  release lanes supply them. Main-branch candidate attestations are now present
-  but do not imply publication or authenticated provider execution.
+  retaining scratch paths or credentials. Dedicated Codex and Claude
+  credentials remain unavailable. GitHub Release publication deliberately waits
+  for that authenticated authority; main-branch candidate attestations do not
+  imply publication or authenticated provider execution.
 - **Verdict:** Sound. The harness proves the shipped-byte journey and names the
   authorities it does not possess instead of turning substitutes into passes.
 - **Confidence:** High for the native macOS arm64 harness and complete Linux CI
@@ -1661,13 +1663,14 @@ second normative schema; the master specification and format own mechanics.
   journey or treating package verification as equivalent would create a false
   release pass.
 - **The reach:** CI can prevent packaging regressions on both supported targets
-  and certify the complete Linux journey. Automated publication remains out of
-  scope until a macOS arm64 runner with Docker completes the same journey; pull
-  requests retain read-only GitHub permissions.
+  and certify the complete Linux journey. A local macOS arm64 Docker host now
+  supplies the missing deterministic journey evidence. Publication still waits
+  for authenticated two-provider execution; pull requests retain read-only
+  GitHub permissions.
 - **Verdict:** Sound. Required authority is visible in the job and report model,
   and provenance cannot compensate for missing behavioral certification.
-- **Confidence:** High in the workflow boundary; macOS release authority remains
-  unavailable.
+- **Confidence:** High in the workflow boundary and local macOS deterministic
+  journey; authenticated provider authority remains unavailable.
 
 ## Implementation choices — completion audit
 

@@ -1,8 +1,9 @@
 # Factory
 
-Factory is a local, open-source CLI that records complete Codex and Claude Code
-work beside the code that it produced, reviews that work in isolated Docker
-containers, and keeps the resulting evidence and decisions in ordinary Git.
+Factory is a local, open-source CLI that captures provider-native Codex and
+Claude Code Session evidence beside the code it produced, reviews readable
+evidence in isolated Docker containers even when the evidence is partial, and
+keeps the resulting evidence, limitations, and decisions in ordinary Git.
 
 The first release has no Factory account or hosted backend. Portable state is
 stored as inspectable, versioned files under `.factory`; credentials, locks,
