@@ -74,3 +74,9 @@ publication removes the transient attempt directory because portable review
 history then owns durable idempotence. Recovery matches the complete attempt
 facts, uses the recorded container name and ownership label, and never cleans an
 unproven container.
+
+Per-attempt lock files live outside disposable attempt directories and remain
+after acceptance. Creation, recovery, and deletion use that same stable lock;
+queued owners cannot accidentally lock different inodes after cleanup. These
+empty private files carry no review or credential state and are not included in
+the bounded inventory of active attempts.

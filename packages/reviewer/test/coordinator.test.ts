@@ -28,9 +28,13 @@ describe('review attempt coordinator', () => {
     const active = join(attempts, 'a'.repeat(64))
     await mkdir(active)
     const started = performance.now()
-    await withAdvisoryFileLock(join(active, 'attempt.lock'), 1_000, async () => {
-      await ReviewAttemptCoordinator.open({ testRuntimeRoot: runtime })
-    })
+    await withAdvisoryFileLock(
+      join(runtime, 'review-attempt-locks', 'a'.repeat(64)),
+      1_000,
+      async () => {
+        await ReviewAttemptCoordinator.open({ testRuntimeRoot: runtime })
+      },
+    )
     expect(performance.now() - started).toBeLessThan(250)
 
     const target = await mkdtemp(join(tmpdir(), 'factory-review-attempt-target-'))
@@ -130,7 +134,7 @@ describe('review attempt coordinator', () => {
     expect(executions).toBe(2)
   })
 
-  test('reconciles duplicate review IDs by exact durable attempt facts', async () => {
+  test('concurrent acceptance cleanup matches exact facts and remains idempotent', async () => {
     const runtime = await mkdtemp(join(tmpdir(), 'factory-review-attempt-'))
     const coordinator = await ReviewAttemptCoordinator.open({ testRuntimeRoot: runtime })
     const { bundle, sha256 } = await fixture()
@@ -167,10 +171,17 @@ describe('review attempt coordinator', () => {
       disposition: 'complete',
       limitations: [],
     } as unknown as ReviewManifest
-    await coordinator.reconcileAccepted([
+    const reviews = [
       { ...base, bundleSha256: 'a'.repeat(64) },
       { ...base, bundleSha256: sha256 },
+    ]
+    await Promise.all([
+      ReviewAttemptCoordinator.open({ testRuntimeRoot: runtime }),
+      coordinator.reconcileAccepted(reviews),
+      coordinator.reconcileAccepted(reviews),
+      coordinator.finalize(bundle, choice, imageDigest, { reviewId }),
     ])
+    await coordinator.finalize(bundle, choice, imageDigest, { reviewId })
     expect(await readdir(join(runtime, 'review-attempts-v1'))).toEqual([])
   })
 })

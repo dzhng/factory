@@ -105,6 +105,17 @@ async function privateDirectory(path: string): Promise<void> {
   }
 }
 
+async function attemptDirectoryExists(path: string): Promise<boolean> {
+  const info = await lstat(path).catch(error => {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+    throw error
+  })
+  if (info === undefined) return false
+  if (info.isSymbolicLink() || !info.isDirectory())
+    throw new Error('review attempt root is not an ordinary directory')
+  return true
+}
+
 async function cleanupStartedArtifacts(
   attemptRoot: string,
   containerIdentity: { name: string; label: string },
@@ -265,7 +276,10 @@ function restored(attempt: PersistedSnapshot): ReviewerRawAttempt {
 }
 
 export class ReviewAttemptCoordinator {
-  private constructor(readonly runtimeRoot: string) {}
+  private constructor(
+    readonly runtimeRoot: string,
+    private readonly lockRoot: string,
+  ) {}
 
   static async open(options: ReviewAttemptCoordinatorOptions): Promise<ReviewAttemptCoordinator> {
     const authorityRoot =
@@ -275,7 +289,10 @@ export class ReviewAttemptCoordinator {
     await privateDirectory(authorityRoot)
     const root = join(await realpath(authorityRoot), 'review-attempts-v1')
     await privateDirectory(root)
-    const coordinator = new ReviewAttemptCoordinator(root)
+    // Lock inodes outlive disposable attempts so queued owners never split locks.
+    const lockRoot = join(await realpath(authorityRoot), 'review-attempt-locks')
+    await privateDirectory(lockRoot)
+    const coordinator = new ReviewAttemptCoordinator(root, lockRoot)
     await coordinator.recoverStartedAttempts()
     return coordinator
   }
@@ -290,9 +307,7 @@ export class ReviewAttemptCoordinator {
         if (count > 10_000) throw new Error('review attempt inventory exceeds its bound')
         if (!/^[0-9a-f]{64}$/.test(entry.name)) continue
         const path = join(this.runtimeRoot, entry.name)
-        const info = await lstat(path)
-        if (info.isSymbolicLink() || !info.isDirectory())
-          throw new Error('review attempt root is not an ordinary directory')
+        if (!(await attemptDirectoryExists(path))) continue
         roots.push({ key: entry.name, path })
       }
     } finally {
@@ -308,7 +323,8 @@ export class ReviewAttemptCoordinator {
   private async recoverStartedAttempts(): Promise<void> {
     for (const root of await this.attemptRoots()) {
       try {
-        await withAdvisoryFileLock(join(root.path, 'attempt.lock'), 1, async () => {
+        await withAdvisoryFileLock(join(this.lockRoot, root.key), 1, async () => {
+          if (!(await attemptDirectoryExists(root.path))) return
           await cleanupStateTemps(root.path)
           const state = await readState(join(root.path, 'state.json'))
           if (state === undefined) return
@@ -337,56 +353,33 @@ export class ReviewAttemptCoordinator {
       name: `factory-review-${key.slice(0, 20)}`,
       label: key,
     }
-    await privateDirectory(attemptRoot)
     const statePath = join(attemptRoot, 'state.json')
-    return await withAdvisoryFileLock(
-      join(attemptRoot, 'attempt.lock'),
-      24 * 60 * 60 * 1_000,
-      async () => {
-        await cleanupStateTemps(attemptRoot)
-        const state = await readState(statePath)
-        if (state !== undefined) {
-          if (state.schemaVersion !== 1 || state.key !== key)
-            throw new Error('review attempt state is corrupt')
-          if (state.phase === 'completed') {
-            const attempt = restored(state.attempt)
-            const observed = readReviewerRawAttempt(attempt)
-            if (
-              observed.reviewId !== state.reviewId ||
-              observed.bundleSha256 !== verified.sha256 ||
-              canonicalJson(observed.reviewer.settings) !== canonicalJson(choice.settings) ||
-              observed.imageDigest !== input.imageDigest
-            )
-              throw new Error('durable review attempt facts differ from their identity')
-            return attempt
-          }
-          await cleanupStartedArtifacts(
-            attemptRoot,
-            state.containerIdentity,
-            executionInput.timeoutMs,
+    return await withAdvisoryFileLock(join(this.lockRoot, key), 24 * 60 * 60 * 1_000, async () => {
+      await privateDirectory(attemptRoot)
+      await cleanupStateTemps(attemptRoot)
+      const state = await readState(statePath)
+      if (state !== undefined) {
+        if (state.schemaVersion !== 1 || state.key !== key)
+          throw new Error('review attempt state is corrupt')
+        if (state.phase === 'completed') {
+          const attempt = restored(state.attempt)
+          const observed = readReviewerRawAttempt(attempt)
+          if (
+            observed.reviewId !== state.reviewId ||
+            observed.bundleSha256 !== verified.sha256 ||
+            canonicalJson(observed.reviewer.settings) !== canonicalJson(choice.settings) ||
+            observed.imageDigest !== input.imageDigest
           )
-          return await this.executeStarted(
-            state.reviewId,
-            key,
-            statePath,
-            attemptRoot,
-            bundle,
-            choice,
-            executor,
-            executionInput,
-            state.containerIdentity,
-          )
+            throw new Error('durable review attempt facts differ from their identity')
+          return attempt
         }
-        const reviewId = newRecordId('review')
-        await atomicState(statePath, {
-          schemaVersion: 1,
-          key,
-          reviewId,
-          phase: 'started',
-          containerIdentity,
-        })
+        await cleanupStartedArtifacts(
+          attemptRoot,
+          state.containerIdentity,
+          executionInput.timeoutMs,
+        )
         return await this.executeStarted(
-          reviewId,
+          state.reviewId,
           key,
           statePath,
           attemptRoot,
@@ -394,10 +387,29 @@ export class ReviewAttemptCoordinator {
           choice,
           executor,
           executionInput,
-          containerIdentity,
+          state.containerIdentity,
         )
-      },
-    )
+      }
+      const reviewId = newRecordId('review')
+      await atomicState(statePath, {
+        schemaVersion: 1,
+        key,
+        reviewId,
+        phase: 'started',
+        containerIdentity,
+      })
+      return await this.executeStarted(
+        reviewId,
+        key,
+        statePath,
+        attemptRoot,
+        bundle,
+        choice,
+        executor,
+        executionInput,
+        containerIdentity,
+      )
+    })
   }
 
   /** Delete transient attempt state only after its immutable review publication succeeds. */
@@ -416,20 +428,17 @@ export class ReviewAttemptCoordinator {
     )
     const attemptRoot = join(this.runtimeRoot, key)
     const statePath = join(attemptRoot, 'state.json')
-    await withAdvisoryFileLock(
-      join(attemptRoot, 'attempt.lock'),
-      24 * 60 * 60 * 1_000,
-      async () => {
-        await cleanupStateTemps(attemptRoot)
-        const state = await readState(statePath)
-        if (state === undefined) throw new Error('review attempt finalization state is absent')
-        if (state.key !== key || state.reviewId !== accepted.reviewId)
-          throw new Error('review attempt finalization identity differs from durable state')
-        if (state.phase !== 'completed')
-          throw new Error('review attempt is not complete enough to finalize')
-      },
-    )
-    await rm(attemptRoot, { recursive: true })
+    await withAdvisoryFileLock(join(this.lockRoot, key), 24 * 60 * 60 * 1_000, async () => {
+      if (!(await attemptDirectoryExists(attemptRoot))) return
+      await cleanupStateTemps(attemptRoot)
+      const state = await readState(statePath)
+      if (state === undefined) throw new Error('review attempt finalization state is absent')
+      if (state.key !== key || state.reviewId !== accepted.reviewId)
+        throw new Error('review attempt finalization identity differs from durable state')
+      if (state.phase !== 'completed')
+        throw new Error('review attempt is not complete enough to finalize')
+      await rm(attemptRoot, { recursive: true })
+    })
   }
 
   /** Reconcile acceptance that committed before a process died during finalization. */
@@ -448,25 +457,22 @@ export class ReviewAttemptCoordinator {
           observed.imageDigest === candidate.containerImageDigest,
       )
       if (review === undefined) continue
-      await withAdvisoryFileLock(
-        join(attemptRoot, 'attempt.lock'),
-        24 * 60 * 60 * 1_000,
-        async () => {
-          await cleanupStateTemps(attemptRoot)
-          state = await readState(statePath)
-          if (state === undefined) return
-          if (state.phase !== 'completed' || state.reviewId !== review.reviewId)
-            throw new Error('review attempt changed during acceptance reconciliation')
-          const current = readReviewerRawAttempt(restored(state.attempt))
-          if (
-            current.bundleSha256 !== review.bundleSha256 ||
-            canonicalJson(current.reviewer.settings) !== canonicalJson(review.reviewer) ||
-            current.imageDigest !== review.containerImageDigest
-          )
-            throw new Error('review attempt changed during acceptance reconciliation')
-        },
-      )
-      await rm(attemptRoot, { recursive: true })
+      await withAdvisoryFileLock(join(this.lockRoot, root.key), 24 * 60 * 60 * 1_000, async () => {
+        if (!(await attemptDirectoryExists(attemptRoot))) return
+        await cleanupStateTemps(attemptRoot)
+        state = await readState(statePath)
+        if (state === undefined) return
+        if (state.phase !== 'completed' || state.reviewId !== review.reviewId)
+          throw new Error('review attempt changed during acceptance reconciliation')
+        const current = readReviewerRawAttempt(restored(state.attempt))
+        if (
+          current.bundleSha256 !== review.bundleSha256 ||
+          canonicalJson(current.reviewer.settings) !== canonicalJson(review.reviewer) ||
+          current.imageDigest !== review.containerImageDigest
+        )
+          throw new Error('review attempt changed during acceptance reconciliation')
+        await rm(attemptRoot, { recursive: true })
+      })
     }
   }
 

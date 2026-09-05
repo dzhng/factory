@@ -1,11 +1,14 @@
 # Factory v1 specification
 
-Status: **configuration implemented; reconstruction regression under investigation; final certification and publication pending**
+Status: **whole-spec review fixes in progress; final certification and publication pending**
 
 ## Next Agent Prompt
 
-Resolve the recurring PR-association reconstruction failure, then integrate the
-authenticated capture oracle and consolidate the choices ledger. Configurable
+Resolve whole-spec review findings in bounded file acquisition, concurrent
+attempt cleanup, and owned-root validation, plus the recurring reconstruction
+failure. Complete the exact-artifact incremental journey, then consolidate the
+choices ledger. The [capture certificate](assets/live-capture/README.md) now
+records actual callback authority and its current limits. Configurable
 Docker limits and cached update warnings are implemented; their
 [verification](assets/configuration-completion.md) distinguishes controlled
 fixtures from real Docker observations. The

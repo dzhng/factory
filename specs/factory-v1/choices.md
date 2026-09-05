@@ -5,6 +5,27 @@ second normative schema; the master specification and format own mechanics.
 
 ## Configuration completion
 
+### Keep attempt locks after deleting transient execution state
+
+- **When:** Whole-spec concurrency review.
+- **The choice:** Two commands discover the same already-accepted review attempt.
+  Both use one lock file outside the disposable attempt directory. The first
+  verifies the accepted identity and removes transient state while holding that
+  lock; the second then observes absence and succeeds without deleting anything.
+  Run and recovery use the same lock. Removing the lock together with the
+  directory could leave one waiter holding an old inode while another caller
+  acquires a newly created lock at the same spelling.
+- **The gap:** Private attempt cleanup did not specify ownership after the
+  cleanup target itself disappears.
+- **The reach:** One empty private lock file remains per distinct attempt key.
+  Those files contain no credentials or review evidence and are outside the
+  bounded active-attempt inventory; deleting them during ordinary cleanup would
+  reintroduce split ownership. Different attempt keys remain independently locked.
+- **Verdict:** Sound. Stable lock identity and idempotent deletion preserve
+  concurrent acceptance without retaining transient provider responses.
+- **Confidence:** Medium. Persistent empty lock files trade small machine-local
+  inode growth for independent, stable ownership without a global execution lock.
+
 ### Refresh update knowledge explicitly; startup only repeats recent knowledge
 
 - **When:** Configuration completion pass.
