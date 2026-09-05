@@ -2,11 +2,11 @@
   "schemaVersion": 1,
   "artifact": {
     "version": "0.1.0-dev",
-    "revision": "56ebf01e0eb81fa9aeb6eab5bd1fbe8cc5e17aac",
+    "revision": "0f2ba19ba7b5b8b957e5739e17f4ac8969af9db1",
     "target": "bun-darwin-arm64",
-    "manifestSha256": "0757fb4b393695a71fabc75b3f71e625dbb8624ed8e44342d66291b735a301be",
-    "archiveSha256": "64c9eda0c4fa6949baa87c4764b7fd190e1985f794dcc0285997aeb2d1e5b45f",
-    "executableSha256": "ab00f7fcf567472b5c3ec4051e1d34b9d582164bda35648e9a1780ea03779f1e"
+    "manifestSha256": "c5c86ccc22e6b2e928130a84bb32beca57c2e6a2dcfa0f41dfc75261c8b3bd1d",
+    "archiveSha256": "8a9026a3f7456b3b4ee57ce627f69856d4fdc55708b9dd37cdc499900dbd9ac1",
+    "executableSha256": "3ee39b4a1fe8f259c36c8cdc4231db35421fab987018561d972fe06a1064e52c"
   },
   "platform": {
     "os": "darwin",

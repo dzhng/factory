@@ -102,7 +102,7 @@ Repository growth, association accuracy, partial-review usefulness, and reviewer
 quality become measured post-v1 improvement inputs, never permission for silent
 pruning or heuristic grouping.
 
-The exact `56ebf01` macOS arm64 authenticated report and screenshot are retained
+The exact `0f2ba19` macOS arm64 authenticated report and screenshot are retained
 under `assets/release-certification/`. After earlier layouts overemphasized green
 journeys, the accepted report leads with an explicit not-certified verdict and
 its one unavailable authority. Both real provider journeys are visible beside
@@ -122,7 +122,7 @@ public, attested amd64/arm64 image
 `ghcr.io/dzhng/factory-reviewer@sha256:8b4d1bb63f727a791c5c20084a840cc75963becaa9225612acf6f42858eb561c`
 passed the isolation oracle, and a
 local macOS arm64 host with Docker passed the exact-artifact deterministic and
-authenticated journeys at revision `56ebf01`. Factory discovered the existing
+authenticated journeys at revision `0f2ba19`. Factory discovered the existing
 Codex and Claude CLI logins without flags or separate setup, and each provider
 completed one packaged production-image review. Automated publication must not
 turn credential-free or package-only evidence into that claim. GitHub Release

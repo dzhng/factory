@@ -39,7 +39,7 @@ Status: **implementation complete; authenticated exact-artifact certification pa
 > has an automatic two-provider mode, the exact Node floor passes, and the local
 > macOS arm64 deterministic journey plus report visual gate pass. Exact release
 > evidence is retained at `73e6520`. The remaining authenticated gate passed at
-> `56ebf01`: the exact packed macOS arm64 artifact reused both existing CLI
+> `0f2ba19`: the exact packed macOS arm64 artifact reused both existing CLI
 > logins automatically and completed one production-image review through Codex
 > and one through Claude. The sanitized report is retained under
 > `assets/release-certification/`. GitHub Release publication and its artifact
@@ -61,7 +61,7 @@ Status: **implementation complete; authenticated exact-artifact certification pa
 > exact macOS arm64 deterministic release journey. Factory now automatically
 > reuses each provider CLI's existing login, including Claude's macOS Keychain
 > identity, without separate credential setup. Real Codex and Claude execution
-> passed through the packaged production path at `56ebf01`. Earlier non-blocking evidence
+> passed through the packaged production path at `0f2ba19`. Earlier non-blocking evidence
 > gaps remain recorded: deterministic libc
 > `readdir` error injection was unavailable. The earlier Slice 03/local-file
 > browser limitation was superseded by the executable repository report and its

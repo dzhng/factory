@@ -83,7 +83,7 @@ passed the complete isolation oracle from its remote digest. Factory now reuses
 existing CLI authentication automatically: provider-owned files remain
 identity-bound and read-only, while macOS Claude Keychain authentication is
 reduced to `claudeAiOauth` in private attempt state and removed after execution.
-The exact packed macOS arm64 artifact at revision `56ebf01` completed one real
+The exact packed macOS arm64 artifact at revision `0f2ba19` completed one real
 Codex review and one real Claude review through this image without credential
 flags or user setup.
 

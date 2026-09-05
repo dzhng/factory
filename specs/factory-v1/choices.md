@@ -1012,7 +1012,7 @@ second normative schema; the master specification and format own mechanics.
   Keychain record and shares the attempt lifecycle already responsible for
   secret-bearing mounts and crash cleanup.
 - **Confidence:** High. The exact packed macOS arm64 artifact at revision
-  `56ebf01` reused the logged-in Codex CLI and Claude's macOS Keychain identity,
+  `0f2ba19` reused the logged-in Codex CLI and Claude's macOS Keychain identity,
   completed both production-image reviews, and removed its staged authentication
   state without user setup.
 
@@ -1768,7 +1768,7 @@ second normative schema; the master specification and format own mechanics.
   auditable without a parallel login concept and prevents partial provider
   coverage from looking complete.
 - **Confidence:** High. The exact packed macOS arm64 journey at revision
-  `56ebf01` passed both real-provider reviews through the pinned production
+  `0f2ba19` passed both real-provider reviews through the pinned production
   image with no credential arguments.
 
 ### Certify the journal at the declared Node floor
