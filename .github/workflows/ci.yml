@@ -4,6 +4,12 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      candidate_version:
+        description: Exact version to build and certify before release publication
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -30,6 +36,8 @@ jobs:
 
   native:
     needs: quality
+    env:
+      FACTORY_CANDIDATE_VERSION: ${{ inputs.candidate_version || format('0.0.0-ci.{0}.{1}', github.run_number, github.run_attempt) }}
     strategy:
       fail-fast: false
       matrix:
@@ -52,10 +60,10 @@ jobs:
         run: |
           test "$(uname -m)" = "$(test '${{ matrix.target }}' = bun-darwin-arm64 && echo arm64 || echo x86_64)"
       - name: Build verified native package
-        run: bun run release:build -- --version "0.0.0-ci.${{ github.run_number }}.${{ github.run_attempt }}" --target "${{ matrix.target }}" --output "$RUNNER_TEMP/candidate/release"
+        run: bun run release:build -- --version "$FACTORY_CANDIDATE_VERSION" --target "${{ matrix.target }}" --output "$RUNNER_TEMP/candidate/release"
       - name: Certify exact Linux package journey
         if: matrix.authority == 'certified'
-        run: bun run release:verify -- --version "0.0.0-ci.${{ github.run_number }}.${{ github.run_attempt }}" --artifact-root "$RUNNER_TEMP/candidate/release" --output "$RUNNER_TEMP/candidate/certification"
+        run: bun run release:verify -- --version "$FACTORY_CANDIDATE_VERSION" --artifact-root "$RUNNER_TEMP/candidate/release" --output "$RUNNER_TEMP/candidate/certification"
       - name: Record unavailable macOS reviewer authority
         if: matrix.authority == 'package-only'
         run: echo 'The native macOS package is verified, but full journey certification remains unavailable because GitHub-hosted macOS runners do not provide the required Docker reviewer authority.' >> "$GITHUB_STEP_SUMMARY"
@@ -66,7 +74,7 @@ jobs:
           if-no-files-found: error
 
   attest:
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     needs: native
     runs-on: ubuntu-24.04
     permissions:

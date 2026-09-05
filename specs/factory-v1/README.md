@@ -1,14 +1,20 @@
 # Factory v1 specification
 
-Status: **implementation review findings resolved; authenticated exact-artifact certification passed for the earlier candidate; GitHub Release publication pending**
+Status: **original review findings resolved; completion audit found missing configuration behavior; final certification and publication pending**
 
 ## Next Agent Prompt
 
-The [implementation review](assets/implementation-review.md) records the resolved
-behavior findings. Preserve fail-open capture and the repository, credential,
-and container boundaries in [SECURITY.md](../../SECURITY.md). Certify the final
-release candidate before publication; earlier exact-artifact evidence does not
-certify subsequent changes.
+Complete configurable Docker limits and cached update warnings, then reconcile
+the historical capture-oracle authority claims and consolidate the choices
+ledger. These remain requirements, not optional post-v1 work. The
+[implementation review](assets/implementation-review.md) records the resolved
+original findings. Preserve the boundaries in [SECURITY.md](../../SECURITY.md).
+
+After implementation settles, dispatch CI with the intended candidate version,
+download its exact native artifacts, and certify the macOS artifact locally with
+both existing provider logins. Publish only those certified bytes; then reconcile
+all slice statuses and close the specification. Earlier artifact evidence does
+not certify subsequent changes.
 
 The [release report](assets/release-certification/report.json) retains the exact
 macOS arm64 artifact at `0f2ba19` that completed both authenticated provider

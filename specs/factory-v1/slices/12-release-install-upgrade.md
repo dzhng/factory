@@ -1,6 +1,6 @@
 # 12 — Installation, diagnostics, upgrade, and release proof
 
-Status: **implementation complete; exact authenticated certification passed; publication pending**
+Status: **completion audit requires configurable limits and update warnings; final candidate certification and publication pending**
 
 ## Resolved release scope
 
@@ -53,6 +53,11 @@ Diagnostic mode is read-only. Repairs are explicit typed actions. The release
 harness owns certification and introduces no new product authority.
 
 ## Runnable artifact
+
+The CI workflow accepts an explicit candidate version through manual dispatch.
+It applies the same quality, native journey, and attestation gates as main-branch
+builds; dispatch does not publish a release. Download and certify those exact
+macOS bytes locally before promoting the candidates to GitHub Release assets.
 
 `bun run release:verify` either packs a clean committed checkout or accepts an
 already packed candidate, verifies and installs those exact bytes, runs the full
