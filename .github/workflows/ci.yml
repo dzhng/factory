@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.14
@@ -47,7 +47,7 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.14
@@ -56,10 +56,10 @@ jobs:
         run: |
           test "$(uname -m)" = "$(test '${{ matrix.target }}' = bun-darwin-arm64 && echo arm64 || echo x86_64)"
       - name: Build verified native package
-        run: bun run release:build -- --version "0.0.0-ci.${{ github.run_number }}.${{ github.run_attempt }}" --target "${{ matrix.target }}" --output release
+        run: bun run release:build -- --version "0.0.0-ci.${{ github.run_number }}.${{ github.run_attempt }}" --target "${{ matrix.target }}" --output "$RUNNER_TEMP/release"
       - name: Certify exact Linux package journey
         if: matrix.authority == 'certified'
-        run: bun run release:verify -- --version "0.0.0-ci.${{ github.run_number }}.${{ github.run_attempt }}" --output certification
+        run: bun run release:verify -- --version "0.0.0-ci.${{ github.run_number }}.${{ github.run_attempt }}" --output "$RUNNER_TEMP/certification"
       - name: Record unavailable macOS reviewer authority
         if: matrix.authority == 'package-only'
         run: echo 'The native macOS package is verified, but full journey certification remains unavailable because GitHub-hosted macOS runners do not provide the required Docker reviewer authority.' >> "$GITHUB_STEP_SUMMARY"
@@ -68,14 +68,14 @@ jobs:
         uses: actions/attest@v4
         with:
           subject-path: |
-            release/*.tar.gz
-            release/*.json
+            ${{ runner.temp }}/release/*.tar.gz
+            ${{ runner.temp }}/release/*.json
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.target }}-${{ matrix.authority }}
           path: |
-            release/*.tar.gz
-            release/*.json
-            certification/*.json
-            certification/*.html
+            ${{ runner.temp }}/release/*.tar.gz
+            ${{ runner.temp }}/release/*.json
+            ${{ runner.temp }}/certification/*.json
+            ${{ runner.temp }}/certification/*.html
           if-no-files-found: error
