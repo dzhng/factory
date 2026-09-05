@@ -81,7 +81,7 @@ export type ObservedContainerOptions = {
 
 /** Immutable production reviewer selected by this Factory build when no test override exists. */
 export const DEFAULT_REVIEWER_IMAGE_REFERENCE =
-  'ghcr.io/dzhng/factory-reviewer@sha256:73edb8116985083ee5f23efac6b7a093591196799b04124cb07df98898bc767d'
+  'ghcr.io/dzhng/factory-reviewer@sha256:8b4d1bb63f727a791c5c20084a840cc75963becaa9225612acf6f42858eb561c'
 
 /** Parse only Docker identities whose selected bytes cannot move after configuration. */
 export function reviewerImageIdentity(reference: string): { digest: string; remote: boolean } {

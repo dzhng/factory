@@ -52,7 +52,7 @@ Status: **implementation complete; release certification blocked on dedicated pr
 > bounded provider/CAS/capture work, and crash-safe association batches.
 > Milestone `6fc6c64` published the public Linux amd64/arm64 production reviewer
 > image and proved
-> `ghcr.io/dzhng/factory-reviewer@sha256:73edb8116985083ee5f23efac6b7a093591196799b04124cb07df98898bc767d`
+> `ghcr.io/dzhng/factory-reviewer@sha256:8b4d1bb63f727a791c5c20084a840cc75963becaa9225612acf6f42858eb561c`
 > through the isolation oracle. Milestone
 > `babb8e0` added a two-provider authenticated certification mode and passed the
 > exact macOS arm64 deterministic release journey. Factory now automatically

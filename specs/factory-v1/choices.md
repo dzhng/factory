@@ -1742,8 +1742,8 @@ second normative schema; the master specification and format own mechanics.
   moved tag.
 - **Verdict:** Sound. The channel is replaceable later without changing the
   immutable review-attempt model.
-- **Confidence:** High. Workflow run `33953530873` published and attested
-  `ghcr.io/dzhng/factory-reviewer@sha256:73edb8116985083ee5f23efac6b7a093591196799b04124cb07df98898bc767d`,
+- **Confidence:** High. Workflow run `33967046446` published and attested
+  `ghcr.io/dzhng/factory-reviewer@sha256:8b4d1bb63f727a791c5c20084a840cc75963becaa9225612acf6f42858eb561c`,
   and that exact remote reference passed the full isolation oracle on macOS
   arm64 Docker.
 

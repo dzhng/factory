@@ -119,7 +119,7 @@ seven deterministic stages.
 A completion audit found two implementable release gaps: the production image
 channel and an authenticated certification mode. Both seams now exist. The
 public, attested amd64/arm64 image
-`ghcr.io/dzhng/factory-reviewer@sha256:73edb8116985083ee5f23efac6b7a093591196799b04124cb07df98898bc767d`
+`ghcr.io/dzhng/factory-reviewer@sha256:8b4d1bb63f727a791c5c20084a840cc75963becaa9225612acf6f42858eb561c`
 passed the isolation oracle, and a
 local macOS arm64 host with Docker passed the exact-artifact deterministic
 journey. Factory now discovers existing Codex and Claude CLI authentication

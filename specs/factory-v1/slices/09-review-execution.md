@@ -78,7 +78,7 @@ receives only manifest-last immutable review groups and explicit coverage
 actions.
 
 The public, attested multi-architecture production image at
-`ghcr.io/dzhng/factory-reviewer@sha256:73edb8116985083ee5f23efac6b7a093591196799b04124cb07df98898bc767d`
+`ghcr.io/dzhng/factory-reviewer@sha256:8b4d1bb63f727a791c5c20084a840cc75963becaa9225612acf6f42858eb561c`
 passed the complete isolation oracle from its remote digest. Factory now reuses
 existing CLI authentication automatically: provider-owned files remain
 identity-bound and read-only, while macOS Claude Keychain authentication is
