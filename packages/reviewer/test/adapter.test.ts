@@ -13,6 +13,11 @@ describe('review provider adapters', () => {
       '/out/response.txt',
     ])
       expect(invocation.argv).toContain(value)
+    const sandbox = invocation.argv.indexOf('--sandbox')
+    expect(invocation.argv.slice(sandbox, sandbox + 2)).toEqual([
+      '--sandbox',
+      'danger-full-access',
+    ])
     expect(invocation.environment.CODEX_HOME).toBe('/auth/codex')
     expect(invocation.prompt).toContain('/review-input')
     expect(invocation.prompt).toContain('"decisionKey":"explicit stable opaque key"')

@@ -51,6 +51,12 @@ the CLI can create required ephemeral runtime state. The credential is a nested
 read-only file mount; the tmpfs has no host source and is destroyed with the
 container.
 
+Codex's inner bubblewrap sandbox is disabled inside this container because its
+user namespaces are unavailable after capabilities are dropped. The observed
+Docker policy is the filesystem sandbox: Codex still sees only the read-only
+bundle and credential, ephemeral tmpfs state, and the one writable response
+directory.
+
 Reviewer prerequisites are observations, not ambient assumptions. This package
 also owns bounded Docker-daemon inspection and exact credential-file readiness.
 Review selection and diagnostics consume the same typed result without exposing

@@ -70,6 +70,13 @@ That tmpfs has no host source and disappears with the container; the nested
 credential-file mount remains read-only. No other provider home or host
 configuration is mounted.
 
+The Docker boundary, not a provider CLI's nested process sandbox, owns filesystem
+confinement. Codex therefore runs without its inner bubblewrap sandbox: user
+namespaces are unavailable inside the capability-free container, and enabling
+them would not add authority beyond the container. The read-only root and bundle,
+read-only credential, fixed non-root user, dropped capabilities, and observed
+mount allowlist remain mandatory before provider startup.
+
 GitHub observation follows the same ownership rule: Factory invokes an
 already-authenticated `gh` executable and never reads, copies, or stores its
 token. GitHub is optional; missing or unauthenticated `gh` produces typed
