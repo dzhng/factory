@@ -9,6 +9,18 @@ Configuration display and execution share the same precedence fold: repository
 preferences override global preferences, which override built-in defaults. The
 CLI's configuration reader owns validation of the private global file.
 
+Resource preferences merge one field at a time, so a repository can change CPU
+allocation without accidentally discarding a user's memory or deadline setting.
+Manual review flags override that same configuration fold. The public contract
+owns the permitted resource ranges; the reviewer verifies Docker's actual
+constraints without making its isolation policy configurable.
+
+Update checks are advisory and explicitly refreshed with `factory upgrade --check`.
+Normal startup only reads a private cached version observation; expired or
+malformed cache data is ignored. Capture and automatic-review workers skip update
+diagnostics entirely. Discovery never substitutes for the verified artifact
+authority needed by an actual upgrade.
+
 `factory capture` is deliberately fail-open for Codex and Claude Code: after
 input classification it always emits the provider's valid empty response and
 exits successfully, even when durable capture or materialization fails. Raw

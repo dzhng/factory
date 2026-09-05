@@ -1,7 +1,12 @@
 import { join } from 'node:path'
 
 import type { GlobalFactoryConfig } from '@factory/capture'
-import { isGitBranchName, type JsonValue } from '@factory/contract'
+import {
+  isGitBranchName,
+  parseDockerLimits,
+  type DockerLimits,
+  type JsonValue,
+} from '@factory/contract'
 
 import { configRoot, readBoundedOrdinaryFile } from './private-files'
 
@@ -19,6 +24,9 @@ async function readJsonObject(path: string): Promise<Record<string, JsonValue>> 
 
 export async function globalConfig(environment: NodeJS.ProcessEnv): Promise<GlobalFactoryConfig> {
   const value = await readJsonObject(join(configRoot(environment), 'config.json'))
+  if (value.dockerLimits !== undefined) parseDockerLimits(value.dockerLimits)
+  if (value.updateChecks !== undefined && typeof value.updateChecks !== 'boolean')
+    throw new TypeError('updateChecks must be boolean')
   if (
     value.repositoryInitialization !== undefined &&
     value.repositoryInitialization !== 'explicit' &&
@@ -46,4 +54,24 @@ export async function globalConfig(environment: NodeJS.ProcessEnv): Promise<Glob
     throw new TypeError('reviewer is unsupported')
   }
   return value as GlobalFactoryConfig
+}
+
+export const dockerLimitFlags = {
+  '--docker-memory-mib': 'memoryMiB',
+  '--docker-cpus': 'cpus',
+  '--docker-pids': 'pids',
+  '--review-timeout-seconds': 'timeoutSeconds',
+} as const
+
+export function dockerLimitsFromArgs(args: readonly string[]): Partial<DockerLimits> | undefined {
+  const limits: Partial<DockerLimits> = {}
+  for (const [flag, key] of Object.entries(dockerLimitFlags)) {
+    const index = args.indexOf(flag)
+    if (index < 0) continue
+    const value = args[index + 1]
+    if (value === undefined || !/^\d+$/.test(value))
+      throw new TypeError(`${flag} requires an integer`)
+    limits[key] = Number(value)
+  }
+  return Object.keys(limits).length === 0 ? undefined : parseDockerLimits(limits)
 }

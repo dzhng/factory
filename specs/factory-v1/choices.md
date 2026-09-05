@@ -3,6 +3,52 @@
 This ledger records why the specification has its current shape. It is not a
 second normative schema; the master specification and format own mechanics.
 
+## Configuration completion
+
+### Refresh update knowledge explicitly; startup only repeats recent knowledge
+
+- **When:** Configuration completion pass.
+- **The choice:** A user runs `factory upgrade --check` to ask GitHub which stable
+  Factory release is latest. Factory makes one anonymous request to its fixed
+  public release endpoint, with a three-second deadline and a 64 KiB response
+  ceiling, then saves only the version and observation time in a private cache.
+  For seven days, ordinary commands may mention a newer version on stderr;
+  they never fetch or install anything. Capture and automatic review skip this
+  entirely. Disabling `updateChecks` in effective configuration disables both
+  refresh and warnings. No release clears the previous observation; transient
+  failure leaves it unchanged. The alternative—refreshing at every startup or
+  running a background updater—would add latency or another process lifecycle.
+- **The gap:** The spec promised preferences and cached startup warnings but did
+  not name the cache refresher, freshness period, or discovery limits.
+- **The reach:** Release discovery remains separate from permission to replace
+  the executable. `upgrade --check` is the explicit refresh surface, not a daemon.
+- **Verdict:** Sound. This is bounded, reversible, and preserves offline startup
+  and the existing verified-artifact upgrade boundary.
+- **Confidence:** Medium. Seven days and explicit refresh are product defaults
+  the user may reasonably want to change without altering upgrade authority.
+
+### Resource settings merge individually without making isolation optional
+
+- **When:** Configuration completion pass.
+- **The choice:** A user can set memory, CPU, process-count, and review-time
+  ceilings globally. A repository that overrides CPU inherits the other three
+  settings; a manual review flag can change CPU for that invocation alone.
+  Defaults are 2 GiB, two CPUs, 256 processes, and ten minutes. Schema ranges
+  require positive bounded integers, and Docker must report the requested CPU,
+  memory, process, and no-extra-swap limits before the reviewer starts. The host
+  enforces the deadline and cleanup. The alternative of replacing the whole
+  object on an override would unexpectedly erase unrelated preferences; letting
+  these flags disable isolation would cross a separate security boundary.
+- **The gap:** The spec named configurable Docker limits without units, ranges,
+  defaults, partial-object precedence, or which restrictions were tunable.
+- **The reach:** Resource configuration is a shared public schema, but host
+  mounts, root filesystem, user identity, dropped privileges, and network policy
+  remain fixed. These knobs never grant arbitrary commands or host access.
+- **Verdict:** Sound. Field-wise merging matches independent resource choices,
+  and observed enforcement keeps a configuration value from becoming fake proof.
+- **Confidence:** Medium. The resource defaults are conservative starting points;
+  larger legitimate workloads can opt into larger bounded allocations.
+
 ## Product
 
 - Use the name Factory, command `factory`, and repository directory `.factory`.

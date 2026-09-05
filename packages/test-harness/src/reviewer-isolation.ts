@@ -187,6 +187,7 @@ async function probe(
     imageReference,
     imageDigest,
     scenario,
+    dockerLimits: { memoryMiB: 384, cpus: 1, pids: 64 },
     ...(termination === 'timed-out' ? { timeoutMs: 3_000 } : {}),
     sensitiveValues: [secret],
   })
@@ -308,6 +309,12 @@ async function main(): Promise<void> {
       )
         throw new Error('private auth did not retain its validated non-root owner identity')
     }
+    if (
+      success.containerPolicy.memoryBytes !== 384 * 1024 * 1024 ||
+      success.containerPolicy.nanoCpus !== 1_000_000_000 ||
+      success.containerPolicy.pids !== 64
+    )
+      throw new Error('Configured resource limits were not observed on the running container')
     const timeout = await probe(
       'fake',
       imageReference,

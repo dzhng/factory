@@ -3,7 +3,7 @@ import { chmod, copyFile, mkdir, mkdtemp, open, rm } from 'node:fs/promises'
 import { platform, arch } from 'node:os'
 import { dirname, join } from 'node:path'
 
-import type { RecordId } from '@factory/contract'
+import type { DockerLimits, RecordId } from '@factory/contract'
 import { canonicalJson } from '@factory/contract'
 
 import { reviewerAdapter } from './adapter'
@@ -16,7 +16,11 @@ import {
   type VerifiedReviewBundle,
 } from './bundle'
 import { planReviewerIsolation } from './isolation'
-import { ReviewerCleanupUnprovenError, ReviewerDockerUnavailableError } from './probe'
+import {
+  ReviewerCleanupUnprovenError,
+  ReviewerDockerUnavailableError,
+  ReviewerSetupInterruptedError,
+} from './probe'
 import { runReviewerContainer } from './runner'
 
 export type ReviewerExecutionInput = {
@@ -28,6 +32,7 @@ export type ReviewerExecutionInput = {
   runtimeRoot: string
   credential?: ReviewerCredentialSource
   timeoutMs: number
+  dockerLimits?: Partial<DockerLimits>
   signal?: AbortSignal
   now?: () => Date
   containerIdentity: { name: string; label: string }
@@ -74,7 +79,8 @@ export interface ReviewerExecutor {
 
 export function reviewerExecutionFailureTermination(
   error: unknown,
-): 'docker-unavailable' | 'crashed' {
+): 'docker-unavailable' | 'crashed' | 'timed-out' | 'cancelled' {
+  if (error instanceof ReviewerSetupInterruptedError) return error.termination
   return error instanceof ReviewerDockerUnavailableError ||
     (error as NodeJS.ErrnoException).code === 'ENOENT'
     ? 'docker-unavailable'
@@ -169,6 +175,7 @@ export const dockerReviewerExecutor: ReviewerExecutor = {
         invocation: reviewerAdapter(choice.settings),
         containerIdentity: input.containerIdentity,
         timeoutMs: remaining(),
+        dockerLimits: input.dockerLimits,
         ...(input.signal === undefined ? {} : { signal: input.signal }),
       })
       const response = await readResponsePrefix(`${outputHostPath}/response.txt`)

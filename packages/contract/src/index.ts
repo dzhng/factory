@@ -131,10 +131,45 @@ export type RepositoryConfig = Record<string, JsonValue> & {
   canonicalBranch?: string
   reviewer?: ConfiguredReviewer
   automaticReview?: boolean
+  dockerLimits?: Partial<DockerLimits>
+  updateChecks?: boolean
   reviewLimits?: Record<string, JsonValue> & {
     maxBundleBytes?: number
     maxSessions?: number
   }
+}
+
+/** Resource ceilings are configurable; mount and privilege isolation is not. */
+export type DockerLimits = { memoryMiB: number; cpus: number; pids: number; timeoutSeconds: number }
+
+export const DEFAULT_DOCKER_LIMITS: Readonly<DockerLimits> = {
+  memoryMiB: 2048,
+  cpus: 2,
+  pids: 256,
+  timeoutSeconds: 600,
+}
+
+export function parseDockerLimits(value: unknown): Partial<DockerLimits> {
+  assertRecord(value, 'dockerLimits')
+  const bounds = {
+    memoryMiB: [128, 65536],
+    cpus: [1, 64],
+    pids: [32, 4096],
+    timeoutSeconds: [1, 3600],
+  } as const
+  assertExactKeys(value, Object.keys(bounds), 'dockerLimits')
+  for (const [key, [minimum, maximum]] of Object.entries(bounds)) {
+    const limit = value[key]
+    if (
+      limit !== undefined &&
+      (typeof limit !== 'number' ||
+        !Number.isSafeInteger(limit) ||
+        limit < minimum ||
+        limit > maximum)
+    )
+      throw new TypeError(`dockerLimits.${key} must be an integer from ${minimum} to ${maximum}`)
+  }
+  return value as Partial<DockerLimits>
 }
 
 /** Complete validated input for rebuildable read projections. */
@@ -717,6 +752,9 @@ export function parseRepositoryManifest(value: unknown): RepositoryManifest {
 export function parseRepositoryConfig(value: unknown): RepositoryConfig {
   assertRecord(value, 'repository config')
   canonicalJson(value)
+  if ('dockerLimits' in value) parseDockerLimits(value.dockerLimits)
+  if ('updateChecks' in value && typeof value.updateChecks !== 'boolean')
+    throw new TypeError('updateChecks must be a boolean')
   if (
     'canonicalBranch' in value &&
     (typeof value.canonicalBranch !== 'string' || !isGitBranchName(value.canonicalBranch))

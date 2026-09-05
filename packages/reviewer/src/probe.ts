@@ -4,10 +4,23 @@ import { constants } from 'node:fs'
 import { lstat, open, readdir, stat } from 'node:fs/promises'
 import { join, relative } from 'node:path'
 
+import { DEFAULT_DOCKER_LIMITS, parseDockerLimits, type DockerLimits } from '@factory/contract'
+
 import type { ReviewerAdapterInvocation } from './adapter.js'
 import { resolveIsolation, type IsolationProvider, type MountPlan } from './isolation.js'
 
 export type ProbeTermination = 'completed' | 'timed-out' | 'cancelled'
+
+export class ReviewerSetupInterruptedError extends Error {
+  constructor(readonly termination: Exclude<ProbeTermination, 'completed'>) {
+    super(`Reviewer setup ${termination}`)
+  }
+}
+
+function assertSetupCompleted(result: CommandResult): void {
+  if (result.termination !== 'completed')
+    throw new ReviewerSetupInterruptedError(result.termination)
+}
 
 export class ReviewerCleanupUnprovenError extends Error {
   constructor(options?: ErrorOptions) {
@@ -53,6 +66,9 @@ export type IsolationReport = {
     securityOptions: readonly string[]
     tmpfsTargets: readonly string[]
     fileSizeBytes: number
+    memoryBytes: number
+    nanoCpus: number
+    pids: number
   }
   termination: ProbeTermination
   exitCode: number | null
@@ -72,6 +88,7 @@ export type ObservedContainerOptions = {
   containerIdentity?: { name: string; label: string }
   scenario?: 'success' | 'hang' | 'descendant' | 'review'
   timeoutMs?: number
+  dockerLimits?: Partial<DockerLimits>
   /** Provider-only deadline inside the already-started pinned runner. */
   providerTimeoutMs?: number
   signal?: AbortSignal
@@ -295,10 +312,12 @@ export async function runObservedReviewerContainer(
   }
   plan = resolved.plan
   const deadline = Date.now() + (options.timeoutMs ?? 30_000)
-  const commandOptions = () => ({
-    timeoutMs: Math.max(1, deadline - Date.now()),
-    ...(options.signal !== undefined ? { signal: options.signal } : {}),
-  })
+  const commandOptions = () => {
+    if (options.signal?.aborted) throw new ReviewerSetupInterruptedError('cancelled')
+    const timeoutMs = deadline - Date.now()
+    if (timeoutMs <= 0) throw new ReviewerSetupInterruptedError('timed-out')
+    return { timeoutMs, ...(options.signal !== undefined ? { signal: options.signal } : {}) }
+  }
 
   const [bundle, output, ...auth] = await Promise.all([
     stat(plan.bundle.hostPath),
@@ -344,6 +363,7 @@ export async function runObservedReviewerContainer(
       ['pull', options.imageReference],
       commandOptions(),
     )
+    assertSetupCompleted(pulledImage)
     if (pulledImage.exitCode !== 0)
       throw new ReviewerDockerUnavailableError(
         'Docker could not pull the immutable reviewer image reference',
@@ -360,6 +380,7 @@ export async function runObservedReviewerContainer(
     ],
     commandOptions(),
   )
+  assertSetupCompleted(observedImage)
   const observedIdentityMatches = imageIdentity.remote
     ? (() => {
         try {
@@ -374,6 +395,7 @@ export async function runObservedReviewerContainer(
       'Docker could not verify the requested reviewer image ID',
     )
   }
+  const limits = { ...DEFAULT_DOCKER_LIMITS, ...parseDockerLimits(options.dockerLimits ?? {}) }
   const dockerArgs = [
     'create',
     '--name',
@@ -383,6 +405,14 @@ export async function runObservedReviewerContainer(
     '--network',
     'bridge',
     '--read-only',
+    '--memory',
+    `${limits.memoryMiB}m`,
+    '--memory-swap',
+    `${limits.memoryMiB}m`,
+    '--cpus',
+    String(limits.cpus),
+    '--pids-limit',
+    String(limits.pids),
     '--user',
     containerUser,
     '--cap-drop',
@@ -447,11 +477,13 @@ export async function runObservedReviewerContainer(
       })
     )
       throw new Error('Reviewer authentication changed before container creation')
+    const createOptions = commandOptions()
     creationInvoked = true
     let created: CommandResult
     try {
-      created = await runCommand('docker', dockerArgs, commandOptions())
+      created = await runCommand('docker', dockerArgs, createOptions)
       creationResolved = created.termination === 'completed'
+      assertSetupCompleted(created)
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') creationInvoked = false
       throw error
@@ -484,6 +516,7 @@ export async function runObservedReviewerContainer(
     )
       throw new Error('Reviewer authentication contents changed after container creation')
     const inspected = await runCommand('docker', ['inspect', containerName], commandOptions())
+    assertSetupCompleted(inspected)
     if (inspected.exitCode !== 0) {
       throw new ReviewerDockerUnavailableError('Docker could not inspect the reviewer container')
     }
@@ -497,6 +530,10 @@ export async function runObservedReviewerContainer(
           SecurityOpt: string[] | null
           Tmpfs: Record<string, string> | null
           Ulimits: { Name: string; Soft: number; Hard: number }[] | null
+          Memory: number
+          MemorySwap: number
+          NanoCpus: number
+          PidsLimit: number
         }
         Mounts: { Source: string; Destination: string; RW: boolean }[]
       },
@@ -552,6 +589,9 @@ export async function runObservedReviewerContainer(
       throw new Error('Docker reviewer container received an unexpected mount mode')
     }
     containerPolicy = {
+      memoryBytes: container.HostConfig.Memory,
+      nanoCpus: container.HostConfig.NanoCpus,
+      pids: container.HostConfig.PidsLimit,
       readonlyRootfs: container.HostConfig.ReadonlyRootfs,
       user: container.Config.User,
       capDrop: container.HostConfig.CapDrop ?? [],
@@ -562,6 +602,10 @@ export async function runObservedReviewerContainer(
     }
     if (
       container.HostConfig.NetworkMode !== 'bridge' ||
+      containerPolicy.memoryBytes !== limits.memoryMiB * 1024 * 1024 ||
+      container.HostConfig.MemorySwap !== limits.memoryMiB * 1024 * 1024 ||
+      containerPolicy.nanoCpus !== limits.cpus * 1_000_000_000 ||
+      containerPolicy.pids !== limits.pids ||
       !containerPolicy.readonlyRootfs ||
       containerPolicy.user !== containerUser ||
       !containerPolicy.capDrop.includes('ALL') ||
@@ -578,6 +622,7 @@ export async function runObservedReviewerContainer(
       throw new Error('Docker reviewer container did not satisfy the required security policy')
     }
     const started = await runCommand('docker', ['start', containerName], commandOptions())
+    assertSetupCompleted(started)
     if (started.exitCode !== 0) {
       throw new ReviewerDockerUnavailableError(
         `Docker could not start reviewer container: ${started.stderr.trim()}`,

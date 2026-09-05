@@ -1,4 +1,15 @@
-import { chmod, cp, mkdir, mkdtemp, rename, rm, symlink, writeFile } from 'node:fs/promises'
+import {
+  chmod,
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -54,7 +65,7 @@ async function observationCount(root: string): Promise<number> {
 
 async function main() {
   await command(['bun', 'run', 'build'], cliPackageRoot)
-  const root = await mkdtemp(join(tmpdir(), 'factory-review-cli-'))
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'factory-review-cli-')))
   try {
     await command(['git', 'init', '-q'], root)
     const asset = resolve(
@@ -92,14 +103,16 @@ async function main() {
       ],
       root,
     )
-    const environment = {
+    const environment: NodeJS.ProcessEnv = {
       ...process.env,
       FACTORY_CODEX_REVIEW_MODEL: 'gpt-test',
       FACTORY_CODEX_REVIEW_EFFORT: 'high',
       FACTORY_CLAUDE_REVIEW_MODEL: 'claude-test',
       FACTORY_CLAUDE_REVIEW_EFFORT: 'high',
       FACTORY_CODEX_AUTH_FILE: auth,
+      FACTORY_CLAUDE_AUTH_FILE: join(authRoot, 'not-authenticated.json'),
       FACTORY_REVIEWER_IMAGE: image,
+      XDG_CACHE_HOME: join(root, 'update-cache'),
     }
     for (const invalid of [
       ['review', '--pr', '42x'],
@@ -111,10 +124,56 @@ async function main() {
       if (result.code !== 1 || result.output.length === 0)
         throw new Error(`factory review accepted invalid flags: ${invalid.join(' ')}`)
     }
-    const first = await Promise.all([
-      factory(['review', '--session', 'session-review-lab'], root, environment),
-      factory(['review', '--session', 'session-review-lab'], root, environment),
+    environment.XDG_CONFIG_HOME = join(root, 'global-config')
+    await factory(
+      ['configure', '--global', '--docker-memory-mib', '384', '--docker-cpus', '3'],
+      root,
+      environment,
+    )
+    await factory(
+      ['configure', '--repo', '--docker-cpus', '2', '--docker-pids', '64'],
+      root,
+      environment,
+    )
+    const pendingFirst = Promise.all([
+      factory(
+        ['review', '--session', 'session-review-lab', '--docker-cpus', '1'],
+        root,
+        environment,
+      ),
+      factory(
+        ['review', '--session', 'session-review-lab', '--docker-cpus', '1'],
+        root,
+        environment,
+      ),
     ])
+    const deadline = Date.now() + 10_000
+    let observed = false
+    while (!observed && Date.now() < deadline) {
+      const containers = await command(
+        ['docker', 'ps', '-q', '--filter', 'label=factory.review-attempt'],
+        root,
+      )
+      for (const id of containers.split('\n').filter(Boolean)) {
+        const [container] = JSON.parse(await command(['docker', 'inspect', id], root)) as {
+          Mounts: { Source: string }[]
+          HostConfig: { Memory: number; NanoCpus: number; PidsLimit: number }
+        }[]
+        if (!container?.Mounts.some(mount => mount.Source.startsWith(`${root}/`))) continue
+        if (
+          container.HostConfig.Memory !== 384 * 1024 * 1024 ||
+          container.HostConfig.NanoCpus !== 1_000_000_000 ||
+          container.HostConfig.PidsLimit !== 64
+        )
+          throw new Error(
+            'CLI did not apply global, repository, and flag resource preferences to Docker',
+          )
+        observed = true
+      }
+      if (!observed) await Bun.sleep(25)
+    }
+    const first = await pendingFirst
+    if (!observed) throw new Error('CLI resource policy was not observed on an executing reviewer')
     if (first.some(({ code }) => code !== 0))
       throw new Error(
         `concurrent factory review failed: ${first.map(({ output }) => output).join('')}`,
@@ -135,6 +194,25 @@ async function main() {
       throw new Error(
         `factory review retry did not enforce its exact prior ledger: ${second.output}`,
       )
+
+    const timed = await factory(
+      ['review', '--force', '--review-timeout-seconds', '1'],
+      root,
+      environment,
+    )
+    const timedReview = JSON.parse(timed.output) as {
+      disposition: string
+      paths: { manifest: string }
+    }
+    const timedManifest = JSON.parse(
+      await readFile(join(root, '.factory', timedReview.paths.manifest), 'utf8'),
+    ) as { failureReason?: string }
+    if (
+      timed.code !== 1 ||
+      timedReview.disposition !== 'failed' ||
+      timedManifest.failureReason !== 'reviewer-timeout'
+    )
+      throw new Error(`Configured review deadline was not enforced: ${timed.output}`)
 
     const beforeWaiter = await observationCount(root)
     const lockHolder = startFactory(['review', '--force'], root, environment)

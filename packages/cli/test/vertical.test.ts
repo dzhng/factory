@@ -1,5 +1,5 @@
 import { Database } from 'bun:sqlite'
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, spyOn, test } from 'bun:test'
 import { createHash } from 'node:crypto'
 import {
   chmod,
@@ -409,6 +409,166 @@ describe('installed capture vertical', () => {
     expect(new Set(carried.map(record => record.observedAt)).size).toBe(1)
   })
 
+  test('configures bounded reviewer resources with field-wise repository overrides', async () => {
+    const fixture = await createFixture()
+    await command(fixture.factory, ['init'], fixture.repository, fixture.env)
+    const global = await command(
+      fixture.factory,
+      [
+        'configure',
+        '--global',
+        '--docker-memory-mib',
+        '3072',
+        '--docker-cpus',
+        '3',
+        '--review-timeout-seconds',
+        '90',
+      ],
+      fixture.repository,
+      fixture.env,
+    )
+    expect(global.code).toBe(0)
+    expect(JSON.parse(global.stdout.slice(global.stdout.indexOf('\n') + 1)).dockerLimits).toEqual({
+      memoryMiB: 3072,
+      cpus: 3,
+      pids: 256,
+      timeoutSeconds: 90,
+    })
+    const repo = await command(
+      fixture.factory,
+      ['configure', '--repo', '--docker-cpus', '1'],
+      fixture.repository,
+      fixture.env,
+    )
+    expect(repo.code).toBe(0)
+    expect(JSON.parse(repo.stdout.slice(repo.stdout.indexOf('\n') + 1)).dockerLimits).toEqual({
+      memoryMiB: 3072,
+      cpus: 1,
+      pids: 256,
+      timeoutSeconds: 90,
+    })
+    const before = await readFile(join(fixture.repository, '.factory/config.json'), 'utf8')
+    const invalid = await command(
+      fixture.factory,
+      ['configure', '--repo', '--docker-memory-mib', '0'],
+      fixture.repository,
+      fixture.env,
+    )
+    expect(invalid.code).toBe(1)
+    expect(await readFile(join(fixture.repository, '.factory/config.json'), 'utf8')).toBe(before)
+  })
+
+  test('explicit update discovery caches advisory startup warnings and respects repository opt-out', async () => {
+    const fixture = await createFixture()
+    await command(fixture.factory, ['init'], fixture.repository, fixture.env)
+    const fetchSpy = spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ tag_name: 'v99.0.0', draft: false, prerelease: false })),
+    )
+    let stdout = '',
+      stderr = ''
+    try {
+      const code = await runFactoryCli(['upgrade', '--check'], {
+        cwd: fixture.repository,
+        environment: fixture.env,
+        output: {
+          stdout: value => {
+            stdout += value
+          },
+          stderr: value => {
+            stderr += value
+          },
+        },
+      })
+      expect(code).toBe(0)
+      expect(stdout).toContain('99.0.0')
+      expect(fetchSpy).toHaveBeenCalledTimes(1)
+      expect(fetchSpy.mock.calls[0]?.[0]).toBe(
+        'https://api.github.com/repos/dzhng/factory/releases/latest',
+      )
+      const capture = await command(
+        fixture.factory,
+        ['capture', '--provider', 'codex'],
+        fixture.repository,
+        fixture.env,
+        '{}',
+      )
+      expect(capture).toEqual({ code: 0, stdout: '{}\n', stderr: '' })
+      const automatic = await command(
+        fixture.factory,
+        ['review', '--automatic'],
+        fixture.repository,
+        fixture.env,
+      )
+      expect(automatic.stderr).toBe('')
+      const cache = join(fixture.home, '.cache/factory/update-check.json')
+      expect((await lstat(cache)).mode & 0o777).toBe(0o600)
+      fetchSpy.mockRejectedValue(new Error('Startup must not fetch'))
+      stdout = ''
+      stderr = ''
+      await runFactoryCli(['configure', '--repo'], {
+        cwd: fixture.repository,
+        environment: fixture.env,
+        output: {
+          stdout: value => {
+            stdout += value
+          },
+          stderr: value => {
+            stderr += value
+          },
+        },
+      })
+      expect(stderr).toContain('Factory 99.0.0 is available')
+      expect(fetchSpy).toHaveBeenCalledTimes(1)
+      await command(
+        fixture.factory,
+        ['configure', '--repo', '--update-checks', 'false'],
+        fixture.repository,
+        fixture.env,
+      )
+      stderr = ''
+      await runFactoryCli(['configure', '--repo'], {
+        cwd: fixture.repository,
+        environment: fixture.env,
+        output: {
+          stdout: () => {},
+          stderr: value => {
+            stderr += value
+          },
+        },
+      })
+      expect(stderr).toBe('')
+    } finally {
+      fetchSpy.mockRestore()
+    }
+  })
+
+  test('update discovery refuses oversized release data without replacing a cached observation', async () => {
+    const fixture = await createFixture()
+    const cache = join(fixture.home, '.cache/factory/update-check.json')
+    await mkdir(join(fixture.home, '.cache/factory'), { recursive: true })
+    const previous = JSON.stringify({ schemaVersion: 1, checkedAt: Date.now(), version: '98.0.0' })
+    await writeFile(cache, previous)
+    const fetchSpy = spyOn(globalThis, 'fetch').mockResolvedValue(new Response('x'.repeat(65537)))
+    try {
+      let stderr = ''
+      const code = await runFactoryCli(['upgrade', '--check'], {
+        cwd: fixture.repository,
+        environment: fixture.env,
+        output: {
+          stdout: () => {},
+          stderr: value => {
+            stderr += value
+          },
+        },
+      })
+      expect(code).toBe(1)
+      expect(stderr).toContain('exceeds size bound')
+      expect(await readFile(cache, 'utf8')).toBe(previous)
+    } finally {
+      fetchSpy.mockRestore()
+    }
+  })
+
   test('preserves unrelated global settings during a partial configure update', async () => {
     const value = await createFixture()
     expect(
@@ -470,6 +630,48 @@ describe('installed capture vertical', () => {
     ).toBe(0)
     const repoReview = await command(value.factory, ['review'], value.repository, value.env)
     expect(JSON.parse(repoReview.stdout).reviewer.provider).toBe('codex')
+  })
+
+  test('configured deadline records a timeout while Docker is acquiring the reviewer image', async () => {
+    const fixture = await createFixture()
+    await command(fixture.factory, ['init'], fixture.repository, fixture.env)
+    const docker = join(fixture.root, 'bin', 'docker')
+    await writeFile(
+      docker,
+      '#!/bin/sh\ncase "$1" in\nversion) echo 27.5.1;;\npull) exec sleep 10;;\n*) exit 1;;\nesac\n',
+    )
+    await chmod(docker, 0o755)
+    const auth = join(fixture.root, 'auth.json')
+    await writeFile(auth, 'fake-provider-credential', { mode: 0o444 })
+    // The product refuses root-owned credentials. Only this disposable fixture
+    // changes owner when the outer Docker test runner itself runs as root.
+    const rootRunner = process.getuid?.() === 0
+    if (rootRunner)
+      expect(
+        (await command('chown', ['-R', '1000:1000', fixture.root], fixture.repository, fixture.env))
+          .code,
+      ).toBe(0)
+    const review = await command(
+      rootRunner ? 'setpriv' : fixture.factory,
+      [
+        ...(rootRunner ? ['--reuid=1000', '--regid=1000', '--clear-groups', fixture.factory] : []),
+        'review',
+        '--review-timeout-seconds',
+        '1',
+      ],
+      fixture.repository,
+      {
+        ...fixture.env,
+        FACTORY_CODEX_AUTH_FILE: auth,
+        FACTORY_CLAUDE_AUTH_FILE: join(fixture.root, 'missing-auth'),
+      },
+    )
+    expect(review.code).toBe(1)
+    const result = JSON.parse(review.stdout) as { paths: { manifest: string } }
+    const manifest = JSON.parse(
+      await readFile(join(fixture.repository, '.factory', result.paths.manifest), 'utf8'),
+    )
+    expect(manifest.failureReason).toBe('reviewer-timeout')
   })
 
   test('open refresh observes canonical drift without changing repository configuration', async () => {

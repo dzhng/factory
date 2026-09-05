@@ -6,6 +6,12 @@ or provider-auth targets outside the selected provider's namespace. Execution
 then observes the container Docker actually created, rather than treating the
 requested arguments as proof.
 
+Resource ceilings come from the effective configuration, while security isolation
+is fixed. The observed Docker configuration must match the requested CPU, memory,
+and process limits before execution; memory cannot silently spill into extra swap.
+The host owns the separate execution deadline and cleanup even if the provider
+does not cooperate.
+
 The reviewer package never discovers repository state or review subjects. It
 uses each authenticated CLI's conventional provider-owned credential location by
 default, with explicit file paths reserved for nonstandard installations and

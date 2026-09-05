@@ -122,6 +122,11 @@ model service. Review containers are removed after completion; reusable caches,
 if introduced, must remain non-authoritative and must not contain credentials or
 review evidence.
 
+CPU, memory, process-count, and execution-time ceilings are configurable within
+bounded schema ranges. Docker must report the selected CPU, memory, process,
+and no-extra-swap ceilings before the provider starts. These preferences cannot
+relax the fixed mount, identity, capability, filesystem, or network policy.
+
 The review bundle is the security and reproducibility boundary. It pins the
 workspace or PR subject, Session evidence watermarks and associations, code
 snapshot, change set, PR and canonical-branch observations, review-policy
@@ -146,6 +151,15 @@ repository-supplied host commands. The hook does not wait for model execution;
 failures remain in review evidence or private diagnostics.
 
 ## Upgrades require release authority
+
+Update discovery is separate from upgrade authority. An explicit
+`factory upgrade --check` can read bounded public release metadata from the
+fixed `dzhng/factory` GitHub release endpoint without authentication or redirects.
+It writes only a private, expiring version observation. Ordinary command startup
+may display that cached warning but never contacts the network or installs an
+update; capture and automatic-review workers do neither. Repository and global
+preferences can disable discovery and warnings. A cache entry cannot authorize
+executable replacement.
 
 Factory replaces its installed executable only from a release artifact whose
 trusted manifest digest, archive inventory, target, source identity, and inner

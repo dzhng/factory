@@ -46,7 +46,7 @@ import {
 import { openRuntimeJournal } from '@factory/runtime-journal'
 
 import { automaticReviewLockPath } from './automatic-review'
-import { globalConfig } from './configuration'
+import { dockerLimitFlags, dockerLimitsFromArgs, globalConfig } from './configuration'
 import { atomicPrivateWrite, readBoundedOrdinaryFile } from './private-files'
 
 type ReviewOutput = { stdout(value: string): void; stderr(value: string): void }
@@ -158,7 +158,13 @@ type ReviewCliOptions = {
 }
 
 function parseReviewOptions(args: readonly string[]): ReviewCliOptions {
-  const valueFlags = new Set(['--pr', '--session', '--fail-on', '--accept-partial'])
+  const valueFlags = new Set([
+    '--pr',
+    '--session',
+    '--fail-on',
+    '--accept-partial',
+    ...Object.keys(dockerLimitFlags),
+  ])
   const booleanFlags = new Set(['--full', '--force', '--automatic'])
   const seen = new Set<string>()
   const values = new Map<string, string>()
@@ -227,7 +233,11 @@ export async function reviewCommand(
   )
   return await withAdvisoryFileLock(subjectLock, 24 * 60 * 60 * 1_000, async () => {
     const repositorySettings = await store.readConfig()
-    const settings = resolveConfiguration({}, repositorySettings, await globalConfig(environment))
+    const settings = resolveConfiguration(
+      { dockerLimits: dockerLimitsFromArgs(args) },
+      repositorySettings,
+      await globalConfig(environment),
+    )
     if (
       options.automatic &&
       (!settings.automaticReview ||
@@ -331,7 +341,8 @@ export async function reviewCommand(
           imageReference,
           imageDigest,
           ...(credential === undefined ? {} : { credential }),
-          timeoutMs: 10 * 60 * 1000,
+          timeoutMs: settings.dockerLimits.timeoutSeconds * 1000,
+          dockerLimits: settings.dockerLimits,
           ...(retryGeneration === undefined ? {} : { retryGeneration }),
         },
       )

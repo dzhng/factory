@@ -41,7 +41,7 @@ import {
 } from '@factory/runtime-journal'
 
 import { scheduleAutomaticReview } from './automatic-review'
-import { globalConfig } from './configuration'
+import { dockerLimitsFromArgs, globalConfig } from './configuration'
 import { runDiagnostics } from './diagnostics'
 import {
   inspectInstallation,
@@ -61,6 +61,7 @@ import {
 } from './private-files'
 import { verifyReleaseArtifact } from './release-manifest'
 import { associateCommand, automaticReviewCommand, reviewCommand } from './review'
+import { cachedUpdateWarning, refreshUpdateCheck, updateChecksEnabled } from './updates'
 import { factoryBuildIdentity } from './version'
 
 export {
@@ -698,6 +699,18 @@ export async function runFactoryCli(
       output.stdout(`${factoryBuildIdentity.version}\n`)
       return 0
     }
+    if (command !== 'capture' && !(command === 'review' && args.includes('--automatic'))) {
+      try {
+        const warning = await cachedUpdateWarning(environment)
+        if (
+          warning !== undefined &&
+          (await updateChecksEnabled(await gitRoot(cwd, environment), environment))
+        )
+          output.stderr(warning)
+      } catch {
+        /* Optional diagnostics never prevent the requested command. */
+      }
+    }
     if (command === 'configure') {
       if (args.includes('--repo') === args.includes('--global')) {
         throw new Error('factory configure requires exactly one of --repo or --global')
@@ -708,6 +721,8 @@ export async function runFactoryCli(
         throw new TypeError('--canonical-branch must be a valid Git branch name')
       }
       const change: GlobalFactoryConfig = {
+        dockerLimits: dockerLimitsFromArgs(args),
+        updateChecks: boolOption(readOption(args, '--update-checks')),
         canonicalBranch,
         automaticReview: boolOption(readOption(args, '--automatic-review')),
       }
@@ -741,6 +756,8 @@ export async function runFactoryCli(
           Object.entries(change).filter(([, value]) => value !== undefined),
         )
         const next = { ...current, ...definedChange }
+        if (change.dockerLimits !== undefined)
+          next.dockerLimits = { ...current.dockerLimits, ...change.dockerLimits }
         await atomicPrivateWrite(path, textEncoder.encode(canonicalJson(next)))
         output.stdout(`${path}\n${canonicalJson(resolveConfiguration({}, {}, next))}`)
       } else {
@@ -754,6 +771,10 @@ export async function runFactoryCli(
             ? undefined
             : await canonicalSuggestion(root, environment, change.canonicalBranch)
         await store.updateConfig({
+          ...(change.dockerLimits === undefined
+            ? {}
+            : { dockerLimits: { ...current.dockerLimits, ...change.dockerLimits } }),
+          ...(change.updateChecks === undefined ? {} : { updateChecks: change.updateChecks }),
           ...(branch === undefined ? {} : { canonicalBranch: branch.branch }),
           ...(change.reviewer === undefined ? {} : { reviewer: change.reviewer }),
           ...(change.automaticReview === undefined
@@ -789,6 +810,21 @@ export async function runFactoryCli(
       return 0
     }
     if (command === 'upgrade') {
+      if (args.includes('--check')) {
+        if (args.length !== 2)
+          throw new Error('--check cannot be combined with upgrade mutation options')
+        if (!(await updateChecksEnabled(await gitRoot(cwd, environment), environment))) {
+          output.stdout('Factory update checks are disabled.\n')
+          return 0
+        }
+        const version = await refreshUpdateCheck(environment)
+        output.stdout(
+          version === undefined
+            ? 'No published stable Factory release found.\n'
+            : `Latest stable Factory release: ${version}. No update was installed.\n`,
+        )
+        return 0
+      }
       const archivePath = readOption(args, '--archive')
       const manifestPath = readOption(args, '--manifest')
       const expectedManifestSha256 = readOption(args, '--manifest-sha256')

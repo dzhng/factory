@@ -3,6 +3,15 @@ import { describe, expect, test } from 'bun:test'
 import { resolveConfiguration, suggestCanonicalBranch } from '../src/index'
 
 describe('capture configuration', () => {
+  test('undefined resource fields inherit lower-precedence values', () => {
+    expect(
+      resolveConfiguration(
+        { dockerLimits: { memoryMiB: undefined } },
+        { dockerLimits: { cpus: 1 } },
+        { dockerLimits: { memoryMiB: 3072 } },
+      ).dockerLimits.memoryMiB,
+    ).toBe(3072)
+  })
   test('resolves flags before repository, global, and defaults', () => {
     expect(
       resolveConfiguration(
@@ -14,7 +23,7 @@ describe('capture configuration', () => {
           repositoryInitialization: 'automatic',
         },
       ),
-    ).toEqual({
+    ).toMatchObject({
       automaticReview: false,
       canonicalBranch: 'repo',
       repositoryInitialization: 'automatic',
@@ -29,7 +38,7 @@ describe('capture configuration', () => {
         { automaticReview: true },
         { repositoryInitialization: 'automatic' },
       ),
-    ).toEqual({
+    ).toMatchObject({
       automaticReview: true,
       repositoryInitialization: 'automatic',
       reviewer: 'auto',

@@ -66,6 +66,14 @@ schema-defined repository policy, including `canonicalBranch`, `reviewer`,
 automatic review, and review limits. Unknown
 fields are preserved by read-modify-write operations.
 
+`dockerLimits` holds optional resource and execution ceilings; `updateChecks`
+controls advisory release discovery and cached warnings. The executable schema
+and ranges live in [the public contract](../../packages/contract/src/index.ts).
+Each resource field merges independently through the configuration precedence
+order. These settings do not grant arbitrary commands, mounts, or weaker
+isolation. Update cache observations are private machine state, never repository
+records or upgrade authority.
+
 Unlike immutable records, configuration does not repeat `schemaVersion`; the
 root manifest selects its schema before it is read. This keeps unknown mutable
 settings preservable without creating a second version authority.

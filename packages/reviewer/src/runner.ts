@@ -1,3 +1,5 @@
+import type { DockerLimits } from '@factory/contract'
+
 import type { ReviewerAdapterInvocation } from './adapter.js'
 import type { MountPlan } from './isolation.js'
 import { runObservedReviewerContainer, type ProbeTermination } from './probe.js'
@@ -10,6 +12,7 @@ export type ReviewerContainerOptions = {
   invocation: ReviewerAdapterInvocation
   containerIdentity: { name: string; label: string }
   timeoutMs: number
+  dockerLimits?: Partial<DockerLimits>
   signal?: AbortSignal
 }
 

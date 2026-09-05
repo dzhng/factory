@@ -4,6 +4,8 @@ import { relative, resolve } from 'node:path'
 
 import {
   canonicalJson,
+  DEFAULT_DOCKER_LIMITS,
+  type DockerLimits,
   isGitBranchName,
   makeOwnedPath,
   newRecordId,
@@ -811,6 +813,8 @@ export function reduceRepository(records: RepositoryRecords): RepositoryProjecti
 }
 
 export type GlobalFactoryConfig = {
+  dockerLimits?: Partial<DockerLimits>
+  updateChecks?: boolean
   repositoryInitialization?: 'explicit' | 'automatic'
   reviewer?: 'auto' | { provider: CaptureProvider; model?: string; effort?: string }
   automaticReview?: boolean
@@ -818,6 +822,8 @@ export type GlobalFactoryConfig = {
 }
 
 export type EffectiveFactoryConfig = {
+  dockerLimits: DockerLimits
+  updateChecks: boolean
   repositoryInitialization: 'explicit' | 'automatic'
   reviewer: NonNullable<GlobalFactoryConfig['reviewer']>
   automaticReview: boolean
@@ -830,11 +836,18 @@ export function resolveConfiguration(
   global: GlobalFactoryConfig,
 ): EffectiveFactoryConfig {
   const merged: EffectiveFactoryConfig = {
+    dockerLimits: { ...DEFAULT_DOCKER_LIMITS },
+    updateChecks: true,
     repositoryInitialization: 'explicit' as const,
     reviewer: 'auto' as const,
     automaticReview: false,
   }
   for (const layer of [global, repository, flags]) {
+    for (const key of Object.keys(DEFAULT_DOCKER_LIMITS) as (keyof DockerLimits)[]) {
+      const value = layer.dockerLimits?.[key]
+      if (value !== undefined) merged.dockerLimits[key] = value
+    }
+    if (layer.updateChecks !== undefined) merged.updateChecks = layer.updateChecks
     if (layer.repositoryInitialization !== undefined)
       merged.repositoryInitialization = layer.repositoryInitialization
     if (layer.reviewer !== undefined) merged.reviewer = layer.reviewer
