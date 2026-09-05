@@ -1,9 +1,25 @@
 import { createHash } from 'node:crypto'
-import { chmod, cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { constants } from 'node:fs'
+import {
+  chmod,
+  cp,
+  mkdir,
+  mkdtemp,
+  open,
+  readFile,
+  realpath,
+  rm,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 
-import { verifyReleaseArtifact, type ReleaseTarget } from '@factory/cli'
+import {
+  RELEASE_ARCHIVE_MAXIMUM_BYTES,
+  RELEASE_METADATA_MAXIMUM_BYTES,
+  verifyReleaseArtifact,
+  type ReleaseTarget,
+} from '@factory/cli'
 
 type CommandResult = { code: number; stdout: string; stderr: string }
 type Journey = { name: string; status: 'passed'; detail: string }
@@ -233,13 +249,37 @@ function html(value: string): string {
   return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
 }
 
+async function readBoundedOrdinaryFile(path: string, maximumBytes: number): Promise<Uint8Array> {
+  const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
+  try {
+    const info = await handle.stat()
+    if (!info.isFile()) throw new Error(`${path} is not an ordinary file`)
+    if (info.size === 0 || info.size > maximumBytes)
+      throw new Error(`${path} exceeds its certification size bound`)
+    const bytes = new Uint8Array(info.size)
+    let offset = 0
+    while (offset < bytes.byteLength) {
+      const { bytesRead } = await handle.read(bytes, offset, bytes.byteLength - offset, offset)
+      if (bytesRead === 0) throw new Error(`${path} changed while certification read it`)
+      offset += bytesRead
+    }
+    if ((await handle.read(new Uint8Array(1), 0, 1, offset)).bytesRead !== 0)
+      throw new Error(`${path} changed while certification read it`)
+    return bytes
+  } finally {
+    await handle.close()
+  }
+}
+
 const archivePath = required('--archive')
 const manifestPath = required('--manifest')
+const expectedVersion = option('--expected-version')
+if (expectedVersion === undefined) throw new Error('--expected-version is required')
 const expectedManifestSha256 = option('--manifest-sha256')
 if (expectedManifestSha256 === undefined) throw new Error('--manifest-sha256 is required')
 const reportRoot = resolve(option('--output') ?? join(tmpdir(), 'factory-release-certification'))
-const archive = await readFile(archivePath)
-const adjacentManifest = await readFile(manifestPath)
+const archive = await readBoundedOrdinaryFile(archivePath, RELEASE_ARCHIVE_MAXIMUM_BYTES)
+const adjacentManifest = await readBoundedOrdinaryFile(manifestPath, RELEASE_METADATA_MAXIMUM_BYTES)
 const adjacent = JSON.parse(adjacentManifest.toString()) as {
   release: { target: ReleaseTarget }
 }
@@ -249,6 +289,8 @@ const release = await verifyReleaseArtifact({
   expectedManifestSha256,
   expectedTarget: adjacent.release.target,
 })
+if (release.version !== expectedVersion)
+  throw new Error('certified release version does not match the requested version')
 // macOS exposes its temporary directory through /var while realpath resolves provider homes
 // through /private/var. Canonicalize once so hook payload paths share the confinement root.
 const scratch = await realpath(await mkdtemp(join(tmpdir(), 'factory-release-')))

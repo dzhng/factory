@@ -61,7 +61,13 @@ import { verifyReleaseArtifact } from './release-manifest'
 import { reviewCommand } from './review'
 import { factoryBuildIdentity } from './version'
 
-export { verifyReleaseArtifact, type ReleaseTarget, type VerifiedRelease } from './release-manifest'
+export {
+  RELEASE_ARCHIVE_MAXIMUM_BYTES,
+  RELEASE_METADATA_MAXIMUM_BYTES,
+  verifyReleaseArtifact,
+  type ReleaseTarget,
+  type VerifiedRelease,
+} from './release-manifest'
 
 type Output = { stdout(value: string): void; stderr(value: string): void }
 type SessionOwner = {

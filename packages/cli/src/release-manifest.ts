@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 
-const maximumArchiveBytes = 96 * 1024 * 1024
-const maximumMetadataBytes = 1024 * 1024
+export const RELEASE_ARCHIVE_MAXIMUM_BYTES = 96 * 1024 * 1024
+export const RELEASE_METADATA_MAXIMUM_BYTES = 1024 * 1024
 const allowedEntries = new Set([
   'factory',
   'manifest.json',
@@ -79,7 +79,8 @@ function sha256(bytes: Uint8Array): string {
 }
 
 function parseJson(bytes: Uint8Array, name: string): JsonObject {
-  if (bytes.byteLength > maximumMetadataBytes) throw new TypeError(`${name} exceeds its size bound`)
+  if (bytes.byteLength > RELEASE_METADATA_MAXIMUM_BYTES)
+    throw new TypeError(`${name} exceeds its size bound`)
   try {
     return object(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)), name)
   } catch (error) {
@@ -111,7 +112,8 @@ function releaseIdentity(value: unknown): {
 }
 
 async function bytes(file: File, name: string): Promise<Uint8Array> {
-  if (file.size > maximumArchiveBytes) throw new TypeError(`${name} exceeds its size bound`)
+  if (file.size > RELEASE_ARCHIVE_MAXIMUM_BYTES)
+    throw new TypeError(`${name} exceeds its size bound`)
   return new Uint8Array(await file.arrayBuffer())
 }
 
@@ -126,7 +128,7 @@ export async function verifyReleaseArtifact(input: {
   expectedManifestSha256: string
   expectedTarget: ReleaseTarget
 }): Promise<VerifiedRelease> {
-  if (input.archive.byteLength === 0 || input.archive.byteLength > maximumArchiveBytes) {
+  if (input.archive.byteLength === 0 || input.archive.byteLength > RELEASE_ARCHIVE_MAXIMUM_BYTES) {
     throw new TypeError('release archive exceeds its size bound')
   }
   const manifestSha256 = sha256(input.adjacentManifest)
@@ -217,7 +219,7 @@ export async function verifyReleaseArtifact(input: {
     'sbom.spdx.json',
   ] as const) {
     const file = files.get(name)!
-    if (file.size === 0 || file.size > maximumMetadataBytes) {
+    if (file.size === 0 || file.size > RELEASE_METADATA_MAXIMUM_BYTES) {
       throw new TypeError(`${name} is empty or exceeds its size bound`)
     }
     const expected = object(metadata[name], `release metadata ${name}`)

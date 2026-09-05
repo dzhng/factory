@@ -64,6 +64,8 @@ await run([
   manifest,
   '--manifest-sha256',
   manifestSha256,
+  '--expected-version',
+  version,
   '--output',
   output,
 ])
