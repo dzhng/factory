@@ -585,10 +585,9 @@ describe('sole repository writer', () => {
 
     await store.publishImmutableGroup(records, commitPath)
     await store.publishImmutableGroup(records, commitPath)
-    expect((await store.readRecords()).records.map(record => record.path)).toEqual([
-      firstPath,
-      commitPath,
-    ])
+    const snapshot = await store.readRecords()
+    expect(snapshot.config).toEqual({})
+    expect(snapshot.records.map(record => record.path)).toEqual([firstPath, commitPath])
   })
 
   test('publishes exact review groups idempotently and isolates each review root', async () => {

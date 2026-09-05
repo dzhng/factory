@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 
 export * from './decisions'
+export * from './ui'
 
 import {
   canonicalJson,

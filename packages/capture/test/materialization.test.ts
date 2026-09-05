@@ -98,6 +98,7 @@ describe('Stop materialization', () => {
     expect(turn.path).toStartWith('sessions/codex/')
     expect(calls).toHaveLength(1)
     const projection = reduceRepository({
+      config: {},
       records: first.records.map(record => ({
         path: record.path,
         value: record.path.endsWith('.json')

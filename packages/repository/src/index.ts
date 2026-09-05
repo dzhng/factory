@@ -33,6 +33,7 @@ import {
   type OwnedPath,
   type RepositoryConfig,
   type RepositoryManifest,
+  type RepositoryRecords as ContractRepositoryRecords,
   type Sha256,
 } from '@factory/contract'
 
@@ -66,9 +67,7 @@ export type ReviewPublicationAuthority = {
   recordObjects: readonly { path: OwnedPath; object: ObjectRef }[]
 }
 
-export type RepositoryRecords = {
-  records: readonly { path: OwnedPath; value: JsonValue | string }[]
-}
+export type RepositoryRecords = ContractRepositoryRecords
 
 export type DecisionRecordAuthority = {
   canonicalBranch: string
@@ -721,7 +720,7 @@ export class RepositoryStore {
       const root = join(this.factoryRoot, area)
       if ((await pathKind(root)) === 'directory') await visit(root, area, 0)
     }
-    return { records }
+    return { config: await this.readConfig(), records }
   }
 
   async createImmutable(path: OwnedPath, bytes: Uint8Array): Promise<RecordRef> {

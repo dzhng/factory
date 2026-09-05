@@ -113,6 +113,14 @@ export type RepositoryConfig = Record<string, JsonValue> & {
   }
 }
 
+/** Complete validated input for rebuildable read projections. */
+export type RepositoryRecords = {
+  /** Mutable policy is part of the observed snapshot because it changes derived views. */
+  config: RepositoryConfig
+  /** Content-addressed object bytes stay behind narrow readers and are never projected wholesale. */
+  records: readonly { path: OwnedPath; value: JsonValue | string }[]
+}
+
 export type SessionIdentity = {
   schemaVersion: 1
   provider: 'codex' | 'claude'
