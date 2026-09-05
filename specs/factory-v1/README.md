@@ -9,7 +9,9 @@ report's mobile correction are integrated. The [0.1.0 candidate](assets/final-ca
 passed CI and exact native deterministic journeys on Linux and macOS, with both
 archives and manifests verified against their source-pinned attestations.
 Resume authenticated certification of those exact bytes once Claude login is
-usable, then publish, consolidate the choices ledger, and close the spec. The
+usable, then publish and close the spec. The [choices ledger](choices.md) is
+consolidated against the implemented code; re-audit it if certification requires
+any further product changes. The
 [capture certificate](assets/live-capture/README.md) now
 records actual callback authority and its current limits. Configurable
 Docker limits and cached update warnings are implemented; their
