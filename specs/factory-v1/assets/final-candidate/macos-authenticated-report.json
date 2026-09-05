@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 1,
+  "artifact": {
+    "version": "0.1.0",
+    "revision": "51ea46c3698c63e358c0c23f27c15b1fa025aa42",
+    "target": "bun-darwin-arm64",
+    "manifestSha256": "9b4b99d177dfd29f4215c74a8c7785d6073dacd082f4bcd0dcf240b0a8114698",
+    "archiveSha256": "b617652a98bec61f855b93d2e6ace2b69605555a91d79755e5e039eccca1c102",
+    "executableSha256": "030f426e1f9196a8900dcec88d8d12a79c5e7a70edb8ca8b40d37dcfc093e0a9"
+  },
+  "platform": {
+    "os": "darwin",
+    "architecture": "arm64",
+    "node": "24.3.0",
+    "bun": "1.3.14",
+    "git": "git version 2.50.1 (Apple Git-155)",
+    "docker": "Docker version 29.4.1, build 055a478"
+  },
+  "providers": {
+    "claude": {
+      "availability": "unavailable",
+      "reason": "missing"
+    },
+    "codex": {
+      "availability": "unavailable",
+      "reason": "missing"
+    }
+  },
+  "authorities": {
+    "providerExecution": "authenticated-production-image",
+    "realProviderCredentials": "authenticated-local-clis",
+    "reviewerImageDigest": "sha256:8b4d1bb63f727a791c5c20084a840cc75963becaa9225612acf6f42858eb561c",
+    "githubReleaseAttestation": "unavailable"
+  },
+  "journeys": [
+    {
+      "name": "install",
+      "status": "passed",
+      "detail": "both provider hooks reconciled"
+    },
+    {
+      "name": "capture",
+      "status": "passed",
+      "detail": "both native provider fixtures stored"
+    },
+    {
+      "name": "review",
+      "status": "passed",
+      "detail": "isolated deterministic review accepted"
+    },
+    {
+      "name": "ui-action",
+      "status": "passed",
+      "detail": "loopback projection confirmed a decision"
+    },
+    {
+      "name": "incremental-coverage",
+      "status": "passed",
+      "detail": "continuing Session advances exact Stop coverage with the accepted prior ledger"
+    },
+    {
+      "name": "unchanged-review",
+      "status": "passed",
+      "detail": "exact prior review reused without Docker or another immutable attempt"
+    },
+    {
+      "name": "review-codex",
+      "status": "passed",
+      "detail": "existing CLI login executed through the production image"
+    },
+    {
+      "name": "review-claude",
+      "status": "passed",
+      "detail": "existing CLI login executed through the production image"
+    },
+    {
+      "name": "diagnostics",
+      "status": "passed",
+      "detail": "repository and installation healthy"
+    },
+    {
+      "name": "upgrade",
+      "status": "passed",
+      "detail": "exact artifact atomically reinstalled"
+    },
+    {
+      "name": "uninstall",
+      "status": "passed",
+      "detail": "owned hooks removed exactly"
+    }
+  ]
+}
