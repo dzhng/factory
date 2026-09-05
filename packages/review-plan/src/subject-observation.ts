@@ -17,7 +17,8 @@ import {
 } from '@factory/github'
 import type { RepositoryStore } from '@factory/repository'
 
-import { loadCandidateEvidence, openReviewRepositoryReader } from './index'
+import { loadCandidateEvidence } from './candidate-loader'
+import { openReviewRepositoryReader } from './repository-reader'
 
 /** Refresh the exact workspace or PR evidence that becomes a review subject. */
 export async function observeReviewSubject(
