@@ -115,6 +115,11 @@ the verified replacement; it must refuse to overwrite bytes that diverged while
 Factory was interrupted. Upgrade never grants authority over repository data or
 provider configuration beyond reconciling Factory's exactly owned hooks.
 
+CI provenance is a separate authority. Main-branch native candidates receive
+GitHub artifact attestations, but an attestation does not replace Factory's
+manifest, archive, target, and executable verification. Pull-request workflows
+remain read-only and cannot mint repository attestations.
+
 ## The local web interface is local
 
 `factory open` starts a short-lived server bound to `127.0.0.1`. It is a view

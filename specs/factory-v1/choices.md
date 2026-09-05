@@ -1623,3 +1623,25 @@ second normative schema; the master specification and format own mechanics.
   authorities it does not possess instead of turning substitutes into passes.
 - **Confidence:** High for the native macOS arm64 harness; the Linux CI lane and
   external attestations remain Pass 5 work.
+
+### Keep packaging evidence distinct from complete certification
+
+- **When:** Slice 12 native CI partitioning.
+- **The choice:** Every push and pull request runs the full repository gate on
+  glibc Linux x64. A second native matrix builds and verifies both release
+  packages; Linux additionally runs the exact-artifact journey because its
+  hosted runner supplies Docker. The hosted macOS arm64 lane records its missing
+  Docker reviewer authority instead of skipping that stage invisibly. Only
+  main-branch candidates may mint GitHub artifact attestations.
+- **The gap:** GitHub-hosted macOS arm64 runners do not supply the Docker
+  authority required by Factory's production review path, while weakening the
+  journey or treating package verification as equivalent would create a false
+  release pass.
+- **The reach:** CI can prevent packaging regressions on both supported targets
+  and certify the complete Linux journey. Automated publication remains out of
+  scope until a macOS arm64 runner with Docker completes the same journey; pull
+  requests retain read-only GitHub permissions.
+- **Verdict:** Sound. Required authority is visible in the job and report model,
+  and provenance cannot compensate for missing behavioral certification.
+- **Confidence:** High in the workflow boundary; macOS release authority remains
+  unavailable.

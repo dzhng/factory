@@ -24,12 +24,14 @@ Status: **in implementation; Slices 01–11 are complete**
 > append-only human actions through `d33b21e`. Slice 11 implements the
 > short-lived loopback interface, shared verified historical projections,
 > typed append-only browser actions, and deterministic visual verification
-> through `77bbf11`. Slice 12 Passes 1–3 add verified release artifacts,
+> through `77bbf11`. Slice 12 Passes 1–4 add verified release artifacts,
 > owner-supplied diagnostics, one tagged installation transaction, and
-> crash-safe executable upgrade through `5522f88`.
-> Next, implement Slice 12 Pass 4: certify the exact packed artifact through
-> clean install, capture, review, actions, UI, diagnostics, uninstall, and
-> upgrade without widening host, repository, or provider authority.
+> crash-safe executable upgrade through `5522f88`, then certify the exact
+> packed macOS arm64 artifact through clean install, capture, review, actions,
+> UI, diagnostics, uninstall, and upgrade at `e478528`.
+> Next, implement Slice 12 Pass 5: land the native CI/release-authority matrix,
+> preserve unavailable macOS hosted-Docker and external-provider authorities as
+> explicit gaps, then run the one-time whole-product review and release audit.
 > Read `AGENTS.md`, `SECURITY.md`, this README, `choices.md`, `format.md`, and
 > Slices 11 and 12 in full.
 > Slice 06's packaged networkless Docker vertical passes both provider fixtures,
@@ -65,8 +67,10 @@ Status: **in implementation; Slices 01–11 are complete**
 > and pre-promotion mutation; a musl x64 lane proves that unsupported libc does
 > not claim release authority. Global TODOs: rerun current-client
 > authority when the registry is reachable; define verified code-state
-> continuity before enabling it; complete exact-artifact certification and the
-> native release matrix.
+> continuity before enabling it; complete the native release matrix. The local
+> macOS arm64 exact-artifact journey passes all seven stages, but its report
+> screenshot gate remains unavailable because the app browser cannot render a
+> local file.
 > After every pass, update this prompt with the completed commit, exact next
 > pickup, blockers, and changed gates.
 

@@ -1,6 +1,6 @@
 # 12 — Installation, diagnostics, upgrade, and release proof
 
-Status: **in implementation**
+Status: **Passes 1–4 complete; Pass 5 in implementation**
 
 ## Resolved release scope
 

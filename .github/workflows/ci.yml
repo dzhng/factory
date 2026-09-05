@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - run: bun install --frozen-lockfile
+      - run: bun run format:check
+      - run: bun run lint
+      - run: bun run check-types
+      - run: bun run build
+      - run: bun run test
+
+  native:
+    needs: quality
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: bun-linux-x64-baseline
+            authority: certified
+          - runner: macos-14
+            target: bun-darwin-arm64
+            authority: package-only
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - run: bun install --frozen-lockfile
+      - name: Check native architecture
+        run: |
+          test "$(uname -m)" = "$(test '${{ matrix.target }}' = bun-darwin-arm64 && echo arm64 || echo x86_64)"
+      - name: Build verified native package
+        run: bun run release:build -- --version "0.0.0-ci.${{ github.run_number }}.${{ github.run_attempt }}" --target "${{ matrix.target }}" --output release
+      - name: Certify exact Linux package journey
+        if: matrix.authority == 'certified'
+        run: bun run release:verify -- --version "0.0.0-ci.${{ github.run_number }}.${{ github.run_attempt }}" --output certification
+      - name: Record unavailable macOS reviewer authority
+        if: matrix.authority == 'package-only'
+        run: echo 'The native macOS package is verified, but full journey certification remains unavailable because GitHub-hosted macOS runners do not provide the required Docker reviewer authority.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Attest release candidate
+        if: github.event_name == 'push'
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            release/*.tar.gz
+            release/*.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}-${{ matrix.authority }}
+          path: |
+            release/*.tar.gz
+            release/*.json
+            certification/*.json
+            certification/*.html
+          if-no-files-found: error
