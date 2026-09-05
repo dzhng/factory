@@ -769,6 +769,9 @@ async function uninstallHooksUnlocked(environment: NodeJS.ProcessEnv): Promise<v
     const patch = removeOwnedHooks(provider, existing, owned.fingerprints)
     await applyHookPatch(provider, owned.path, existing, patch.bytes, state, environment)
   }
+  const root = configRoot(environment)
+  await unlink(join(root, 'hooks-state.json'))
+  await syncDirectory(root)
 }
 
 export async function uninstallHooks(environment: NodeJS.ProcessEnv): Promise<void> {

@@ -257,6 +257,40 @@ async function acceptBundleReview(
 }
 
 describe('installed capture vertical', () => {
+  test('preserves unrelated global settings during a partial configure update', async () => {
+    const value = await createFixture()
+    expect(
+      await command(
+        value.factory,
+        ['configure', '--global', '--canonical-branch', 'trunk', '--automatic-review', 'true'],
+        value.repository,
+        value.env,
+      ),
+    ).toMatchObject({ code: 0 })
+
+    expect(
+      await command(
+        value.factory,
+        [
+          'configure',
+          '--global',
+          '--repository-initialization',
+          'automatic',
+          '--acknowledge-plaintext-evidence',
+        ],
+        value.repository,
+        value.env,
+      ),
+    ).toMatchObject({ code: 0 })
+    expect(
+      JSON.parse(await readFile(join(value.home, '.config', 'factory', 'config.json'), 'utf8')),
+    ).toEqual({
+      automaticReview: true,
+      canonicalBranch: 'trunk',
+      repositoryInitialization: 'automatic',
+    })
+  })
+
   test('configures from GitHub while preserving explicit override and source-aware drift', async () => {
     const value = await createFixture()
     const gh = join(value.root, 'bin', 'gh')
@@ -662,6 +696,13 @@ describe('installed capture vertical', () => {
     expect(
       JSON.parse(await readFile(join(value.home, '.codex', 'hooks.json'), 'utf8')).hooks.Stop,
     ).toEqual([])
+    const afterUninstall = JSON.parse(
+      (await command(value.factory, ['doctor'], value.repository, value.env)).stdout,
+    )
+    expect(afterUninstall.installation.ownership).toBe('absent')
+    await expect(
+      lstat(join(value.home, '.config', 'factory', 'hooks-state.json')),
+    ).rejects.toThrow()
   }, 30_000)
 
   test('keeps a continuing Session in its first repository across branch and repository changes', async () => {

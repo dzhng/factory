@@ -744,9 +744,10 @@ export async function runFactoryCli(
       if (target === 'global') {
         const path = join(configRoot(environment), 'config.json')
         const current = await readJsonObject(path)
-        const next = Object.fromEntries(
-          Object.entries({ ...current, ...change }).filter(([, value]) => value !== undefined),
+        const definedChange = Object.fromEntries(
+          Object.entries(change).filter(([, value]) => value !== undefined),
         )
+        const next = { ...current, ...definedChange }
         await atomicPrivateWrite(path, textEncoder.encode(canonicalJson(next)))
         output.stdout(`${path}\n${canonicalJson(resolveConfiguration({}, {}, next))}`)
       } else {
