@@ -1773,3 +1773,20 @@ second normative schema; the master specification and format own mechanics.
 - **Verdict:** Sound. The smallest supported runtime now opens, appends, and
   closes the real built journal rather than testing an API surrogate.
 - **Confidence:** High.
+
+### Make report status truthful at first glance
+
+- **When:** Final human presentation checkpoints.
+- **The choice:** Repository fixture cards label invalid input separately from
+  successful handling and preserve exact paths without clipping. Release HTML
+  leads with an explicit not-certified verdict and unavailable authority before
+  listing green deterministic journeys.
+- **The gap:** Earlier layouts clipped long evidence paths, and the release
+  report visually emphasized passed fixture journeys while hiding its missing
+  authenticated authority in JSON only.
+- **The reach:** A human can distinguish evidence quality from journey success
+  without reading source or raw JSON. This changes presentation, not release
+  authority or acceptance policy.
+- **Verdict:** Sound. The final fresh, unprimed visual critique accepted both
+  reports with high confidence and found no blocking defect.
+- **Confidence:** High.

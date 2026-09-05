@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Factory repository workbench</title><style>body{font:15px/1.45 system-ui;max-width:1100px;margin:2rem auto;padding:0 1rem;background:#101416;color:#e7efed}h1{font-size:2rem}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1rem}article{background:#182023;border:1px solid #344348;border-radius:10px;padding:1rem}h2{margin-top:0;color:#9ee7d7}pre{overflow:auto;color:#d3dcda}.ok{color:#83e377}</style></head><body><h1>Repository format workbench</h1><p class="ok">Canonical store, typed incompatibility, foreign-content preservation, corruption detection, and CAS-only reconstruction verified.</p><div class="grid"><article><h2>valid</h2><pre>config.json
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Factory repository workbench</title><style>body{font:15px/1.45 system-ui;max-width:1100px;margin:2rem auto;padding:0 1rem;background:#101416;color:#e7efed}h1{font-size:2rem}.grid{display:grid;grid-template-columns:minmax(0,1fr);gap:1rem}article{min-width:0;background:#182023;border:1px solid #5b7377;border-radius:10px;padding:1rem}h2{margin:0;color:#d8efea}.invalid-input{color:#ffca73}.input-kind{margin:.2rem 0;color:#aebcba;font-size:.85rem;text-transform:uppercase;letter-spacing:.04em}.outcome{margin:.25rem 0 .8rem;color:#83e377}pre{margin-bottom:0;overflow-x:auto;white-space:pre;color:#e1e8e6;font-size:.9rem;line-height:1.55}.ok{color:#a8eaa5}</style></head><body><h1>Repository format workbench</h1><p class="ok">All expected handling passed. Each card is a deliberately different fixture, including incomplete and invalid input.</p><div class="grid"><article><h2 class="">valid repository</h2><p class="input-kind">accepted input fixture</p><p class="outcome">✓ expected handling passed: verified without issues</p><pre>config.json
 manifest.json
 objects/
 objects/sha256/
@@ -10,18 +10,18 @@ sessions/codex/session_01/
 sessions/codex/session_01/identity.json
 sessions/codex/session_01/lifecycle/
 sessions/codex/session_01/lifecycle/event_00000000000000000000000000.json</pre></article>
-<article><h2>partial</h2><pre>config.json
+<article><h2 class="">minimal repository</h2><p class="input-kind">accepted input fixture</p><p class="outcome">✓ expected handling passed: verified without invented data</p><pre>config.json
 manifest.json
 review-triggers/
 review-triggers/trigger_00000000000000000000000000.json</pre></article>
-<article><h2>corrupt</h2><pre>config.json
+<article><h2 class="invalid-input">corrupt repository</h2><p class="input-kind">invalid input fixture</p><p class="outcome">✓ expected handling passed: digest mismatch detected</p><pre>config.json
 manifest.json
 objects/
 objects/sha256/
 objects/sha256/ce/
 objects/sha256/ce/a23dd4b87e8b00d19fb9ccaaef93e97353c7353e2070f3baf05aeb3995dff4</pre></article>
-<article><h2>tooNew</h2><pre>manifest.json</pre></article>
-<article><h2>foreign</h2><pre>config.json
+<article><h2 class="invalid-input">too-new repository</h2><p class="input-kind">invalid input fixture</p><p class="outcome">✓ expected handling passed: unsupported version refused</p><pre>manifest.json</pre></article>
+<article><h2 class="">foreign content</h2><p class="input-kind">accepted input fixture</p><p class="outcome">✓ expected handling passed: unknown bytes preserved</p><pre>config.json
 manifest.json
 skills/
 skills/foreign.bin</pre></article></div></body></html>

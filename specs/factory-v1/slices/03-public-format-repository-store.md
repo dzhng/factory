@@ -1,6 +1,6 @@
 # 03 — Public format and repository store
 
-Status: **implemented; the fresh-eyes screenshot checkpoint remains outstanding**
+Status: **implemented; executable and fresh-eyes visual gates pass**
 
 ## Contract
 
@@ -69,6 +69,11 @@ Inspect the golden tree and independent verification report. If a field cannot
 be produced deterministically or verified without runtime state, change
 `format.md` now; do not hide that authority in a later package.
 
+The final repository-workbench capture is retained with its visual review under
+`assets/repository-workbench/`. A fresh, unprimed critique rejected the first
+two layouts for clipped paths and ambiguous fixture semantics; it accepted the
+current full-width, explicitly labeled report with no blocking defect.
+
 ## Implementation evidence
 
 `bun run lab:repository-store` runs the workbench in a network-disabled,
@@ -87,7 +92,6 @@ object substitution and streamed size limits, missing references, truncated
 records, exact CAS path shape, cross-filesystem refusal, and compatibility
 rechecks before mutation.
 
-The HTML was generated and its data assertions passed. The full repository
-workbench passes in the pinned Bun 1.3.14 Docker image. The required fresh-eyes
-PNG critique remains outstanding; it is a human checkpoint, not inferred from
-the data assertions.
+The HTML and PNG were generated and their data assertions passed. The full
+repository workbench passes in the pinned Bun 1.3.14 Docker image, and the final
+fresh-eyes critique accepted the report without a blocking defect.

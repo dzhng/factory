@@ -181,13 +181,23 @@ function escapeHtml(value: string): string {
   return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
 }
 
-const cards = Object.entries(report.fixtures)
+const fixtureLabels: Record<keyof typeof report.fixtures, { title: string; outcome: string }> = {
+  valid: { title: 'valid repository', outcome: 'verified without issues' },
+  partial: { title: 'minimal repository', outcome: 'verified without invented data' },
+  corrupt: { title: 'corrupt repository', outcome: 'digest mismatch detected' },
+  tooNew: { title: 'too-new repository', outcome: 'unsupported version refused' },
+  foreign: { title: 'foreign content', outcome: 'unknown bytes preserved' },
+}
+const invalidFixtures = new Set<keyof typeof report.fixtures>(['corrupt', 'tooNew'])
+const cards = (
+  Object.entries(report.fixtures) as [keyof typeof report.fixtures, { tree: string[] }][]
+)
   .map(
     ([name, fixture]) =>
-      `<article><h2>${escapeHtml(name)}</h2><pre>${escapeHtml(fixture.tree.join('\n'))}</pre></article>`,
+      `<article><h2 class="${invalidFixtures.has(name) ? 'invalid-input' : ''}">${escapeHtml(fixtureLabels[name].title)}</h2><p class="input-kind">${invalidFixtures.has(name) ? 'invalid input fixture' : 'accepted input fixture'}</p><p class="outcome">✓ expected handling passed: ${escapeHtml(fixtureLabels[name].outcome)}</p><pre>${escapeHtml(fixture.tree.join('\n'))}</pre></article>`,
   )
   .join('\n')
-const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Factory repository workbench</title><style>body{font:15px/1.45 system-ui;max-width:1100px;margin:2rem auto;padding:0 1rem;background:#101416;color:#e7efed}h1{font-size:2rem}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1rem}article{background:#182023;border:1px solid #344348;border-radius:10px;padding:1rem}h2{margin-top:0;color:#9ee7d7}pre{overflow:auto;color:#d3dcda}.ok{color:#83e377}</style></head><body><h1>Repository format workbench</h1><p class="ok">Canonical store, typed incompatibility, foreign-content preservation, corruption detection, and CAS-only reconstruction verified.</p><div class="grid">${cards}</div></body></html>\n`
+const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Factory repository workbench</title><style>body{font:15px/1.45 system-ui;max-width:1100px;margin:2rem auto;padding:0 1rem;background:#101416;color:#e7efed}h1{font-size:2rem}.grid{display:grid;grid-template-columns:minmax(0,1fr);gap:1rem}article{min-width:0;background:#182023;border:1px solid #5b7377;border-radius:10px;padding:1rem}h2{margin:0;color:#d8efea}.invalid-input{color:#ffca73}.input-kind{margin:.2rem 0;color:#aebcba;font-size:.85rem;text-transform:uppercase;letter-spacing:.04em}.outcome{margin:.25rem 0 .8rem;color:#83e377}pre{margin-bottom:0;overflow-x:auto;white-space:pre;color:#e1e8e6;font-size:.9rem;line-height:1.55}.ok{color:#a8eaa5}</style></head><body><h1>Repository format workbench</h1><p class="ok">All expected handling passed. Each card is a deliberately different fixture, including incomplete and invalid input.</p><div class="grid">${cards}</div></body></html>\n`
 
 await mkdir(outputRoot, { recursive: true })
 await writeFile(join(outputRoot, 'report.json'), canonicalJson(report))
