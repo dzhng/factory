@@ -72,7 +72,7 @@ const securityHeaders = {
   'X-Frame-Options': 'DENY',
 } as const
 
-function response(body: BodyInit | null, status: number, contentType: string): Response {
+function response(body: string | null, status: number, contentType: string): Response {
   return new Response(body, {
     status,
     headers: { ...securityHeaders, 'Content-Type': contentType },
