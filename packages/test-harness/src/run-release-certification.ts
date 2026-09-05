@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { chmod, cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 
@@ -7,6 +7,9 @@ import { verifyReleaseArtifact, type ReleaseTarget } from '@factory/cli'
 
 type CommandResult = { code: number; stdout: string; stderr: string }
 type Journey = { name: string; status: 'passed'; detail: string }
+
+const COMMAND_TIMEOUT_MS = 5 * 60 * 1_000
+const COMMAND_OUTPUT_LIMIT = 8 * 1024 * 1024
 
 function option(name: string): string | undefined {
   const index = process.argv.indexOf(name)
@@ -33,12 +36,39 @@ async function command(
     stdout: 'pipe',
     stderr: 'pipe',
   })
-  const [code, stdout, stderr] = await Promise.all([
-    child.exited,
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-  ])
-  return { code, stdout, stderr }
+  const readBounded = async (stream: ReadableStream<Uint8Array>, name: string) => {
+    let size = 0
+    const chunks: Uint8Array[] = []
+    for await (const chunk of stream) {
+      size += chunk.byteLength
+      if (size > COMMAND_OUTPUT_LIMIT) throw new Error(`${name} exceeded its output bound`)
+      chunks.push(chunk.slice())
+    }
+    return Buffer.concat(chunks.map(chunk => Buffer.from(chunk))).toString()
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    const [code, stdout, stderr] = await Promise.race([
+      Promise.all([
+        child.exited,
+        readBounded(child.stdout, 'stdout'),
+        readBounded(child.stderr, 'stderr'),
+      ]),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(
+          () => reject(new Error('certification command timed out')),
+          COMMAND_TIMEOUT_MS,
+        )
+      }),
+    ])
+    return { code, stdout, stderr }
+  } catch (error) {
+    child.kill(9)
+    await child.exited.catch(() => undefined)
+    throw error
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
 }
 
 async function succeed(
@@ -95,6 +125,8 @@ async function replayProvider(
   )) {
     row.cwd = repository
     if (row.transcript_path !== undefined) row.transcript_path = transcript
+    if (row.last_assistant_message !== undefined)
+      row.last_assistant_message = 'Stale transcript answer.'
     const hook = config.hooks[String(row.hook_event_name)].at(-1).hooks[0]
     const result =
       provider === 'codex'
@@ -129,50 +161,68 @@ async function openAndConfirmDecision(
     stderr: 'pipe',
   })
   const reader = child.stdout.getReader()
-  let output = ''
-  let origin: string | undefined
-  while (origin === undefined) {
-    const next = await reader.read()
-    if (next.done) break
-    output += new TextDecoder().decode(next.value)
-    origin = output.split('\n').find(line => /^http:\/\/127\.0\.0\.1:\d+$/.test(line))
-  }
-  if (origin === undefined) {
-    child.kill()
-    throw new Error('factory open did not publish its loopback origin')
-  }
-  const snapshot = (await (await fetch(`${origin}/api/snapshot`)).json()) as {
-    state: string
-    decisions: {
-      stateFingerprint: string
-      lineages: {
-        observations: { humanStatus: string; observation: { observationId: string } }[]
-      }[]
+  try {
+    let output = ''
+    let origin: string | undefined
+    const deadline = Date.now() + 10_000
+    while (origin === undefined && Date.now() < deadline) {
+      const remaining = deadline - Date.now()
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const next = await Promise.race([
+        reader.read(),
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => reject(new Error('factory open startup timed out')), remaining)
+        }),
+      ]).finally(() => {
+        if (timer !== undefined) clearTimeout(timer)
+      })
+      if (next.done) break
+      output += new TextDecoder().decode(next.value)
+      if (Buffer.byteLength(output) > 64 * 1024)
+        throw new Error('factory open startup output exceeded its bound')
+      origin = output.split('\n').find(line => /^http:\/\/127\.0\.0\.1:\d+$/.test(line))
     }
+    if (origin === undefined) throw new Error('factory open did not publish its loopback origin')
+    const signal = AbortSignal.timeout(5_000)
+    const snapshot = (await (await fetch(`${origin}/api/snapshot`, { signal })).json()) as {
+      state: string
+      decisions: {
+        stateFingerprint: string
+        lineages: {
+          observations: { humanStatus: string; observation: { observationId: string } }[]
+        }[]
+      }
+    }
+    if (snapshot.state !== 'ready')
+      throw new Error('factory open did not render a ready projection')
+    const decision = snapshot.decisions.lineages
+      .flatMap(lineage => lineage.observations)
+      .find(observation => observation.humanStatus === 'unconfirmed')
+    if (decision === undefined) throw new Error('review decision was not visible in factory open')
+    const session = (await (await fetch(`${origin}/api/session`, { signal })).json()) as {
+      csrfToken: string
+    }
+    const response = await fetch(`${origin}/api/actions/decision`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: origin,
+        'X-Factory-CSRF': session.csrfToken,
+      },
+      body: JSON.stringify({
+        actionId: 'action_00000000000000000000000031',
+        kind: 'confirm',
+        targetObservationId: decision.observation.observationId,
+        expectedStateFingerprint: snapshot.decisions.stateFingerprint,
+      }),
+      signal,
+    })
+    if (response.status !== 201) throw new Error('factory open rejected the decision action')
+  } finally {
+    child.kill()
+    await child.exited.catch(() => undefined)
+    reader.releaseLock()
   }
-  if (snapshot.state !== 'ready') throw new Error('factory open did not render a ready projection')
-  const decision = snapshot.decisions.lineages
-    .flatMap(lineage => lineage.observations)
-    .find(observation => observation.humanStatus === 'unconfirmed')
-  if (decision === undefined) throw new Error('review decision was not visible in factory open')
-  const session = (await (await fetch(`${origin}/api/session`)).json()) as { csrfToken: string }
-  const response = await fetch(`${origin}/api/actions/decision`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Origin: origin,
-      'X-Factory-CSRF': session.csrfToken,
-    },
-    body: JSON.stringify({
-      actionId: 'action_00000000000000000000000031',
-      kind: 'confirm',
-      targetObservationId: decision.observation.observationId,
-      expectedStateFingerprint: snapshot.decisions.stateFingerprint,
-    }),
-  })
-  if (response.status !== 201) throw new Error('factory open rejected the decision action')
-  child.kill()
-  await child.exited
 }
 
 function digest(bytes: Uint8Array): string {
@@ -199,7 +249,9 @@ const release = await verifyReleaseArtifact({
   expectedManifestSha256,
   expectedTarget: adjacent.release.target,
 })
-const scratch = await mkdtemp(join(tmpdir(), 'factory-release-'))
+// macOS exposes its temporary directory through /var while realpath resolves provider homes
+// through /private/var. Canonicalize once so hook payload paths share the confinement root.
+const scratch = await realpath(await mkdtemp(join(tmpdir(), 'factory-release-')))
 const journeys: Journey[] = []
 
 try {
@@ -295,6 +347,11 @@ try {
     repository: string
     installation: { transaction: string }
     projection: { sessions: unknown[] }
+    providers: Record<
+      'codex' | 'claude',
+      | { availability: 'available'; version: string }
+      | { availability: 'unavailable'; reason: string }
+    >
   }
   if (
     doctor.repository !== 'ok' ||
@@ -352,10 +409,12 @@ try {
     platform: {
       os: process.platform,
       architecture: process.arch,
+      node: process.versions.node,
       bun: Bun.version,
       git: (await succeed('git', ['--version'], scratch, environment)).stdout.trim(),
       docker: (await succeed('docker', ['--version'], scratch, environment)).stdout.trim(),
     },
+    providers: doctor.providers,
     authorities: {
       providerExecution: 'deterministic-isolation-fixture',
       realProviderCredentials: 'unavailable',

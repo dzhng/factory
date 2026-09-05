@@ -1600,3 +1600,26 @@ second normative schema; the master specification and format own mechanics.
   the authority to replace the installation.
 - **Confidence:** High for glibc Linux x64; native macOS artifact certification
   remains Pass 4 release evidence.
+
+### Certify one verified artifact without borrowing host identity
+
+- **When:** Slice 12 exact-artifact certification.
+- **The choice:** The release harness verifies an already packed archive through
+  the public verifier, copies only its minted executable bytes into a disposable
+  home, and drives every product command through that exact path. Provider hook
+  fixtures run through installed configuration, while review uses the production
+  container boundary with a deterministic credential and provider image.
+- **The gap:** Workspace-source journeys can pass while packaging is broken, and
+  a developer login would make release evidence depend on undeclared personal
+  authority. macOS also exposes its temporary directory through `/var` while
+  filesystem identity resolves through `/private/var`, so fixture paths must be
+  canonical before transcript confinement evaluates them.
+- **The reach:** The sanitized report can prove native packaging, capture,
+  review, localhost actions, diagnostics, upgrade, and uninstall without
+  retaining scratch paths or credentials. Real Codex and Claude credentials and
+  GitHub release attestation remain explicitly unavailable until independent
+  release lanes supply them.
+- **Verdict:** Sound. The harness proves the shipped-byte journey and names the
+  authorities it does not possess instead of turning substitutes into passes.
+- **Confidence:** High for the native macOS arm64 harness; the Linux CI lane and
+  external attestations remain Pass 5 work.

@@ -17,6 +17,15 @@ default lab output is written under the operating system's temporary directory.
 The provider oracle is deliberately promoted into the Factory v1 spec because
 it records the evidence used to shape the capture contract.
 
+`bun run release:verify -- --version <version>` builds from a clean committed
+checkout, verifies the resulting archive through the public release boundary,
+and executes that exact native binary in a disposable home and repository. The
+journey covers installation, both provider capture adapters, isolated review,
+one localhost decision action, diagnostics, same-artifact upgrade, and
+uninstallation. Its report distinguishes deterministic fixture authority from
+unavailable real-provider credentials and GitHub release attestation; neither
+is converted into a simulated pass.
+
 The governing capture contract and reslicing triggers live in the
 [Factory v1 specification](../../specs/factory-v1/README.md). Credential and
 container boundaries are owned by [`SECURITY.md`](../../SECURITY.md).
