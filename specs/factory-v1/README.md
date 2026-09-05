@@ -1,14 +1,20 @@
 # Factory v1 specification
 
-Status: **original review findings resolved; completion audit found missing configuration behavior; final certification and publication pending**
+Status: **configuration implemented; reconstruction regression under investigation; final certification and publication pending**
 
 ## Next Agent Prompt
 
-Complete configurable Docker limits and cached update warnings, then reconcile
-the historical capture-oracle authority claims and consolidate the choices
-ledger. These remain requirements, not optional post-v1 work. The
+Resolve the recurring PR-association reconstruction failure, then integrate the
+authenticated capture oracle and consolidate the choices ledger. Configurable
+Docker limits and cached update warnings are implemented; their
+[verification](assets/configuration-completion.md) distinguishes controlled
+fixtures from real Docker observations. The
 [implementation review](assets/implementation-review.md) records the resolved
 original findings. Preserve the boundaries in [SECURITY.md](../../SECURITY.md).
+
+The latest live Claude probe reports revoked OAuth authentication. Earlier
+successful runs remain historical evidence, not final-candidate certification;
+do not publish until both provider authorities are available and proven again.
 
 After implementation settles, dispatch CI with the intended candidate version,
 download its exact native artifacts, and certify the macOS artifact locally with

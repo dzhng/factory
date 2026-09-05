@@ -1,6 +1,6 @@
 # 12 — Installation, diagnostics, upgrade, and release proof
 
-Status: **completion audit requires configurable limits and update warnings; final candidate certification and publication pending**
+Status: **configurable limits and update warnings implemented; final candidate certification and publication pending**
 
 ## Resolved release scope
 
@@ -53,6 +53,10 @@ Diagnostic mode is read-only. Repairs are explicit typed actions. The release
 harness owns certification and introduces no new product authority.
 
 ## Runnable artifact
+
+The [configuration completion evidence](../assets/configuration-completion.md)
+records configurable resource enforcement and cache-only startup warnings.
+These gates do not substitute for final exact-artifact certification.
 
 The CI workflow accepts an explicit candidate version through manual dispatch.
 It applies the same quality, native journey, and attestation gates as main-branch
