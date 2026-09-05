@@ -59,9 +59,23 @@ export type HookPatch = {
   changed: boolean
 }
 
+export type HookEventInspection = {
+  event: string
+  state: 'installed' | 'missing' | 'duplicate' | 'stale'
+  desiredFingerprint: string
+  exactMatches: number
+  exactOwnedMatches: number
+  priorOwnedMatches: number
+  staleOwnedMatches: number
+  factoryLikeUnownedMatches: number
+}
+
+export type HookInspection = { events: readonly HookEventInspection[] }
+
 export interface CaptureAdapter {
   classify(raw: Uint8Array): CaptureEnvelope
   providerResponse(result: CaptureResult): Uint8Array
+  inspectHooks(existing: Uint8Array | undefined, executable: string): HookInspection
   reconcileHooks(existing: Uint8Array | undefined, executable: string): HookPatch
 }
 
@@ -203,13 +217,7 @@ function hookFingerprint(provider: CaptureProvider, event: string, value: unknow
   return sha256(encoder.encode(`${provider}\0${event}\0${JSON.stringify(value)}`))
 }
 
-function reconcileHooks(
-  provider: CaptureProvider,
-  existing: Uint8Array | undefined,
-  executable: string,
-  priorOwned: ReadonlyMap<string, ReadonlySet<string>>,
-): HookPatch {
-  if (!executable.startsWith('/')) throw new TypeError('Factory hook executable must be absolute')
+function parseHookConfiguration(existing: Uint8Array | undefined): JsonObject {
   const decoded = existing === undefined ? {} : (JSON.parse(decoder.decode(existing)) as unknown)
   if (decoded === null || Array.isArray(decoded) || typeof decoded !== 'object') {
     throw new TypeError('provider hook configuration must be a JSON object')
@@ -222,8 +230,79 @@ function reconcileHooks(
   ) {
     throw new TypeError('provider hook configuration hooks must be an object')
   }
-  const hooks = (rawHooks ?? {}) as JsonObject
-  value.hooks = hooks
+  value.hooks = (rawHooks ?? {}) as JsonObject
+  return value
+}
+
+function inspectHooks(
+  provider: CaptureProvider,
+  existing: Uint8Array | undefined,
+  executable: string,
+  priorOwned: ReadonlyMap<string, ReadonlySet<string>>,
+): HookInspection {
+  if (!executable.startsWith('/')) throw new TypeError('Factory hook executable must be absolute')
+  const value = parseHookConfiguration(existing)
+  const hooks = value.hooks as JsonObject
+  const events: HookEventInspection[] = []
+  for (const event of provider === 'codex' ? CODEX_EVENTS : CLAUDE_EVENTS) {
+    const rawGroups = hooks[event]
+    if (rawGroups !== undefined && !Array.isArray(rawGroups)) {
+      throw new TypeError(`provider hook configuration ${event} must be an array`)
+    }
+    const groups = Array.isArray(rawGroups) ? rawGroups : []
+    const desiredFingerprint = hookFingerprint(
+      provider,
+      event,
+      hookGroup(provider, event, executable),
+    )
+    const authority = new Set(priorOwned.get(event) ?? [])
+    const fingerprints = groups.map(group => hookFingerprint(provider, event, group))
+    const exactMatches = fingerprints.filter(
+      fingerprint => fingerprint === desiredFingerprint,
+    ).length
+    const priorOwnedMatches = fingerprints.filter(fingerprint => authority.has(fingerprint)).length
+    const exactOwnedMatches = authority.has(desiredFingerprint) ? exactMatches : 0
+    const staleOwnedMatches = fingerprints.filter(
+      fingerprint => authority.has(fingerprint) && fingerprint !== desiredFingerprint,
+    ).length
+    const factoryLikeUnownedMatches = groups.filter((group, index) => {
+      const fingerprint = fingerprints[index]!
+      return (
+        !authority.has(fingerprint) &&
+        JSON.stringify(group).includes(`capture --provider ${provider}`)
+      )
+    }).length
+    const state =
+      staleOwnedMatches > 0
+        ? 'stale'
+        : exactOwnedMatches > 1
+          ? 'duplicate'
+          : exactOwnedMatches === 1
+            ? 'installed'
+            : 'missing'
+    events.push({
+      event,
+      state,
+      desiredFingerprint,
+      exactMatches,
+      exactOwnedMatches,
+      priorOwnedMatches,
+      staleOwnedMatches,
+      factoryLikeUnownedMatches,
+    })
+  }
+  return { events }
+}
+
+function reconcileHooks(
+  provider: CaptureProvider,
+  existing: Uint8Array | undefined,
+  executable: string,
+  priorOwned: ReadonlyMap<string, ReadonlySet<string>>,
+): HookPatch {
+  if (!executable.startsWith('/')) throw new TypeError('Factory hook executable must be absolute')
+  const value = parseHookConfiguration(existing)
+  const hooks = value.hooks as JsonObject
   const ownedFingerprints: { event: string; fingerprint: string }[] = []
   for (const event of provider === 'codex' ? CODEX_EVENTS : CLAUDE_EVENTS) {
     const rawGroups = hooks[event]
@@ -260,6 +339,7 @@ export function createCaptureAdapter(
   return {
     classify: raw => classify(provider, raw, () => new Date()),
     providerResponse: _result => encoder.encode('{}\n'),
+    inspectHooks: (existing, executable) => inspectHooks(provider, existing, executable, prior),
     reconcileHooks: (existing, executable) => reconcileHooks(provider, existing, executable, prior),
   }
 }
@@ -272,19 +352,8 @@ export function removeOwnedHooks(
   existing: Uint8Array | undefined,
   owned: readonly { event: string; fingerprint: string }[],
 ): HookPatch & { foreignEdited: readonly string[] } {
-  const decoded = existing === undefined ? {} : (JSON.parse(decoder.decode(existing)) as unknown)
-  if (decoded === null || Array.isArray(decoded) || typeof decoded !== 'object') {
-    throw new TypeError('provider hook configuration must be a JSON object')
-  }
-  const value = structuredClone(decoded as JsonObject)
-  if (
-    value.hooks !== undefined &&
-    (value.hooks === null || Array.isArray(value.hooks) || typeof value.hooks !== 'object')
-  ) {
-    throw new TypeError('provider hook configuration hooks must be an object')
-  }
-  const hooks = (value.hooks ?? {}) as JsonObject
-  value.hooks = hooks
+  const value = parseHookConfiguration(existing)
+  const hooks = value.hooks as JsonObject
   const byEvent = new Map<string, Set<string>>()
   for (const item of owned) {
     const values = byEvent.get(item.event) ?? new Set<string>()

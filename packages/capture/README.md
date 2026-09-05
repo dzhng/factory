@@ -12,6 +12,9 @@ graphs and later repair converges the same deterministic bytes.
 Provider adapters own classification, fail-open responses, and hook patch
 plans. They do not write provider configuration or `.factory`; the CLI applies
 provider patches and the repository remains the sole `.factory` writer.
+The same adapters inspect hook semantics: exact, duplicate, and stale entries
+are derived from recorded fingerprints, while edited Factory-like entries are
+reported without becoming removal authority.
 
 Transcript reads are bounded and descriptor-relative beneath the configured
 provider home. Missing, racing, forged, or otherwise unsafe transcript input

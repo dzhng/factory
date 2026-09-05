@@ -1484,3 +1484,19 @@ second normative schema; the master specification and format own mechanics.
 - **Verdict:** Sound. Suggestion and drift use the same ordering without
   collapsing their different authority.
 - **Confidence:** High.
+
+### Keep hook identity and health in the provider adapter
+
+- **When:** Slice 12 installation inspection pass.
+- **The choice:** Capture adapters expose a pure event-by-event hook inspection
+  using the same desired-value construction and fingerprints as reconciliation.
+  Exact, duplicate, and stale recorded entries are distinguished from edited
+  Factory-like entries, which remain unowned diagnostic candidates.
+- **The gap:** The CLI could previously report only its private ownership-state
+  file; interpreting actual provider configuration elsewhere would duplicate
+  the fingerprint algorithm or accidentally claim edited user data.
+- **The reach:** Installation diagnostics and reconciliation share one semantic
+  owner. Removing a hook still requires an exact recorded fingerprint; visual
+  similarity or command text never grants deletion authority.
+- **Verdict:** Sound. Observation becomes richer without weakening ownership.
+- **Confidence:** High.
