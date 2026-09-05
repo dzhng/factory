@@ -1,6 +1,6 @@
 # 12 — Installation, diagnostics, upgrade, and release proof
 
-Status: **implementation complete; release acceptance blocked on external authority**
+Status: **implementation completion in progress; release acceptance not granted**
 
 ## Resolved release scope
 
@@ -104,16 +104,17 @@ pruning or heuristic grouping.
 
 ## Release acceptance
 
-All five implementation passes are complete through `3f6d8ae`. GitHub Actions
+The original five implementation passes landed through `3f6d8ae`. GitHub Actions
 run `33950555193` passed the repository gate, exact glibc Linux x64-baseline
 certification, native macOS arm64 package verification, and attestations for
 both candidates. The local native macOS arm64 exact-artifact journey passed all
 seven deterministic stages.
 
-Release remains blocked until dedicated Codex and Claude Code test credentials
-certify the packaged production path and a macOS arm64 environment with Docker
-completes that same path. Automated publication must not turn package-only
-macOS evidence into a release claim. The local HTML report screenshot is also
-unavailable because the app browser refused local-file rendering; this is a
-human presentation checkpoint, not a substitute for either missing execution
-authority.
+A completion audit found two implementable release gaps: no production reviewer
+image is published, and the certification harness has no authenticated mode for
+explicitly supplied dedicated Codex and Claude Code credentials. Release remains
+blocked until those seams exist, both providers certify the packaged production
+path, and a macOS arm64 environment with Docker completes that same path.
+Automated publication must not turn package-only macOS evidence into a release
+claim. The local HTML report screenshot is also an outstanding human
+presentation checkpoint, not a substitute for missing execution authority.

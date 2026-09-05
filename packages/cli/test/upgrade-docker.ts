@@ -28,6 +28,6 @@ async function run(image: string, test: string): Promise<number> {
   return await child.exited
 }
 
-let code = await run('oven/bun:1.3.11', 'upgrade.test.ts')
-if (code === 0) code = await run('oven/bun:1.3.11-alpine', 'release-target.test.ts')
+let code = await run('oven/bun:1.3.14', 'upgrade.test.ts')
+if (code === 0) code = await run('oven/bun:1.3.14-alpine', 'release-target.test.ts')
 process.exit(code)

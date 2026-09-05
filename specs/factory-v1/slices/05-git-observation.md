@@ -69,7 +69,7 @@ retain typed partiality; do not invoke mutating Git commands to compensate.
 ## Implemented evidence
 
 `bun run lab:git-observation` runs in a network-disabled, read-only Docker
-environment with Git and the pinned locally available Bun 1.3.11. It emits a
+environment with Git and the repository-pinned Bun 1.3.14. It emits a
 sanitized ordinary reconstruction and a deliberately raced capture under
 `assets/git-observation-workbench/`. The Docker suite covers raw non-UTF-8
 paths, ordinary/executable modes, safe/escaping/cyclic symbolic links, unborn

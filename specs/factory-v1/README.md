@@ -1,6 +1,6 @@
 # Factory v1 specification
 
-Status: **implementation complete; release acceptance blocked on external authority**
+Status: **implementation completion in progress; release acceptance not yet granted**
 
 ## Next Agent Prompt
 
@@ -32,12 +32,13 @@ Status: **implementation complete; release acceptance blocked on external author
 > the native CI and release-authority matrix through `3f6d8ae`; GitHub Actions
 > run `33950555193` passes the whole repository gate, exact glibc Linux
 > x64-baseline certification, native macOS arm64 package verification, and
-> attestations for both candidates. The final independent review is clean.
-> All implementation slices are complete. The next pickup is release
-> acceptance: run the packaged production path with dedicated Codex and Claude
-> Code test credentials, and run the complete macOS arm64 journey on an
-> environment that provides Docker. Do not publish or mark v1 shipped until
-> both authorities pass.
+> attestations for both candidates. Milestone `40614cb` adds the explicit
+> manual Session-to-PR workflow and carries assertions into later exact PR
+> observations. A completion audit reopened implementation: Factory still needs
+> a published production reviewer image and an authenticated release-
+> certification mode before release acceptance. It must also run the complete
+> macOS arm64 journey on an environment that provides Docker. Do not publish or
+> mark v1 shipped until those authorities pass.
 > Read `AGENTS.md`, `SECURITY.md`, this README, `choices.md`, `format.md`, and
 > Slices 11 and 12 in full.
 > Slice 06's packaged networkless Docker vertical passes both provider fixtures,
@@ -47,32 +48,33 @@ Status: **implementation complete; release acceptance blocked on external author
 > PR snapshots, typed optional-`gh` failures, rename/fork/GHES identity, exact
 > many-to-many Session associations, force-push invalidation, lifecycle history,
 > bounded provider/CAS/capture work, and crash-safe association batches.
-> Current release blockers: no dedicated provider test credentials exist, and
-> the hosted native macOS arm64 runner lacks Docker reviewer authority. These
-> are explicit unavailable authorities, not passes. Real Codex and Claude
-> execution must run through the packaged production path; never borrow a
-> developer login. Earlier non-blocking evidence gaps remain recorded: Docker
-> registry DNS prevented the pinned current-client refresh, exact Node 22.13
-> journal packaging was unavailable although Node 24 passed, deterministic libc
+> Current release blockers: the production reviewer image is not yet published,
+> no dedicated provider test credentials exist, and the hosted native macOS
+> arm64 runner lacks Docker reviewer authority. These are explicit unavailable
+> authorities, not passes. Real Codex and Claude execution must run through the
+> packaged production path; never borrow a developer login. Earlier
+> non-blocking evidence gaps remain recorded:
+> exact Node 22.13 journal packaging was unavailable although Node 24 passed,
+> deterministic libc
 > `readdir` error injection was unavailable, and the Slice 03/local report
 > browser gates were blocked by local-file policy. Changed gates: all six
 > prior runnable labs, the PR workbench, decision replay, and workspace/PR
 > review-release journeys pass; SQLite was selected from the
 > measured crash candidates;
 > runtime record validation covers every public v1 family plus the public code
-> manifest; the journal passes 32 Docker tests, repository storage 14, and Git
-> observation/reconstruction 36; the GitHub workspace passes 19 Docker tests
-> with 147 assertions; the combined workspace passes build, formatting, lint,
+> manifest; the journal passes 37 Docker tests, repository storage 19, and Git
+> observation/reconstruction 39; the GitHub workspace passes 21 Docker tests
+> with 156 assertions; the combined workspace passes build, formatting, lint,
 > types, and all package tests; the localhost lab matches eight wide/narrow
 > screenshots across twelve scenarios, fresh unprimed critique found no
-> blocking visual defect, and the packaged CLI passes 25 Docker verticals with
-> 249 assertions, including real loopback actions that preserve prior evidence
+> blocking visual defect, and the packaged CLI passes 27 Docker verticals with
+> 273 assertions, including real loopback actions that preserve prior evidence
 > bytes. A dedicated glibc Linux x64 lane passes eight executable-upgrade tests
 > with 79 assertions across every journal boundary, hostile state, contention,
 > and pre-promotion mutation; a musl x64 lane proves that unsupported libc does
 > not claim release authority. Global TODOs: rerun current-client authority when
-> the registry is reachable; define verified code-state continuity before
-> enabling it. The local macOS arm64 exact-artifact journey passes all seven
+> define verified code-state continuity before enabling it. The local macOS
+> arm64 exact-artifact journey passes all seven
 > deterministic stages, but the hosted macOS lane remains package-only because
 > it lacks Docker. Its report screenshot gate remains unavailable because the
 > app browser cannot render a local file.
@@ -385,7 +387,8 @@ Factory is a Bun/Turborepo monorepo targeting Node.js 22 or newer:
 packages/
   contract/       public schemas, IDs, version gates, owned-path types
   repository/     sole .factory writer, CAS, safe Git observation/reconstruction
-  capture/        Codex/Claude adapters, runtime journal, Turn materialization
+  runtime-journal/private Git-common capture journal and recovery authority
+  capture/        Codex/Claude adapters and Turn materialization
   github/         optional gh boundary, PR observations and exact artifacts
   domain/         pure association, coverage, decision, and UI projections
   review/         planning, bundles, validation, immutable review acceptance
@@ -400,8 +403,9 @@ apps/
 Packages must add ownership or project semantics; no package may exist merely
 to re-export another. The committed format belongs to `contract` and is written
 only through `repository`; it never belongs to the UI or CLI presentation
-layer. Only `repository` may write `.factory`. Only `capture` may write the
-runtime journal. Only `reviewer` may construct Docker invocations. Provider
+layer. Only `repository` may write `.factory`. Only `runtime-journal` may write
+the runtime journal; `capture` consumes that authority. Only `reviewer` may
+construct Docker invocations. Provider
 processes and `gh` are invoked through typed adapters, never shell strings.
 `capture` owns provider-specific hook patch plans; `cli` applies those plans.
 `domain` only folds records; `review` validates action requests and asks
@@ -439,9 +443,12 @@ localhost UI without GitHub.
 
 ## Versioning and evolution
 
-Every public file declares `schemaVersion`. `.factory/manifest.json` declares
-the repository format and `minimumReaderVersion`. Readers preserve unknown
-Factory namespace content and unknown provider evidence.
+Every public immutable record declares `schemaVersion`. Mutable
+`.factory/config.json` is the deliberate exception: its schema is selected by
+the root manifest and unknown fields survive read-modify-write.
+`.factory/manifest.json` declares the repository format and
+`minimumReaderVersion`. Readers preserve unknown Factory namespace content and
+unknown provider evidence.
 
 A CLI reads only enough of the root manifest to compare its version. If the
 minimum reader exceeds it, the CLI stops before mutation and requests an upgrade.

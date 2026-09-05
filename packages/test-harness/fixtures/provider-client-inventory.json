@@ -1,13 +1,14 @@
 {
-  "environment": "host-authority-audit",
+  "environment": "credential-free-docker",
+  "image": "node:22-bookworm-slim",
   "dockerCertification": {
-    "status": "unavailable",
-    "reason": "Docker was reachable, but its daemon could not resolve registry-1.docker.io to build the credential-free pinned-client image."
+    "status": "supported",
+    "evidence": "Both pinned clients returned version and help output without credentials or network access."
   },
   "clients": [
     {
       "provider": "codex",
-      "versionStatus": "observed",
+      "versionStatus": "certified",
       "version": "codex-cli 0.144.4",
       "capabilities": {
         "ephemeral": true,
@@ -18,8 +19,8 @@
     },
     {
       "provider": "claude",
-      "versionStatus": "observed",
-      "version": "2.1.260 (Claude Code)",
+      "versionStatus": "certified",
+      "version": "2.1.261 (Claude Code)",
       "capabilities": {
         "bare": true,
         "includeHookEvents": true,

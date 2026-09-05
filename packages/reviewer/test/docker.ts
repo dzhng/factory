@@ -17,7 +17,7 @@ const child = Bun.spawn(
     '/tmp',
     '--env',
     'FACTORY_DOCKER_TEST=1',
-    'oven/bun:1.3.11',
+    'oven/bun:1.3.14',
     'bun',
     'test',
     '/workspace/packages/reviewer/test/environment-docker.test.ts',

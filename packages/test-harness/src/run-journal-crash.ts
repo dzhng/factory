@@ -93,7 +93,7 @@ const child = Bun.spawn(
     `FACTORY_NODE_SMOKE=${nodeSmoke}`,
     '--env',
     `FACTORY_LINKED_SMOKE=${linkedWorktreeSmoke}`,
-    'oven/bun:1.3.11',
+    'oven/bun:1.3.14',
     'bun',
     'run',
     '/workspace/packages/runtime-journal/test/lab-report.ts',

@@ -22,7 +22,7 @@ const child = Bun.spawn(
     `type=bind,src=${dockerOutput},dst=/output`,
     '--workdir',
     '/workspace',
-    'oven/bun:1.3.11',
+    'oven/bun:1.3.14',
     'bun',
     'run',
     'packages/test-harness/src/review-plan-worker.ts',

@@ -1,6 +1,6 @@
 // The workbench needs Bun, not production runtime authority. Keep this aligned
 // with the pinned local image used when registry access is unavailable.
-const image = 'oven/bun:1.3.11'
+const image = 'oven/bun:1.3.14'
 const repositoryRoot = new URL('../../..', import.meta.url).pathname.replace(/\/$/, '')
 const child = Bun.spawn(
   [

@@ -1,4 +1,4 @@
-FROM oven/bun:1.3.11
+FROM oven/bun:1.3.14
 
 COPY probe.ts /probe.ts
 COPY --chmod=0555 fake-provider.ts /usr/local/bin/codex

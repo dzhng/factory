@@ -21,7 +21,7 @@ const child = Bun.spawn(
     'FACTORY_DOCKER_TEST=1',
     '--env',
     'FACTORY_DISK_FULL_ROOT=/disk-full',
-    'oven/bun:1.3.11',
+    'oven/bun:1.3.14',
     'bun',
     'test',
     '/workspace/packages/runtime-journal/test/journal.test.ts',

@@ -66,6 +66,10 @@ schema-defined repository policy, including `canonicalBranch`, `reviewer`,
 automatic review, and review limits. Unknown
 fields are preserved by read-modify-write operations.
 
+Unlike immutable records, configuration does not repeat `schemaVersion`; the
+root manifest selects its schema before it is read. This keeps unknown mutable
+settings preservable without creating a second version authority.
+
 `reviewer` is either `"auto"`, which defers provider selection until a review
 is created, or an object selecting a provider and optional model and effort.
 Review manifests always record the resolved reviewer object; they never store

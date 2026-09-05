@@ -15,7 +15,7 @@ const result = Bun.spawnSync(
     `type=bind,src=${packageRoot},dst=/workspace,readonly`,
     '--workdir',
     '/workspace',
-    'oven/bun:1.3.11',
+    'oven/bun:1.3.14',
     'bun',
     'docker/provider-process-probe.ts',
   ],

@@ -47,20 +47,20 @@ describe('provider reference oracle', () => {
     }
   })
 
-  test('distinguishes observed client help from unavailable Docker and auth evidence', async () => {
+  test('distinguishes certified client help from unavailable authenticated evidence', async () => {
     const report = await buildProviderOracle()
 
-    expect(report.clientInventory.environment).toEqual('host-authority-audit')
+    expect(report.clientInventory.environment).toEqual('credential-free-docker')
     expect(
       report.clientInventory.clients.map(({ provider, versionStatus }) => [
         provider,
         versionStatus,
       ]),
     ).toEqual([
-      ['codex', 'observed'],
-      ['claude', 'observed'],
+      ['codex', 'certified'],
+      ['claude', 'certified'],
     ])
-    expect(report.clientInventory.dockerCertification.status).toBe('unavailable')
+    expect(report.clientInventory.dockerCertification.status).toBe('supported')
     for (const probe of report.probes) {
       expect(probe.limitations).toContainEqual(
         expect.objectContaining({ code: 'authenticated-live-capture-unavailable' }),

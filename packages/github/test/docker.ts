@@ -1,4 +1,4 @@
-const image = 'oven/bun:1.3.11'
+const image = 'oven/bun:1.3.14'
 const repositoryRoot = new URL('../../..', import.meta.url).pathname.replace(/\/$/, '')
 const child = Bun.spawn(
   [

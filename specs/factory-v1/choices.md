@@ -1668,3 +1668,51 @@ second normative schema; the master specification and format own mechanics.
   and provenance cannot compensate for missing behavioral certification.
 - **Confidence:** High in the workflow boundary; macOS release authority remains
   unavailable.
+
+## Implementation choices — completion audit
+
+### Keep one pinned Bun version across host and Docker gates
+
+- **When:** Whole-spec completion audit.
+- **The choice:** Every Docker runner now uses the repository package-manager
+  version, Bun 1.3.14, and the provider-client oracle was refreshed against
+  Codex 0.144.4 and Claude Code 2.1.261. A version bump must update the host and
+  container gates together.
+- **The gap:** Early slices retained Bun 1.3.11 after the workspace moved to
+  1.3.14, and stale unavailable text obscured a now-runnable authority.
+- **The reach:** CI and promoted lab evidence exercise the same runtime version;
+  exact Node 22.13 certification remains a separate authority.
+- **Verdict:** Sound. One runtime pin prevents a green older container from
+  substituting for the shipped toolchain.
+- **Confidence:** High.
+
+### Let the root manifest version mutable configuration
+
+- **When:** Public-format contract reconciliation.
+- **The choice:** Every immutable public record carries `schemaVersion`.
+  `.factory/config.json` deliberately does not: it is the sole mutable record,
+  its schema is selected by the root manifest, and unknown fields survive
+  read-modify-write.
+- **The gap:** The prose said every public file carried `schemaVersion`, while
+  the frozen config schema and all persisted configuration did not.
+- **The reach:** There is one repository-format compatibility gate rather than
+  a second mutable version owner. A future incompatible config change must
+  raise the manifest's reader requirement.
+- **Verdict:** Sound. The documented contract now matches the executable format
+  without adding an unshipped migration layer.
+- **Confidence:** High.
+
+### Keep runtime-journal as the sole private journal owner
+
+- **When:** Package-ownership reconciliation.
+- **The choice:** `runtime-journal` owns the Git-common private journal and its
+  recovery mechanics; `capture` owns provider adapters and Turn
+  materialization and consumes the journal API.
+- **The gap:** The architecture prose assigned journal writes to `capture`, but
+  the implemented package boundary already made `runtime-journal` the sole
+  writer.
+- **The reach:** The journal remains outside `.factory`, and no second writer or
+  re-export wrapper is introduced merely to preserve stale prose.
+- **Verdict:** Sound. Ownership follows the component that enforces durability
+  and recovery invariants.
+- **Confidence:** High.

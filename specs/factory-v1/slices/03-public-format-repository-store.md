@@ -1,7 +1,6 @@
 # 03 — Public format and repository store
 
-Status: **implemented; the exact Bun 1.3.14 Docker image and browser screenshot
-critique are unavailable in the current environment**
+Status: **implemented; the fresh-eyes screenshot checkpoint remains outstanding**
 
 ## Contract
 
@@ -88,10 +87,7 @@ object substitution and streamed size limits, missing references, truncated
 records, exact CAS path shape, cross-filesystem refusal, and compatibility
 rechecks before mutation.
 
-The HTML was generated and its data assertions passed. Docker ran the suite with
-the locally available Bun 1.3.11 image; repeated pulls of the pinned Bun 1.3.14
-image made no progress, while host-side formatting, types, lint, and builds use
-1.3.14. Exact-image Docker certification therefore remains unavailable rather
-than a pass. The required fresh-eyes PNG critique is also explicitly
-unavailable: the in-app browser security policy blocked navigation to the local
-report, and no alternate capture route was used.
+The HTML was generated and its data assertions passed. The full repository
+workbench passes in the pinned Bun 1.3.14 Docker image. The required fresh-eyes
+PNG critique remains outstanding; it is a human checkpoint, not inferred from
+the data assertions.

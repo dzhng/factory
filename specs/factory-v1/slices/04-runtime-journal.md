@@ -78,10 +78,9 @@ individual and table-wide bounds before parsing or durable acknowledgement.
 
 The same built package completed a host Node 24 SQLite smoke test. Because
 `node:sqlite` is not available throughout the original Node 22 line, this
-package declares Node 22.13 or newer. Exact Node 22.13 and pinned Bun 1.3.14
-container authority were unavailable locally; the Docker suite and report used
-the already-present Bun 1.3.11 image. Those missing exact runtime authorities
-remain release evidence gaps rather than inferred passes.
+package declares Node 22.13 or newer. The complete Docker suite passes in the
+pinned Bun 1.3.14 image. Exact Node 22.13 packaging authority remains a release
+evidence gap rather than an inferred pass.
 
 The human checkpoint resolves provisionally in favor of SQLite over the tested
 mkdir-lock segmented candidate: both completed the concurrency workload, while

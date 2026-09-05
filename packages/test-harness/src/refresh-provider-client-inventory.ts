@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url'
 
 const packageRoot = fileURLToPath(new URL('..', import.meta.url))
 const dockerRoot = `${packageRoot}/docker/provider-clients`
-const image = 'factory-provider-client-oracle:codex-0.144.4-claude-2.1.260'
+const image = 'factory-provider-client-oracle:codex-0.144.4-claude-2.1.261'
 
 function run(arguments_: string[]): string {
   const result = Bun.spawnSync(arguments_, { cwd: packageRoot, stderr: 'pipe', stdout: 'pipe' })
@@ -19,7 +19,7 @@ run([
   '--build-arg',
   'CODEX_VERSION=0.144.4',
   '--build-arg',
-  'CLAUDE_VERSION=2.1.260',
+  'CLAUDE_VERSION=2.1.261',
   '--tag',
   image,
   dockerRoot,

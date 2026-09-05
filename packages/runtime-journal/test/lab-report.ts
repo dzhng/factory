@@ -332,7 +332,7 @@ const report = {
         },
         stop: { p50: quantile(stop, 0.5), p95: quantile(stop, 0.95), max: Math.max(...stop) },
       },
-      packaging: 'Bun 1.3.11 pass; Node smoke reported separately',
+      packaging: 'Bun 1.3.14 pass; Node smoke reported separately',
     },
     segmentedAppendLog: {
       durability: staleLockRemains
