@@ -7,7 +7,7 @@ const repositoryRoot = fileURLToPath(new URL('../../..', import.meta.url)).repla
 const outputRoot = join(repositoryRoot, 'specs', 'factory-v1', 'assets', 'journal-crash')
 await mkdir(outputRoot, { recursive: true })
 
-let nodeSmoke = 'unavailable: exact Node 22 image was not locally available'
+let nodeSmoke = 'unavailable: exact Node 22.13.1 smoke did not run'
 let linkedWorktreeSmoke = 'unavailable'
 const build = Bun.spawn(['bun', 'run', '--cwd', 'packages/runtime-journal', 'build'], {
   cwd: repositoryRoot,
@@ -20,17 +20,29 @@ if (buildExit !== 0) {
   process.exit(buildExit)
 }
 {
-  const smokeRoot = await mkdtemp(join(tmpdir(), 'factory-node-smoke-'))
-  const script = `import('${repositoryRoot}/packages/runtime-journal/dist/index.js').then(async m=>{const j=await m.openRuntimeJournal({testRuntimeRoot:${JSON.stringify(smokeRoot)}});await j.append({provider:'codex',sessionId:'node',generation:0,eventId:'one',eventKind:'turn',occurredAt:'2026-09-04T00:00:00Z',raw:new TextEncoder().encode('node')})})`
-  const node = Bun.spawn(['node', '--input-type=module', '-e', script], {
-    stdout: 'pipe',
-    stderr: 'pipe',
-  })
-  const version = Bun.spawnSync(['node', '--version']).stdout.toString().trim()
-  nodeSmoke =
-    (await node.exited) === 0
-      ? `pass on host Node ${version}; exact Node 22 unavailable`
-      : `failed on host Node ${version}`
+  const script = `import('node:fs/promises').then(async fs=>{await fs.mkdir('/tmp/factory-node-smoke');const m=await import('/workspace/packages/runtime-journal/dist/index.js');const j=await m.openRuntimeJournal({testRuntimeRoot:'/tmp/factory-node-smoke'});await j.append({provider:'codex',sessionId:'node',generation:0,eventId:'one',eventKind:'turn',occurredAt:'2026-09-04T00:00:00Z',raw:new TextEncoder().encode('node')});await j.close();console.log(process.version)})`
+  const node = Bun.spawn(
+    [
+      'docker',
+      'run',
+      '--rm',
+      '--network',
+      'none',
+      '--read-only',
+      '--tmpfs',
+      '/tmp:rw,noexec,nosuid,nodev,size=32m',
+      '--mount',
+      `type=bind,src=${repositoryRoot},dst=/workspace,readonly`,
+      'node:22.13.1-bookworm-slim@sha256:83fdfa2a4de32d7f8d79829ea259bd6a4821f8b2d123204ac467fbe3966450fc',
+      'node',
+      '--input-type=module',
+      '-e',
+      script,
+    ],
+    { stdout: 'pipe', stderr: 'pipe' },
+  )
+  const [exit, stdout] = await Promise.all([node.exited, new Response(node.stdout).text()])
+  nodeSmoke = exit === 0 ? `pass on exact Node ${stdout.trim()}` : 'failed on exact Node 22.13.1'
 }
 
 {

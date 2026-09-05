@@ -76,11 +76,11 @@ An over-limit Turn is reported as typed unavailable work without preventing
 other Session Stops from being recovered. Claim and completion JSON have
 individual and table-wide bounds before parsing or durable acknowledgement.
 
-The same built package completed a host Node 24 SQLite smoke test. Because
-`node:sqlite` is not available throughout the original Node 22 line, this
-package declares Node 22.13 or newer. The complete Docker suite passes in the
-pinned Bun 1.3.14 image. Exact Node 22.13 packaging authority remains a release
-evidence gap rather than an inferred pass.
+Because `node:sqlite` is not available throughout the original Node 22 line,
+this package declares Node 22.13 or newer. The complete Docker suite passes in
+the pinned Bun 1.3.14 image, and the same built package now opens, appends, and
+closes its SQLite journal under the exact pinned Node 22.13.1 image with no
+network or writable host mount.
 
 The human checkpoint resolves provisionally in favor of SQLite over the tested
 mkdir-lock segmented candidate: both completed the concurrency workload, while

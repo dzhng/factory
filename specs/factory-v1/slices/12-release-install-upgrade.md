@@ -110,14 +110,16 @@ certification, native macOS arm64 package verification, and attestations for
 both candidates. The local native macOS arm64 exact-artifact journey passed all
 seven deterministic stages.
 
-A completion audit found two implementable release gaps: no production reviewer
-image is published, and the certification harness has no authenticated mode for
-explicitly supplied dedicated Codex and Claude Code credentials. Release remains
-blocked until those seams exist, both providers certify the packaged production
-path, and a macOS arm64 environment with Docker completes that same path.
-Automated publication must not turn package-only macOS evidence into a release
-claim. The local HTML report screenshot is also an outstanding human
-presentation checkpoint, not a substitute for missing execution authority.
+A completion audit found two implementable release gaps: the production image
+channel and an authenticated certification mode. Both seams now exist. The
+public, attested amd64/arm64 image digest passed the isolation oracle, and a
+local macOS arm64 host with Docker passed the exact-artifact deterministic
+journey. Release remains blocked only on the missing external authority needed
+to execute that journey with explicitly supplied dedicated Codex and Claude
+Code credentials. Automated publication must not turn credential-free or
+package-only evidence into that claim. The local HTML report screenshot is also
+an outstanding human presentation checkpoint, not a substitute for missing
+execution authority.
 
 Milestone `6fc6c64` adds the pinned multi-architecture production image,
 digest-only runtime acquisition, and the GHCR publication/provenance workflow.

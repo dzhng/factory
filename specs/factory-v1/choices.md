@@ -1735,8 +1735,9 @@ second normative schema; the master specification and format own mechanics.
   moved tag.
 - **Verdict:** Sound. The channel is replaceable later without changing the
   immutable review-attempt model.
-- **Confidence:** High in the boundary; public publication remains pending its
-  first successful workflow run.
+- **Confidence:** High. Workflow run `33953530873` published and attested the
+  public amd64/arm64 digest, and that exact remote reference passed the full
+  isolation oracle on macOS arm64 Docker.
 
 ### Make authenticated certification explicit and two-provider complete
 
@@ -1756,3 +1757,19 @@ second normative schema; the master specification and format own mechanics.
   auditable and prevent partial provider coverage from looking complete.
 - **Confidence:** High in the seam; execution remains unavailable until
   dedicated credentials are supplied.
+
+### Certify the journal at the declared Node floor
+
+- **When:** Completion-authority audit.
+- **The choice:** The promoted journal lab now runs the built package in the
+  exact digest-pinned Node 22.13.1 image with no network, a read-only repository
+  mount, and only an ephemeral tmpfs for runtime state.
+- **The gap:** A newer host Node smoke and Bun's SQLite implementation did not
+  prove that the declared minimum Node runtime actually shipped the selected
+  journal engine.
+- **The reach:** The report's packaging acceptance is executable evidence at
+  the compatibility floor. Future changes to the journal or minimum Node
+  version must update this pinned smoke together.
+- **Verdict:** Sound. The smallest supported runtime now opens, appends, and
+  closes the real built journal rather than testing an API surrogate.
+- **Confidence:** High.

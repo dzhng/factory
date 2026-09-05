@@ -48,14 +48,14 @@ Status: **implementation completion in progress; release acceptance not yet gran
 > PR snapshots, typed optional-`gh` failures, rename/fork/GHES identity, exact
 > many-to-many Session associations, force-push invalidation, lifecycle history,
 > bounded provider/CAS/capture work, and crash-safe association batches.
-> Current release blockers: the production reviewer image is not yet published,
-> no dedicated provider test credentials exist, and the hosted native macOS
-> arm64 runner lacks Docker reviewer authority. These are explicit unavailable
-> authorities, not passes. Real Codex and Claude execution must run through the
-> packaged production path; never borrow a developer login. Earlier
-> non-blocking evidence gaps remain recorded:
-> exact Node 22.13 journal packaging was unavailable although Node 24 passed,
-> deterministic libc
+> Milestone `6fc6c64` published the public Linux amd64/arm64 production reviewer
+> image and proved its exact digest through the isolation oracle. Milestone
+> `babb8e0` added an explicit two-provider authenticated certification mode and
+> passed the exact macOS arm64 deterministic release journey. The remaining
+> release blocker is external authority: no dedicated provider test credentials
+> are configured. Real Codex and Claude execution must run through the packaged
+> production path; never borrow a developer login. Earlier non-blocking evidence
+> gaps remain recorded: deterministic libc
 > `readdir` error injection was unavailable, and the Slice 03/local report
 > browser gates were blocked by local-file policy. Changed gates: all six
 > prior runnable labs, the PR workbench, decision replay, and workspace/PR
@@ -68,16 +68,18 @@ Status: **implementation completion in progress; release acceptance not yet gran
 > types, and all package tests; the localhost lab matches eight wide/narrow
 > screenshots across twelve scenarios, fresh unprimed critique found no
 > blocking visual defect, and the packaged CLI passes 27 Docker verticals with
-> 273 assertions, including real loopback actions that preserve prior evidence
+> 275 assertions, including real loopback actions that preserve prior evidence
 > bytes. A dedicated glibc Linux x64 lane passes eight executable-upgrade tests
 > with 79 assertions across every journal boundary, hostile state, contention,
 > and pre-promotion mutation; a musl x64 lane proves that unsupported libc does
 > not claim release authority. Global TODOs: rerun current-client authority when
-> define verified code-state continuity before enabling it. The local macOS
-> arm64 exact-artifact journey passes all seven
-> deterministic stages, but the hosted macOS lane remains package-only because
-> it lacks Docker. Its report screenshot gate remains unavailable because the
-> app browser cannot render a local file.
+> define verified code-state continuity before enabling it. The journal package
+> now passes an exact pinned Node 22.13.1 SQLite smoke. The local macOS arm64
+> exact-artifact journey passes all seven deterministic stages; its authenticated
+> Codex/Claude extension is ready but cannot run without dedicated credentials.
+> The hosted macOS lane remains package-only because it lacks Docker. Its report
+> screenshot gate remains unavailable because the app browser cannot render a
+> local file.
 > After each authority attempt, update this prompt with the exact candidate,
 > evidence, remaining blockers, and changed gates.
 
