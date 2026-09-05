@@ -1,8 +1,8 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
-import { access, lstat, unlink } from 'node:fs/promises'
+import { access, lstat, mkdir, rename, unlink } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { isAbsolute, join } from 'node:path'
+import { dirname, isAbsolute, join } from 'node:path'
 
 import {
   createCaptureAdapter,
@@ -11,15 +11,18 @@ import {
   type HookInspection,
 } from '@factory/capture'
 import { canonicalJson } from '@factory/contract'
+import { withAdvisoryFileLock } from '@factory/repository'
 import type { CaptureProvider } from '@factory/runtime-journal'
 
 import {
+  atomicExecutableWrite,
   atomicPrivateWrite,
   configRoot,
   pathKind,
   readBoundedOrdinaryFile,
   syncDirectory,
 } from './private-files'
+import { assertVerifiedRelease, type VerifiedRelease } from './release-manifest'
 
 const encoder = new TextEncoder()
 const decoder = new TextDecoder('utf-8', { fatal: true })
@@ -198,15 +201,95 @@ type HookReconciliationTransaction = {
   nextState: HookState
 }
 
+type ExecutableReplacementTransaction = {
+  schemaVersion: 1
+  kind: 'executable-replacement'
+  path: string
+  stagedPath: string
+  stage: 'planned' | 'verified'
+  beforeSha256: string
+  afterSha256: string
+  release: {
+    version: string
+    revision: string
+    target: string
+    manifestSha256: string
+  }
+  nextState: HookState
+}
+
+type InstallationTransaction = HookReconciliationTransaction | ExecutableReplacementTransaction
+
+function isSha256(value: unknown): value is string {
+  return typeof value === 'string' && /^[0-9a-f]{64}$/.test(value)
+}
+
 function parseInstallationTransaction(
   value: unknown,
   environment: NodeJS.ProcessEnv,
-): HookReconciliationTransaction {
+): InstallationTransaction {
+  if (value === null || Array.isArray(value) || typeof value !== 'object')
+    throw new Error('interrupted installation transaction is invalid')
+  const candidate = value as Record<string, unknown>
+  if (candidate.kind === 'executable-replacement') {
+    if (
+      !exactKeys(candidate, [
+        'schemaVersion',
+        'kind',
+        'path',
+        'stagedPath',
+        'stage',
+        'beforeSha256',
+        'afterSha256',
+        'release',
+        'nextState',
+      ]) ||
+      candidate.schemaVersion !== 1 ||
+      typeof candidate.path !== 'string' ||
+      !isAbsolute(candidate.path) ||
+      typeof candidate.stagedPath !== 'string' ||
+      dirname(candidate.stagedPath) !== dirname(candidate.path) ||
+      !candidate.stagedPath.startsWith(`${candidate.path}.factory-upgrade-`) ||
+      !candidate.stagedPath.endsWith('.new') ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
+        candidate.stagedPath.slice(`${candidate.path}.factory-upgrade-`.length, -'.new'.length),
+      ) ||
+      (candidate.stage !== 'planned' && candidate.stage !== 'verified') ||
+      !isSha256(candidate.beforeSha256) ||
+      !isSha256(candidate.afterSha256) ||
+      candidate.release === null ||
+      Array.isArray(candidate.release) ||
+      typeof candidate.release !== 'object' ||
+      !exactKeys(candidate.release as Record<string, unknown>, [
+        'version',
+        'revision',
+        'target',
+        'manifestSha256',
+      ])
+    )
+      throw new Error('interrupted installation transaction is invalid')
+    const release = candidate.release as Record<string, unknown>
+    if (
+      typeof release.version !== 'string' ||
+      !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(release.version) ||
+      typeof release.revision !== 'string' ||
+      !/^[0-9a-f]{40}$/.test(release.revision) ||
+      (release.target !== 'bun-darwin-arm64' && release.target !== 'bun-linux-x64-baseline') ||
+      !isSha256(release.manifestSha256)
+    )
+      throw new Error('interrupted installation transaction is invalid')
+    let nextState: HookState
+    try {
+      nextState = parseHookState(candidate.nextState, environment)
+    } catch {
+      throw new Error('interrupted installation transaction is invalid')
+    }
+    if (nextState.executable !== candidate.path)
+      throw new Error('interrupted installation transaction is invalid')
+    return { ...candidate, release, nextState } as ExecutableReplacementTransaction
+  }
   if (
-    value === null ||
-    Array.isArray(value) ||
-    typeof value !== 'object' ||
-    !exactKeys(value as Record<string, unknown>, [
+    !exactKeys(candidate, [
       'schemaVersion',
       'kind',
       'provider',
@@ -218,16 +301,13 @@ function parseInstallationTransaction(
     ])
   )
     throw new Error('interrupted installation transaction is invalid')
-  const candidate = value as Record<string, unknown>
   if (
     candidate.schemaVersion !== 1 ||
     candidate.kind !== 'hook-reconciliation' ||
     (candidate.provider !== 'codex' && candidate.provider !== 'claude') ||
     candidate.path !== providerPath(candidate.provider, environment) ||
-    typeof candidate.beforeSha256 !== 'string' ||
-    !/^[0-9a-f]{64}$/.test(candidate.beforeSha256) ||
-    typeof candidate.afterSha256 !== 'string' ||
-    !/^[0-9a-f]{64}$/.test(candidate.afterSha256) ||
+    !isSha256(candidate.beforeSha256) ||
+    !isSha256(candidate.afterSha256) ||
     typeof candidate.bytes !== 'string' ||
     !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(candidate.bytes)
   )
@@ -243,7 +323,7 @@ function parseInstallationTransaction(
 
 async function readInstallationTransaction(
   environment: NodeJS.ProcessEnv,
-): Promise<HookReconciliationTransaction | undefined> {
+): Promise<InstallationTransaction | undefined> {
   const bytes = await readBoundedOrdinaryFile(
     join(configRoot(environment), 'installation-transaction.json'),
     2 * 1024 * 1024,
@@ -253,11 +333,13 @@ async function readInstallationTransaction(
     : parseInstallationTransaction(JSON.parse(decoder.decode(bytes)), environment)
 }
 
-type ValidatedHookReconciliationTransaction = {
-  journal: HookReconciliationTransaction
-  bytes: Uint8Array
-  currentHash: string
-}
+type ValidatedInstallationTransaction =
+  | { journal: HookReconciliationTransaction; bytes: Uint8Array; currentHash: string }
+  | {
+      journal: ExecutableReplacementTransaction
+      currentHash: string
+      staged: 'missing' | 'available'
+    }
 
 function sameFingerprints(
   left: readonly OwnedFingerprint[],
@@ -272,9 +354,43 @@ function sameFingerprints(
 
 async function validateInstallationTransaction(
   environment: NodeJS.ProcessEnv,
-): Promise<ValidatedHookReconciliationTransaction | undefined> {
+): Promise<ValidatedInstallationTransaction | undefined> {
   const journal = await readInstallationTransaction(environment)
   if (journal === undefined) return undefined
+  if (journal.kind === 'executable-replacement') {
+    if (journal.release.target !== releaseTargetForCurrentHost())
+      throw new Error('interrupted Factory upgrade targets a different platform')
+    const current = await readBoundedOrdinaryFile(journal.path, 96 * 1024 * 1024)
+    if (current === undefined)
+      throw new Error('installed executable disappeared during Factory upgrade')
+    const currentHash = createHash('sha256').update(current).digest('hex')
+    if (currentHash !== journal.beforeSha256 && currentHash !== journal.afterSha256)
+      throw new Error('installed executable changed during interrupted Factory upgrade')
+    const stagedBytes = await readBoundedOrdinaryFile(journal.stagedPath, 96 * 1024 * 1024)
+    if (
+      journal.stage === 'verified' &&
+      currentHash === journal.beforeSha256 &&
+      journal.beforeSha256 !== journal.afterSha256 &&
+      stagedBytes === undefined
+    )
+      throw new Error('verified staged Factory upgrade executable is missing')
+    if (
+      journal.stage === 'verified' &&
+      stagedBytes !== undefined &&
+      createHash('sha256').update(stagedBytes).digest('hex') !== journal.afterSha256
+    )
+      throw new Error('staged Factory upgrade executable is corrupt')
+    if (journal.stage === 'verified' && stagedBytes !== undefined) {
+      await access(journal.stagedPath, constants.X_OK).catch(() => {
+        throw new Error('staged Factory upgrade executable is not executable')
+      })
+    }
+    return {
+      journal,
+      currentHash,
+      staged: stagedBytes === undefined ? 'missing' : 'available',
+    }
+  }
   const bytes = Buffer.from(journal.bytes, 'base64')
   if (createHash('sha256').update(bytes).digest('hex') !== journal.afterSha256)
     throw new Error('interrupted installation transaction bytes are corrupt')
@@ -382,13 +498,44 @@ async function applyHookPatch(
   await syncDirectory(root)
 }
 
-export async function recoverInstallationTransaction(
+async function recoverInstallationTransactionUnlocked(
   environment: NodeJS.ProcessEnv,
 ): Promise<void> {
   const root = configRoot(environment)
   const path = join(root, 'installation-transaction.json')
   const validated = await validateInstallationTransaction(environment)
   if (validated === undefined) return
+  if ('staged' in validated) {
+    if (validated.journal.stage === 'planned') {
+      if (validated.currentHash !== validated.journal.beforeSha256)
+        throw new Error('installed executable changed during interrupted Factory upgrade')
+      if (validated.staged === 'available') {
+        await unlink(validated.journal.stagedPath)
+        await syncDirectory(dirname(validated.journal.stagedPath))
+      }
+      await unlink(path)
+      await syncDirectory(root)
+      return
+    }
+    if (validated.currentHash === validated.journal.beforeSha256) {
+      if (validated.staged === 'missing') {
+        if (validated.journal.beforeSha256 !== validated.journal.afterSha256)
+          throw new Error('verified staged Factory upgrade executable is missing')
+      } else {
+        await promoteVerifiedExecutable(validated.journal)
+      }
+    } else if (validated.staged === 'available') {
+      await unlink(validated.journal.stagedPath)
+      await syncDirectory(dirname(validated.journal.stagedPath))
+    }
+    await atomicPrivateWrite(
+      join(root, 'hooks-state.json'),
+      encoder.encode(canonicalJson(validated.journal.nextState)),
+    )
+    await unlink(path)
+    await syncDirectory(root)
+    return
+  }
   if (validated.currentHash === validated.journal.beforeSha256) {
     await unlink(path)
     await syncDirectory(root)
@@ -402,7 +549,160 @@ export async function recoverInstallationTransaction(
   await syncDirectory(root)
 }
 
-export async function installHooks(
+async function withInstallationLock<T>(
+  environment: NodeJS.ProcessEnv,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const root = configRoot(environment)
+  await mkdir(root, { recursive: true, mode: 0o700 })
+  return await withAdvisoryFileLock(join(root, 'installation.lock'), 30_000, operation)
+}
+
+export async function recoverInstallationTransaction(
+  environment: NodeJS.ProcessEnv,
+): Promise<void> {
+  await withInstallationLock(environment, async () => {
+    await recoverInstallationTransactionUnlocked(environment)
+  })
+}
+
+export function releaseTargetForCurrentHost():
+  | 'bun-darwin-arm64'
+  | 'bun-linux-x64-baseline'
+  | undefined {
+  if (process.platform === 'darwin' && process.arch === 'arm64') return 'bun-darwin-arm64'
+  const report = process.report?.getReport() as
+    | { header?: { glibcVersionRuntime?: unknown } }
+    | undefined
+  if (
+    process.platform === 'linux' &&
+    process.arch === 'x64' &&
+    typeof report?.header?.glibcVersionRuntime === 'string'
+  )
+    return 'bun-linux-x64-baseline'
+  return undefined
+}
+
+async function readBoundedStream(
+  stream: ReadableStream<Uint8Array>,
+  maximumBytes: number,
+): Promise<Uint8Array> {
+  const chunks: Uint8Array[] = []
+  let total = 0
+  for await (const chunk of stream) {
+    total += chunk.byteLength
+    if (total > maximumBytes) throw new Error('staged Factory output exceeds its size bound')
+    chunks.push(chunk.slice())
+  }
+  return Buffer.concat(chunks.map(chunk => Buffer.from(chunk)))
+}
+
+async function verifyStagedExecutable(path: string, version: string): Promise<void> {
+  const child = Bun.spawn([path, '--version'], {
+    env: { PATH: '/usr/bin:/bin', LC_ALL: 'C' },
+    stdout: 'pipe',
+    stderr: 'pipe',
+  })
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    const [code, stdout, stderr] = await Promise.race([
+      Promise.all([
+        child.exited,
+        readBoundedStream(child.stdout, 1024),
+        readBoundedStream(child.stderr, 1024),
+      ]),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error('staged Factory executable timed out')), 5_000)
+      }),
+    ])
+    if (code !== 0 || stderr.byteLength !== 0 || decoder.decode(stdout) !== `${version}\n`) {
+      throw new Error('staged Factory executable failed its version check')
+    }
+  } catch (error) {
+    child.kill(9)
+    await child.exited.catch(() => undefined)
+    throw error
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
+}
+
+async function digestExecutable(path: string, role: 'installed' | 'staged'): Promise<string> {
+  const bytes = await readBoundedOrdinaryFile(path, 96 * 1024 * 1024)
+  if (bytes === undefined) throw new Error(`${role} Factory executable is missing`)
+  await access(path, constants.X_OK).catch(() => {
+    throw new Error(`${role} Factory executable is not executable`)
+  })
+  return createHash('sha256').update(bytes).digest('hex')
+}
+
+async function promoteVerifiedExecutable(
+  transaction: ExecutableReplacementTransaction,
+): Promise<void> {
+  if ((await digestExecutable(transaction.path, 'installed')) !== transaction.beforeSha256)
+    throw new Error('installed executable changed during Factory upgrade')
+  if ((await digestExecutable(transaction.stagedPath, 'staged')) !== transaction.afterSha256)
+    throw new Error('staged Factory upgrade executable changed after verification')
+  await rename(transaction.stagedPath, transaction.path)
+  await syncDirectory(dirname(transaction.path))
+  if ((await digestExecutable(transaction.path, 'installed')) !== transaction.afterSha256)
+    throw new Error('installed Factory executable does not match the verified release')
+}
+
+export async function upgradeInstallation(
+  release: VerifiedRelease,
+  environment: NodeJS.ProcessEnv,
+): Promise<void> {
+  assertVerifiedRelease(release)
+  const expectedTarget = releaseTargetForCurrentHost()
+  if (expectedTarget === undefined || release.target !== expectedTarget)
+    throw new Error('verified release does not match this platform')
+  if (createHash('sha256').update(release.executable).digest('hex') !== release.executableSha256)
+    throw new Error('verified release executable capability changed')
+  await withInstallationLock(environment, async () => {
+    const root = configRoot(environment)
+    await recoverInstallationTransactionUnlocked(environment)
+    const state = await readHookState(environment)
+    if (state === undefined) throw new Error('Factory must be installed before it can be upgraded')
+    const current = await readBoundedOrdinaryFile(state.executable, 96 * 1024 * 1024)
+    if (current === undefined) throw new Error('installed Factory executable is missing')
+    const stagedPath = `${state.executable}.factory-upgrade-${randomUUID()}.new`
+    const transaction: ExecutableReplacementTransaction = {
+      schemaVersion: 1,
+      kind: 'executable-replacement',
+      path: state.executable,
+      stagedPath,
+      stage: 'planned',
+      beforeSha256: createHash('sha256').update(current).digest('hex'),
+      afterSha256: release.executableSha256,
+      release: {
+        version: release.version,
+        revision: release.revision,
+        target: release.target,
+        manifestSha256: release.manifestSha256,
+      },
+      nextState: state,
+    }
+    const journalPath = join(root, 'installation-transaction.json')
+    await atomicPrivateWrite(journalPath, encoder.encode(canonicalJson(transaction)))
+    if (process.env.FACTORY_TEST_UPGRADE_CRASH === 'after-journal')
+      throw new Error('injected crash')
+    await atomicExecutableWrite(stagedPath, release.executable)
+    await verifyStagedExecutable(stagedPath, release.version)
+    transaction.stage = 'verified'
+    await atomicPrivateWrite(journalPath, encoder.encode(canonicalJson(transaction)))
+    if (process.env.FACTORY_TEST_UPGRADE_CRASH === 'after-stage') throw new Error('injected crash')
+    await promoteVerifiedExecutable(transaction)
+    if (process.env.FACTORY_TEST_UPGRADE_CRASH === 'after-executable')
+      throw new Error('injected crash')
+    await atomicPrivateWrite(join(root, 'hooks-state.json'), encoder.encode(canonicalJson(state)))
+    await unlink(journalPath)
+    await syncDirectory(root)
+    await installHooksUnlocked(state.executable, environment)
+  })
+}
+
+async function installHooksUnlocked(
   executable: string,
   environment: NodeJS.ProcessEnv,
 ): Promise<HookState> {
@@ -411,7 +711,7 @@ export async function installHooks(
   await access(executable, constants.X_OK).catch(() => {
     throw new Error('Factory hook executable must be executable')
   })
-  await recoverInstallationTransaction(environment)
+  await recoverInstallationTransactionUnlocked(environment)
   let state: HookState = (await readHookState(environment)) ?? {
     schemaVersion: 1,
     executable,
@@ -437,8 +737,17 @@ export async function installHooks(
   return state
 }
 
-export async function uninstallHooks(environment: NodeJS.ProcessEnv): Promise<void> {
-  await recoverInstallationTransaction(environment)
+export async function installHooks(
+  executable: string,
+  environment: NodeJS.ProcessEnv,
+): Promise<HookState> {
+  return await withInstallationLock(environment, async () => {
+    return await installHooksUnlocked(executable, environment)
+  })
+}
+
+async function uninstallHooksUnlocked(environment: NodeJS.ProcessEnv): Promise<void> {
+  await recoverInstallationTransactionUnlocked(environment)
   let state = await readHookState(environment)
   if (state === undefined) return
   for (const provider of ['codex', 'claude'] as const) {
@@ -460,4 +769,10 @@ export async function uninstallHooks(environment: NodeJS.ProcessEnv): Promise<vo
     const patch = removeOwnedHooks(provider, existing, owned.fingerprints)
     await applyHookPatch(provider, owned.path, existing, patch.bytes, state, environment)
   }
+}
+
+export async function uninstallHooks(environment: NodeJS.ProcessEnv): Promise<void> {
+  await withInstallationLock(environment, async () => {
+    await uninstallHooksUnlocked(environment)
+  })
 }

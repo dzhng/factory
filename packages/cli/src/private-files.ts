@@ -35,12 +35,12 @@ export async function syncDirectory(path: string): Promise<void> {
   }
 }
 
-export async function atomicPrivateWrite(path: string, bytes: Uint8Array): Promise<void> {
+async function atomicWrite(path: string, bytes: Uint8Array, mode: 0o600 | 0o755): Promise<void> {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 })
   if ((await pathKind(path)) === 'symlink')
     throw new Error(`Factory refuses symbolic link: ${path}`)
   const temporary = `${path}.factory-${randomUUID()}.tmp`
-  await writeFile(temporary, bytes, { flag: 'wx', mode: 0o600 })
+  await writeFile(temporary, bytes, { flag: 'wx', mode })
   const handle = await open(temporary, constants.O_RDONLY)
   try {
     await handle.sync()
@@ -49,6 +49,14 @@ export async function atomicPrivateWrite(path: string, bytes: Uint8Array): Promi
   }
   await rename(temporary, path)
   await syncDirectory(dirname(path))
+}
+
+export async function atomicPrivateWrite(path: string, bytes: Uint8Array): Promise<void> {
+  await atomicWrite(path, bytes, 0o600)
+}
+
+export async function atomicExecutableWrite(path: string, bytes: Uint8Array): Promise<void> {
+  await atomicWrite(path, bytes, 0o755)
 }
 
 export async function readBoundedOrdinaryFile(

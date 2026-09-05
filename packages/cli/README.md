@@ -20,7 +20,13 @@ including provider configuration bytes.
 
 All install mutations journal through one tagged installation transaction.
 Hook reconciliation is its first operation kind; executable upgrade extends
-that same recovery owner rather than creating a parallel update journal.
+that same recovery owner rather than creating a parallel update journal. The
+upgrade boundary accepts only an artifact-verifier capability, stages on the
+installed executable's filesystem, proves the staged binary's embedded version
+before replacement, and serializes install, uninstall, repair, and upgrade with
+one operating-system-released lock. Recovery promotes only a stage whose journal
+records completed verification; interrupted or failed verification retains the
+old executable.
 
 Diagnostic policy is a pure fold over typed observations supplied by the
 repository, runtime journal, GitHub, installation, and reviewer owners. A

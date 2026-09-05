@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
 import { link, mkdir, open, readFile, realpath, unlink, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { isAbsolute, join } from 'node:path'
+import { isAbsolute, join, resolve } from 'node:path'
 
 import {
   claudeCaptureAdapter,
@@ -44,8 +44,10 @@ import { runDiagnostics } from './diagnostics'
 import {
   inspectInstallation,
   installHooks,
+  releaseTargetForCurrentHost,
   recoverInstallationTransaction,
   uninstallHooks,
+  upgradeInstallation,
 } from './installation'
 import { openCommand, type OpenCommandOptions } from './open'
 import {
@@ -55,6 +57,7 @@ import {
   readBoundedOrdinaryFile,
   syncDirectory,
 } from './private-files'
+import { verifyReleaseArtifact } from './release-manifest'
 import { reviewCommand } from './review'
 import { factoryBuildIdentity } from './version'
 
@@ -784,6 +787,35 @@ export async function runFactoryCli(
       output.stdout('Factory hooks removed.\n')
       return 0
     }
+    if (command === 'upgrade') {
+      const archivePath = readOption(args, '--archive')
+      const manifestPath = readOption(args, '--manifest')
+      const expectedManifestSha256 = readOption(args, '--manifest-sha256')
+      if (
+        archivePath === undefined ||
+        manifestPath === undefined ||
+        expectedManifestSha256 === undefined
+      )
+        throw new Error('factory upgrade requires --archive, --manifest, and --manifest-sha256')
+      const expectedTarget = releaseTargetForCurrentHost()
+      if (expectedTarget === undefined) throw new Error('factory upgrade is unsupported here')
+      const archive = await readBoundedOrdinaryFile(resolve(cwd, archivePath), 96 * 1024 * 1024)
+      const adjacentManifest = await readBoundedOrdinaryFile(
+        resolve(cwd, manifestPath),
+        1024 * 1024,
+      )
+      if (archive === undefined || adjacentManifest === undefined)
+        throw new Error('factory upgrade artifact is missing')
+      const release = await verifyReleaseArtifact({
+        archive,
+        adjacentManifest,
+        expectedManifestSha256,
+        expectedTarget,
+      })
+      await upgradeInstallation(release, environment)
+      output.stdout(`Factory upgraded to ${release.version}.\n`)
+      return 0
+    }
     if (command === 'capture') {
       const provider = readOption(args, '--provider')
       if (provider !== 'codex' && provider !== 'claude') throw new Error('--provider is required')
@@ -815,7 +847,7 @@ export async function runFactoryCli(
       return 0
     }
     throw new Error(
-      'Usage: factory configure|init|install|uninstall|capture|doctor|review|open|version',
+      'Usage: factory configure|init|install|uninstall|upgrade|capture|doctor|review|open|version',
     )
   } catch (error) {
     output.stderr(`${error instanceof Error ? error.message : String(error)}\n`)

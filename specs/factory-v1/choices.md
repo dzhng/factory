@@ -1573,3 +1573,30 @@ second normative schema; the master specification and format own mechanics.
 - **Verdict:** Sound. The cutover establishes one hierarchy before upgrade adds
   another operation.
 - **Confidence:** High.
+
+### Promote only a runnable, verifier-minted executable
+
+- **When:** Slice 12 executable-upgrade implementation.
+- **The choice:** Artifact verification mints an opaque `VerifiedRelease`
+  capability whose executable bytes cannot be mutated through its public API.
+  Install, uninstall, repair, and upgrade share one OS-released global lock.
+  Upgrade stages beside the installed executable, verifies its digest and exact
+  embedded version by executing `--version`, durably marks that stage verified,
+  and only then performs the atomic rename.
+- **The gap:** A structurally release-shaped object could otherwise bypass
+  verification, concurrent installation mutations could interleave, and a
+  correctly hashed but non-runnable artifact could be promoted by recovery
+  after its smoke check failed.
+- **The reach:** The transaction distinguishes a planned stage from a verified
+  stage. Recovery rolls a planned stage back to the old executable, promotes a
+  verified stage, completes an already-renamed replacement, and refuses any
+  executable or staged-byte divergence for manual inspection. Promotion
+  revalidates both paths immediately before rename and the installed result
+  afterward. Linux upgrade recovery is exercised in a dedicated native
+  `linux/amd64` glibc Docker lane, while a musl lane proves that the same CPU and
+  OS tuple does not accidentally claim the unsupported glibc target.
+- **Verdict:** Sound. Every recoverable boundary proves either the old or the
+  verified new executable without granting JSON shape or ambient concurrency
+  the authority to replace the installation.
+- **Confidence:** High for glibc Linux x64; native macOS artifact certification
+  remains Pass 4 release evidence.

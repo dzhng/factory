@@ -13,14 +13,44 @@ const allowedEntries = new Set([
 
 export type ReleaseTarget = 'bun-darwin-arm64' | 'bun-linux-x64-baseline'
 
-export type VerifiedRelease = {
-  version: string
-  revision: string
-  target: ReleaseTarget
-  manifestSha256: string
-  archiveSha256: string
-  executableSha256: string
-  executable: Uint8Array
+const verifiedReleaseAuthority = new WeakSet<VerifiedRelease>()
+
+export class VerifiedRelease {
+  readonly version: string
+  readonly revision: string
+  readonly target: ReleaseTarget
+  readonly manifestSha256: string
+  readonly archiveSha256: string
+  readonly executableSha256: string
+  readonly #executable: Uint8Array
+
+  get executable(): Uint8Array {
+    return this.#executable.slice()
+  }
+
+  constructor(
+    value: Omit<VerifiedRelease, 'executable'> & { executable: Uint8Array },
+    authority: symbol,
+  ) {
+    if (authority !== verifiedReleaseConstructorAuthority)
+      throw new TypeError('VerifiedRelease can only be minted by artifact verification')
+    this.version = value.version
+    this.revision = value.revision
+    this.target = value.target
+    this.manifestSha256 = value.manifestSha256
+    this.archiveSha256 = value.archiveSha256
+    this.executableSha256 = value.executableSha256
+    this.#executable = value.executable.slice()
+    verifiedReleaseAuthority.add(this)
+    Object.freeze(this)
+  }
+}
+
+const verifiedReleaseConstructorAuthority = Symbol('verified release constructor')
+
+export function assertVerifiedRelease(value: unknown): asserts value is VerifiedRelease {
+  if (!(value instanceof VerifiedRelease) || !verifiedReleaseAuthority.has(value))
+    throw new TypeError('upgrade requires a verified release capability')
 }
 
 type JsonObject = Record<string, unknown>
@@ -272,11 +302,14 @@ export async function verifyReleaseArtifact(input: {
       throw new TypeError(`release executable contains prohibited content: ${prohibited}`)
     }
   }
-  return {
-    ...contentIdentity,
-    manifestSha256,
-    archiveSha256: archiveDigest,
-    executableSha256,
-    executable,
-  }
+  return new VerifiedRelease(
+    {
+      ...contentIdentity,
+      manifestSha256,
+      archiveSha256: archiveDigest,
+      executableSha256,
+      executable,
+    },
+    verifiedReleaseConstructorAuthority,
+  )
 }

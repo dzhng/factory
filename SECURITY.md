@@ -101,6 +101,20 @@ Hook failures must remain non-blocking to the coding harness. Failure to record
 evidence should be visible through Factory diagnostics, but it must not strand
 or corrupt the user's Codex or Claude session.
 
+## Upgrades require release authority
+
+Factory replaces its installed executable only from a release artifact whose
+trusted manifest digest, archive inventory, target, source identity, and inner
+executable digest have all been verified. Release-shaped JSON alone is not
+upgrade authority. The staged executable must also run and report the verified
+version before it can be promoted.
+
+Install, uninstall, repair, and upgrade share one host-level lock and durable
+transaction owner. Recovery may retain the verified old executable or complete
+the verified replacement; it must refuse to overwrite bytes that diverged while
+Factory was interrupted. Upgrade never grants authority over repository data or
+provider configuration beyond reconciling Factory's exactly owned hooks.
+
 ## The local web interface is local
 
 `factory open` starts a short-lived server bound to `127.0.0.1`. It is a view
