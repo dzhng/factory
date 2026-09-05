@@ -5,6 +5,11 @@ evidence and reviewer execution. Planning is a pure fold: it classifies every
 candidate trigger, preserves exact per-Session ranges, and distinguishes
 already analyzed evidence from prefix-safe accepted coverage.
 
+Incremental acquisition applies the Session limit to unsettled evidence. Settled
+triggers remain visible to planning through their recorded coverage, without
+reopening their graphs or occupying the next batch. Full and force reviews
+explicitly reacquire covered evidence.
+
 A review bundle is a disposable directory containing the frozen plan and every
 referenced content object. Its manifest and object paths are canonical and
 content-addressed, so verification in a fresh directory needs neither the live

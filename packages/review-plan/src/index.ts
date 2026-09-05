@@ -559,11 +559,20 @@ async function loadReviewInputsFromReader(
         (subject.kind === 'workspace' || associatedSessionKeys.has(item.trigger.sessionKey))),
   )
   const sessionLimit = effectiveLimits(request.reviewLimits).maxSessions
+  const coverage = foldCoverage({
+    subject,
+    reviews: history.reviews,
+    coverageActions: history.coverageActions,
+  })
+  const isSettled = (trigger: ReviewTrigger) =>
+    request.mode === 'incremental' &&
+    (coverage.acceptedTriggerIds.includes(trigger.triggerId) ||
+      trigger.evidenceWatermark <= (coverage.settledWatermarks[trigger.sessionKey] ?? -1))
   const acquisitionRanks = new Map<string, number>()
   if (subject.kind === 'workspace') {
     await Promise.all(
       requestedTriggers.map(async item => {
-        if (item.trigger === undefined) return
+        if (item.trigger === undefined || isSettled(item.trigger)) return
         let rank = 1
         try {
           const turnPath = makeOwnedPath('sessions', [
@@ -601,7 +610,13 @@ async function loadReviewInputsFromReader(
     )
   }
   const admittedSessionKeys = new Set(
-    [...new Set(requestedTriggers.flatMap(item => item.trigger?.sessionKey ?? []))]
+    [
+      ...new Set(
+        requestedTriggers.flatMap(item =>
+          item.trigger === undefined || isSettled(item.trigger) ? [] : [item.trigger.sessionKey],
+        ),
+      ),
+    ]
       .sort(
         (left, right) =>
           (acquisitionRanks.get(left) ?? 0) - (acquisitionRanks.get(right) ?? 0) ||
@@ -628,7 +643,10 @@ async function loadReviewInputsFromReader(
         : { kind: 'diagnostic-only' }
   const candidates: ReviewCandidate[] = await Promise.all(
     requestedTriggers.map(async item => {
-      if (item.trigger !== undefined && !admittedSessionKeys.has(item.trigger.sessionKey)) {
+      if (
+        item.trigger !== undefined &&
+        (isSettled(item.trigger) || !admittedSessionKeys.has(item.trigger.sessionKey))
+      ) {
         return {
           kind: 'range',
           triggerId: item.trigger.triggerId,
@@ -639,12 +657,14 @@ async function loadReviewInputsFromReader(
           createdAt: item.trigger.createdAt,
           scopeProof: candidateScope(item.triggerId),
           availability: 'excluded',
-          limitations: [
-            {
-              code: 'excluded-by-limit',
-              detail: 'Session evidence deferred by the configured review acquisition limit',
-            },
-          ],
+          limitations: isSettled(item.trigger)
+            ? []
+            : [
+                {
+                  code: 'excluded-by-limit',
+                  detail: 'Session evidence deferred by the configured review acquisition limit',
+                },
+              ],
         } satisfies CandidateProblem
       }
       return await loadCandidateEvidence(reader, {

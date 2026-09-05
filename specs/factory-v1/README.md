@@ -5,8 +5,8 @@ Status: **implementation review found open behavior gaps; authenticated exact-ar
 ## Next Agent Prompt
 
 Continue from the [implementation review](assets/implementation-review.md).
-Resolve acquisition starvation, effective reviewer configuration, automatic
-review dispatch, and the UI's missing canonical-branch drift observation before
+Acquisition starvation is resolved. Resolve effective reviewer configuration,
+automatic review dispatch, and the UI's missing canonical-branch drift observation before
 claiming implementation completion. Preserve fail-open capture and the
 repository, credential, and container boundaries in [SECURITY.md](../../SECURITY.md).
 Use the existing ownership seams and verify each fix through its production

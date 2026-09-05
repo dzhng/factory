@@ -171,6 +171,111 @@ function fixture(): { input: ReviewInputs; objects: Map<string, Uint8Array> } {
 }
 
 describe('verified review bundles', () => {
+  test('incremental acquisition advances past reviewed Sessions at the cap', async () => {
+    const value = fixture()
+    const first = value.input.candidates[0]!
+    if (!('trigger' in first) || value.input.subject.kind !== 'workspace')
+      throw new Error('expected readable workspace fixture')
+    const root = await mkdtemp(join(tmpdir(), 'factory-review-progress-'))
+    roots.push(root)
+    const put = async (path: string, bytes: Uint8Array) => {
+      await mkdir(join(root, path, '..'), { recursive: true })
+      await writeFile(join(root, path), bytes)
+    }
+    const record = async (path: string, data: unknown) =>
+      await put(path, Buffer.from(canonicalJson(data)))
+    const subjectPath = makeOwnedPath('repository-observations', [
+      `${value.input.subject.observation.observationId}.json`,
+    ])
+    await record(subjectPath, value.input.subject.observation)
+    for (const sessionKey of ['session-a', 'session-z']) {
+      const trigger = {
+        ...first.trigger,
+        sessionKey,
+        triggerId: newRecordId('trigger', sessionKey === 'session-a' ? 0 : 1, new Uint8Array(10)),
+      }
+      const turnRoot = `sessions/codex/${sessionKey}/turns/${first.turn.turnId}`
+      await record(`sessions/codex/${sessionKey}/identity.json`, { ...first.identity, sessionKey })
+      await record(`${turnRoot}/manifest.json`, { ...first.turn, sessionKey })
+      await put(`${turnRoot}/events.jsonl`, Buffer.from(first.events.map(canonicalJson).join('')))
+      await put(`${turnRoot}/transcript.jsonl`, new Uint8Array())
+      await record(`review-triggers/${trigger.triggerId}.json`, trigger)
+    }
+    for (const [hash, bytes] of value.objects) await put(objectOwnedPath(hash), bytes)
+    const load = async (mode: 'incremental' | 'full' | 'force' = 'incremental') => {
+      const reader = await openReviewRepositoryReader(root)
+      return planLoadedReview(
+        await loadReviewInputs(reader, {
+          mode,
+          subjectPath,
+          history: await loadReviewHistory(reader),
+          policies: value.input.policies,
+          reviewLimits: { maxSessions: 1 },
+        }),
+      )
+    }
+    const initial = await load()
+    expect(
+      initial.selections
+        .filter(item => item.selectedForReview)
+        .map(item => (item.kind === 'range' ? item.sessionKey : null)),
+    ).toEqual(['session-a'])
+    const reviewId = newRecordId('review', 2, new Uint8Array(10))
+    await record(`reviews/workspace/${reviewId}/ledger.json`, {
+      schemaVersion: 1,
+      reviewId,
+      entries: [],
+    })
+    await record(`reviews/workspace/${reviewId}/manifest.json`, {
+      schemaVersion: 1,
+      reviewId,
+      subject: {
+        kind: 'workspace',
+        repositoryObservationId: value.input.subject.observation.observationId,
+      },
+      codeManifest: value.input.subject.observation.codeManifest,
+      patches: [],
+      sessionWatermarks: initial.sessionWatermarks,
+      coverageTargetWatermarks: initial.coverageTargetWatermarks,
+      subjectFingerprint: initial.subjectFingerprint,
+      subjectAttempt: initial.subjectAttempt,
+      evidenceSelections: initial.selections,
+      inputProblems: initial.inputProblems,
+      triggerIds: initial.triggerIds,
+      associationBatchIds: [],
+      limitations: initial.limitations,
+      ...initial.policies,
+      bundleSha256: 'a'.repeat(64),
+      containerImageDigest: `sha256:${'b'.repeat(64)}`,
+      providerCliVersion: '1',
+      hostPlatform: 'linux/arm64',
+      startedAt: '2026-09-05T00:00:00Z',
+      completedAt: '2026-09-05T00:00:01Z',
+      disposition: 'complete',
+    })
+    const next = await load()
+    expect(
+      next.selections
+        .filter(item => item.selectedForReview)
+        .map(item => (item.kind === 'range' ? item.sessionKey : null)),
+    ).toEqual(['session-z'])
+    const built = await buildBundle(
+      next,
+      { getObject: async ref => value.objects.get(ref.sha256)! },
+      join(root, 'bundle'),
+      'repo_test',
+    )
+    expect((await verifyBundle(built.path, built.sha256)).valid).toBe(true)
+    for (const mode of ['full', 'force'] as const) {
+      const replay = await load(mode)
+      expect(
+        replay.selections
+          .filter(item => item.selectedForReview)
+          .map(item => (item.kind === 'range' ? item.sessionKey : null)),
+      ).toEqual(['session-a'])
+    }
+  })
+
   test('confined discovery ignores foreign Factory namespaces and inventories owned records', async () => {
     const parent = await mkdtemp(join(tmpdir(), 'factory-review-reader-'))
     roots.push(parent)

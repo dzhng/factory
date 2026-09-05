@@ -3,18 +3,22 @@
 Verdict: **not clean**. Scope: implementation from `c1b23a7` through
 `2a73e3c67ff5cd21510c1b42c3a82431685cf281`.
 
-## Open behavior findings
+## Behavior findings
 
-1. **P1 — Incremental acquisition can starve later Sessions.**
+1. **Resolved P1 — Incremental acquisition could starve later Sessions.**
    [The loader](../../../packages/review-plan/src/index.ts) sorts all requested
    Session keys and applies `maxSessions` before accounting for historical
    coverage. With two equally ranked Sessions and a limit of one, the first
    remains admitted after it has been reviewed; the second remains excluded.
    The later planner can recognize settled evidence but cannot reacquire the
-   Session already excluded by the loader. Admission needs to account for
-   reviewed coverage while preserving unresolved acquisition gaps and explicit
-   full/force semantics. Verification must exercise successive reviews through
-   the production loader, not just the pure planner.
+   Session already excluded by the loader. Admission now uses the existing
+   coverage fold to keep settled triggers out of the acquisition budget while
+   retaining their coverage in the plan. Unsettled triggers remain eligible;
+   full and force modes still reacquire covered evidence. A regression through
+   the production loader failed before the fix and now advances from the first
+   Session to the second, verifies the resulting bundle, and checks both replay
+   modes. Independent Codex review found no remaining issue in this fix; the
+   full build, formatting, lint, type, and test gates passed.
 2. **P2 — Global reviewer preferences do not affect execution.**
    [The review command](../../../packages/cli/src/review.ts) passes only the
    repository reviewer setting to selection. In a disposable Docker repository,
@@ -39,7 +43,7 @@ Verdict: **not clean**. Scope: implementation from `c1b23a7` through
    observation and diagnostic policy already used by `doctor`; local fallbacks
    must not manufacture drift.
 
-These behavior changes remain open; this review does not implement them.
+The three P2 findings remain open. Only the P1 fix was authorized in the follow-up.
 
 ## Shape and documentation
 
