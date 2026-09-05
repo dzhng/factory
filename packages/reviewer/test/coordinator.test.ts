@@ -66,6 +66,7 @@ describe('review attempt coordinator', () => {
       },
     }
     const input = {
+      imageReference: `sha256:${'b'.repeat(64)}`,
       imageDigest: `sha256:${'b'.repeat(64)}`,
       auth: [],
       timeoutMs: 100,
@@ -112,7 +113,12 @@ describe('review attempt coordinator', () => {
         })
       },
     }
-    const input = { imageDigest: `sha256:${'b'.repeat(64)}`, auth: [], timeoutMs: 100 }
+    const input = {
+      imageReference: `sha256:${'b'.repeat(64)}`,
+      imageDigest: `sha256:${'b'.repeat(64)}`,
+      auth: [],
+      timeoutMs: 100,
+    }
     const failed = await coordinator.run(bundle, choice, executor, input)
     const failedId = readReviewerRawAttempt(failed).reviewId
     await coordinator.finalize(bundle, choice, input.imageDigest, {
@@ -153,7 +159,7 @@ describe('review attempt coordinator', () => {
           })
         },
       },
-      { imageDigest, auth: [], timeoutMs: 100 },
+      { imageReference: imageDigest, imageDigest, auth: [], timeoutMs: 100 },
     )
     const reviewId = readReviewerRawAttempt(attempt).reviewId
     const base = {

@@ -354,7 +354,13 @@ try {
   const image = (
     await succeed(
       'docker',
-      ['build', '-q', resolve(import.meta.dir, '../docker/reviewer-isolation')],
+      [
+        'build',
+        '-q',
+        '--file',
+        resolve(import.meta.dir, '../docker/reviewer-isolation/Dockerfile'),
+        resolve(import.meta.dir, '../../..'),
+      ],
       scratch,
       process.env,
     )
@@ -362,7 +368,7 @@ try {
   const reviewEnvironment = {
     ...environment,
     FACTORY_CODEX_AUTH_FILE: auth,
-    FACTORY_REVIEWER_IMAGE_DIGEST: image,
+    FACTORY_REVIEWER_IMAGE: image,
     FACTORY_CODEX_REVIEW_MODEL: 'gpt-test',
     FACTORY_CODEX_REVIEW_EFFORT: 'high',
   }

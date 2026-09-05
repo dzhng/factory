@@ -1716,3 +1716,24 @@ second normative schema; the master specification and format own mechanics.
 - **Verdict:** Sound. Ownership follows the component that enforces durability
   and recovery invariants.
 - **Confidence:** High.
+
+### Publish one multi-architecture reviewer image but execute only its digest
+
+- **When:** Production reviewer completion milestone.
+- **The choice:** GitHub Actions publishes the pinned Codex/Claude reviewer for
+  Linux amd64 and arm64 at `ghcr.io/dzhng/factory-reviewer`, with a mutable
+  discovery tag and an exact commit tag. Runtime configuration accepts only a
+  complete digest-qualified repository reference; review evidence records the
+  selected digest independently of its repository name.
+- **The gap:** Local deterministic fixtures proved the container boundary but
+  did not provide a production acquisition channel, while treating `main` as
+  executable identity would let future publication change an already selected
+  environment.
+- **The reach:** One image can serve both supported host architectures without
+  creating provider-specific container concepts. Publication provenance and
+  runtime identity remain separable, and a review cannot silently follow a
+  moved tag.
+- **Verdict:** Sound. The channel is replaceable later without changing the
+  immutable review-attempt model.
+- **Confidence:** High in the boundary; public publication remains pending its
+  first successful workflow run.

@@ -45,3 +45,4 @@ export {
   type ReadonlyAuthMount,
   type ReviewerProvider,
 } from './isolation.js'
+export { reviewerImageIdentity } from './probe.js'

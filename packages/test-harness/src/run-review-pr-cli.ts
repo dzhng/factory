@@ -82,7 +82,14 @@ async function main() {
     const auth = join(root, 'auth.json')
     await writeFile(auth, '{}\n', { mode: 0o444 })
     const image = await command(
-      ['docker', 'build', '-q', resolve(import.meta.dir, '../docker/reviewer-isolation')],
+      [
+        'docker',
+        'build',
+        '-q',
+        '--file',
+        resolve(import.meta.dir, '../docker/reviewer-isolation/Dockerfile'),
+        resolve(import.meta.dir, '../../..'),
+      ],
       root,
     )
     const baseEnvironment = {
@@ -93,7 +100,7 @@ async function main() {
       FACTORY_CLAUDE_REVIEW_MODEL: 'claude-test',
       FACTORY_CLAUDE_REVIEW_EFFORT: 'high',
       FACTORY_CODEX_AUTH_FILE: auth,
-      FACTORY_REVIEWER_IMAGE_DIGEST: image,
+      FACTORY_REVIEWER_IMAGE: image,
     }
     const originalHead = '0000000000000000000000000000000000000064'
     const first = await review(root, { ...baseEnvironment, FACTORY_TEST_PR_HEAD: originalHead })

@@ -3,6 +3,8 @@ import { createHash } from 'node:crypto'
 import { constants } from 'node:fs'
 import { appendFile, access, open, readFile, readdir, stat, writeFile } from 'node:fs/promises'
 
+// This image entrypoint verifies the mounted boundary before invoking either reviewer CLI.
+
 const scenario = process.argv[2] ?? 'success'
 const provider = process.argv[3] ?? 'fake'
 const authPath =

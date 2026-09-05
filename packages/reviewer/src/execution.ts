@@ -20,6 +20,8 @@ import { runReviewerContainer } from './runner'
 
 export type ReviewerExecutionInput = {
   reviewId: RecordId
+  /** Immutable Docker reference used for acquisition and execution. */
+  imageReference: string
   imageDigest: string
   /** Git-common private runtime root selected by the coordinator. */
   runtimeRoot: string
@@ -149,6 +151,7 @@ export const dockerReviewerExecutor: ReviewerExecutor = {
       })
       if (!plan.ok) throw new Error(`reviewer isolation refused: ${plan.reason}`)
       const report = await runReviewerContainer(plan.plan, {
+        imageReference: input.imageReference,
         imageDigest: input.imageDigest,
         expectedBundleSha256: before.sha256,
         reviewer: {

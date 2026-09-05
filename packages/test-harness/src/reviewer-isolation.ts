@@ -174,6 +174,7 @@ async function probe(
     const controller = new AbortController()
     setTimeout(() => controller.abort(), 3_000)
     return await runIsolationProbe(plan.plan, {
+      imageReference: imageDigest,
       imageDigest,
       scenario,
       signal: controller.signal,
@@ -181,6 +182,7 @@ async function probe(
     })
   }
   return await runIsolationProbe(plan.plan, {
+    imageReference: imageDigest,
     imageDigest,
     scenario,
     ...(termination === 'timed-out' ? { timeoutMs: 3_000 } : {}),
@@ -205,8 +207,15 @@ async function main(): Promise<void> {
     await writeFile(join(root, 'auth', 'credentials.json'), `${secret}\n`)
     await chmod(join(root, 'auth', 'credentials.json'), 0o444)
 
-    const context = resolve(import.meta.dir, '../docker/reviewer-isolation')
-    const imageDigest = await command(['docker', 'build', '--quiet', context])
+    const dockerfile = resolve(import.meta.dir, '../docker/reviewer-isolation/Dockerfile')
+    const imageDigest = await command([
+      'docker',
+      'build',
+      '--quiet',
+      '--file',
+      dockerfile,
+      resolve(import.meta.dir, '../../..'),
+    ])
 
     const collisionOutput = join(root, 'output-foreign-collision')
     await mkdir(collisionOutput)
@@ -230,6 +239,7 @@ async function main(): Promise<void> {
     ])
     try {
       await runIsolationProbe(collisionPlan.plan, {
+        imageReference: imageDigest,
         imageDigest,
         containerIdentity: { name: collisionName, label: 'factory-owner' },
       })
@@ -270,6 +280,7 @@ async function main(): Promise<void> {
       })
       if (!privatePlan.ok) throw new Error(privatePlan.detail)
       const privateReport = await runIsolationProbe(privatePlan.plan, {
+        imageReference: imageDigest,
         imageDigest,
         sensitiveValues: [secret],
       })
@@ -309,7 +320,7 @@ async function main(): Promise<void> {
     })
     if (!aliased.ok) throw new Error('symlink regression did not reach filesystem validation')
     try {
-      await runIsolationProbe(aliased.plan, { imageDigest })
+      await runIsolationProbe(aliased.plan, { imageReference: imageDigest, imageDigest })
       throw new Error('writable output symlink alias was accepted')
     } catch (error) {
       if (!(error instanceof Error) || !error.message.includes('host-path-overlap')) throw error
@@ -325,8 +336,8 @@ async function main(): Promise<void> {
     const imageHistory = await command(['docker', 'image', 'history', '--no-trunc', imageDigest])
     const scanned = [
       imageHistory,
-      await readFile(join(context, 'Dockerfile'), 'utf8'),
-      await readFile(join(context, 'probe.ts'), 'utf8'),
+      await readFile(dockerfile, 'utf8'),
+      await readFile(resolve(import.meta.dir, '../../reviewer/docker/entrypoint.ts'), 'utf8'),
       JSON.stringify({ success, timeout, cancellation, descendantCleanup }),
       await readFile(join(root, 'output-completed-success', 'result.txt'), 'utf8'),
     ]

@@ -25,6 +25,14 @@ receives the live bundle path, and only its bounded semantic response can cross
 back into portable history. Logs and crash coordination remain in the Git-common
 private runtime area.
 
+The production image is built from `docker/Dockerfile` and published for Linux
+amd64 and arm64 at `ghcr.io/dzhng/factory-reviewer`. Tags are discovery aids,
+not executable identities. `FACTORY_REVIEWER_IMAGE` must contain either the
+locally verified image ID used by a test fixture or a complete immutable
+`repository@sha256:…` reference. Factory pulls a qualified reference, verifies
+the repository digest Docker observed, and records the bare digest in the
+immutable review attempt.
+
 Credentials remain host-owned read-only files. Factory does not copy them,
 change their permissions, borrow token environment variables, or translate a
 host keyring into the container. A provider whose dedicated file cannot be read

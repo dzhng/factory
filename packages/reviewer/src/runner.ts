@@ -3,6 +3,7 @@ import type { MountPlan } from './isolation.js'
 import { runObservedReviewerContainer, type ProbeTermination } from './probe.js'
 
 export type ReviewerContainerOptions = {
+  imageReference: string
   imageDigest: string
   expectedBundleSha256: string
   reviewer: { model: string; effort: string; promptVersion: string }

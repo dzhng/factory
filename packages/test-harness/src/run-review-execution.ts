@@ -40,8 +40,15 @@ async function main() {
     const bundleManifest = JSON.parse(await readFile(join(bundlePath, 'bundle.json'), 'utf8')) as {
       plan: { policies: { reviewer: ReviewerChoice['settings'] } }
     }
-    const context = resolve(import.meta.dir, '../docker/reviewer-isolation')
-    const imageDigest = await command(['docker', 'build', '--quiet', context])
+    const dockerfile = resolve(import.meta.dir, '../docker/reviewer-isolation/Dockerfile')
+    const imageDigest = await command([
+      'docker',
+      'build',
+      '--quiet',
+      '--file',
+      dockerfile,
+      resolve(import.meta.dir, '../../..'),
+    ])
     const authRoot = join(root, 'auth')
     await mkdir(authRoot)
     const auth = join(authRoot, 'auth.json')
@@ -51,6 +58,7 @@ async function main() {
       { settings: bundleManifest.plan.policies.reviewer },
       {
         reviewId: 'review_00000000000000000000000009',
+        imageReference: imageDigest,
         imageDigest,
         runtimeRoot: root,
         auth: [{ hostPath: auth, containerPath: '/auth/codex/auth.json' }],
@@ -143,6 +151,7 @@ async function main() {
       })
       if (!scenarioPlan.ok) throw new Error(scenarioPlan.detail)
       const scenario = await runIsolationProbe(scenarioPlan.plan, {
+        imageReference: imageDigest,
         imageDigest,
         expectedBundleSha256: report.bundles.complete,
         reviewer: {

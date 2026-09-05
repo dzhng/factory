@@ -35,6 +35,7 @@ import {
   dockerReviewerExecutor,
   openVerifiedReviewBundle,
   reviewerAdapter,
+  reviewerImageIdentity,
   resolveReviewerAuthentication,
   selectReviewer,
   unavailableReviewerExecutor,
@@ -290,9 +291,10 @@ export async function reviewCommand(
       )
       return plan.status === 'unavailable' ? 1 : 0
     }
-    const imageDigest = environment.FACTORY_REVIEWER_IMAGE_DIGEST
-    if (!imageDigest || !/^sha256:[0-9a-f]{64}$/.test(imageDigest))
-      throw new Error('FACTORY_REVIEWER_IMAGE_DIGEST must pin an immutable reviewer image')
+    const imageReference = environment.FACTORY_REVIEWER_IMAGE
+    if (!imageReference)
+      throw new Error('FACTORY_REVIEWER_IMAGE must pin an immutable reviewer image')
+    const imageDigest = reviewerImageIdentity(imageReference).digest
     const bundleParent = await mkdtemp(join(coordinator.runtimeRoot, 'review-bundle-'))
     try {
       const built = await buildBundle(
@@ -308,6 +310,7 @@ export async function reviewCommand(
         selected.choice,
         selected.kind === 'selected' ? dockerReviewerExecutor : unavailableReviewerExecutor(),
         {
+          imageReference,
           imageDigest,
           auth: mount === undefined ? [] : [mount],
           timeoutMs: 10 * 60 * 1000,

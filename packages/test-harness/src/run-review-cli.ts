@@ -82,7 +82,14 @@ async function main() {
     await writeFile(auth, 'factory-test-high-finding factory-test-delay\n', { mode: 0o444 })
     await chmod(auth, 0o444)
     const image = await command(
-      ['docker', 'build', '-q', resolve(import.meta.dir, '../docker/reviewer-isolation')],
+      [
+        'docker',
+        'build',
+        '-q',
+        '--file',
+        resolve(import.meta.dir, '../docker/reviewer-isolation/Dockerfile'),
+        resolve(import.meta.dir, '../../..'),
+      ],
       root,
     )
     const environment = {
@@ -92,7 +99,7 @@ async function main() {
       FACTORY_CLAUDE_REVIEW_MODEL: 'claude-test',
       FACTORY_CLAUDE_REVIEW_EFFORT: 'high',
       FACTORY_CODEX_AUTH_FILE: auth,
-      FACTORY_REVIEWER_IMAGE_DIGEST: image,
+      FACTORY_REVIEWER_IMAGE: image,
     }
     for (const invalid of [
       ['review', '--pr', '42x'],
@@ -117,7 +124,7 @@ async function main() {
     const noOp = firstResults.find(result => result.status === 'already-reviewed')
     if (accepted === undefined || noOp === undefined)
       throw new Error(`concurrent review did not converge: ${JSON.stringify(firstResults)}`)
-    const { FACTORY_REVIEWER_IMAGE_DIGEST: _imageDigest, ...noImageEnvironment } = environment
+    const { FACTORY_REVIEWER_IMAGE: _imageDigest, ...noImageEnvironment } = environment
     const second = await factory(['review', '--fail-on', 'high'], root, noImageEnvironment)
     const retried = JSON.parse(second.output) as Record<string, string>
     if (

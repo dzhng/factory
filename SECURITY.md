@@ -69,6 +69,13 @@ root-owned or foreign-owned auth rather than copying the file or changing its
 permissions. Publicly readable test credentials may use the fixed unprivileged
 test identity.
 
+Production reviewer tags are only a publication and discovery mechanism.
+Factory refuses to execute a mutable tag: configuration must select an exact
+digest-qualified image reference, Docker must observe that repository digest
+after acquisition, and the immutable review attempt records the selected
+digest. Changing a tag therefore cannot change an already selected review
+environment.
+
 ## The reviewer container is isolated from the live checkout
 
 A review receives an immutable snapshot of its exact code and evidence, mounted

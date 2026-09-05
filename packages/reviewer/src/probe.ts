@@ -62,8 +62,10 @@ export type IsolationReport = {
 }
 
 export type ObservedContainerOptions = {
-  /** Exact immutable image identity; mutable tags are refused. */
+  /** Exact digest recorded in immutable review evidence. */
   imageDigest: string
+  /** Docker image ID or digest-qualified repository reference; mutable tags are refused. */
+  imageReference: string
   expectedBundleSha256?: string
   reviewer?: { model: string; effort: string; promptVersion: string }
   invocation?: ReviewerAdapterInvocation
@@ -75,6 +77,15 @@ export type ObservedContainerOptions = {
   signal?: AbortSignal
   /** Ephemeral test-only sentinels that must not appear in logs or recursive output. */
   sensitiveValues?: readonly string[]
+}
+
+/** Parse only Docker identities whose selected bytes cannot move after configuration. */
+export function reviewerImageIdentity(reference: string): { digest: string; remote: boolean } {
+  const local = reference.match(/^(sha256:[0-9a-f]{64})$/)
+  if (local?.[1] !== undefined) return { digest: local[1], remote: false }
+  const qualified = reference.match(/^[a-z0-9][a-z0-9._:/-]*@(sha256:[0-9a-f]{64})$/)
+  if (qualified?.[1] !== undefined) return { digest: qualified[1], remote: true }
+  throw new Error('Reviewer image must use an image ID or digest-qualified repository reference')
 }
 
 type CommandResult = {
@@ -259,8 +270,11 @@ export async function runObservedReviewerContainer(
   options: ObservedContainerOptions,
 ): Promise<IsolationReport> {
   if (!/^sha256:[0-9a-f]{64}$/.test(options.imageDigest)) {
-    throw new Error('Reviewer image must be addressed by an immutable sha256 image ID')
+    throw new Error('Reviewer image digest must be an immutable sha256 identity')
   }
+  const imageIdentity = reviewerImageIdentity(options.imageReference)
+  if (imageIdentity.digest !== options.imageDigest)
+    throw new Error('Reviewer image reference and recorded digest differ')
   if (
     options.providerTimeoutMs !== undefined &&
     (!Number.isSafeInteger(options.providerTimeoutMs) || options.providerTimeoutMs < 1)
@@ -320,12 +334,38 @@ export async function runObservedReviewerContainer(
       ? await boundedFileSha256(plan.auth[0].hostPath)
       : undefined
   const bundleTarget = reviewMode ? '/review-input' : plan.bundle.containerPath
+  if (imageIdentity.remote) {
+    const pulledImage = await runCommand(
+      'docker',
+      ['pull', options.imageReference],
+      commandOptions(),
+    )
+    if (pulledImage.exitCode !== 0)
+      throw new ReviewerDockerUnavailableError(
+        'Docker could not pull the immutable reviewer image reference',
+      )
+  }
   const observedImage = await runCommand(
     'docker',
-    ['image', 'inspect', '--format', '{{.Id}}', options.imageDigest],
+    [
+      'image',
+      'inspect',
+      '--format',
+      imageIdentity.remote ? '{{json .RepoDigests}}' : '{{.Id}}',
+      options.imageReference,
+    ],
     commandOptions(),
   )
-  if (observedImage.exitCode !== 0 || observedImage.stdout.trim() !== options.imageDigest) {
+  const observedIdentityMatches = imageIdentity.remote
+    ? (() => {
+        try {
+          return (JSON.parse(observedImage.stdout) as unknown[]).includes(options.imageReference)
+        } catch {
+          return false
+        }
+      })()
+    : observedImage.stdout.trim() === options.imageDigest
+  if (observedImage.exitCode !== 0 || !observedIdentityMatches) {
     throw new ReviewerDockerUnavailableError(
       'Docker could not verify the requested reviewer image ID',
     )
@@ -358,7 +398,7 @@ export async function runObservedReviewerContainer(
     dockerArgs.push('--mount', dockerMount(auth.hostPath, auth.containerPath, true))
   }
   dockerArgs.push(
-    options.imageDigest,
+    options.imageReference,
     options.scenario ?? 'success',
     plan.provider,
     ...(options.reviewer === undefined
