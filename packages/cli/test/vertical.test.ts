@@ -17,6 +17,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { canonicalJson } from '@factory/contract'
+import type { LocalUiHandle } from '@factory/web'
+
+import { runFactoryCli } from '../src'
 
 if (process.env.FACTORY_DOCKER_TEST !== '1') {
   throw new Error('capture vertical tests must run in the project Docker environment')
@@ -162,6 +165,48 @@ async function treeDigest(root: string): Promise<string> {
 }
 
 describe('installed capture vertical', () => {
+  test('serves factory open only for the foreground CLI lifetime', async () => {
+    const value = await createFixture()
+    expect(await command(value.factory, ['init'], value.repository, value.env)).toMatchObject({
+      code: 0,
+    })
+    const controller = new AbortController()
+    let started!: (handle: LocalUiHandle) => void
+    const ready = new Promise<LocalUiHandle>(resolve => {
+      started = resolve
+    })
+    let launched = ''
+    let stdout = ''
+    const running = runFactoryCli(['open'], {
+      cwd: value.repository,
+      environment: value.env,
+      output: {
+        stdout: text => {
+          stdout += text
+        },
+        stderr: () => undefined,
+      },
+      open: {
+        signal: controller.signal,
+        launchBrowser: async url => {
+          launched = url
+        },
+        onStarted: started,
+      },
+    })
+    const handle = await ready
+    expect(handle.hostname).toBe('127.0.0.1')
+    expect(launched).toBe(handle.origin)
+    const snapshot = await fetch(`${handle.origin}/api/snapshot`)
+    expect(snapshot.status).toBe(200)
+    expect(await snapshot.json()).toMatchObject({ state: 'ready', canonicalBranch: 'main' })
+    expect(stdout).toBe(`${handle.origin}\n`)
+
+    controller.abort()
+    expect(await running).toBe(0)
+    await expect(fetch(handle.origin)).rejects.toThrow()
+  })
+
   test('initializes, installs direct hooks, materializes both providers, and rebuilds projection', async () => {
     const value = await createFixture()
     expect((await command(value.factory, ['init'], value.repository, value.env)).code).toBe(0)

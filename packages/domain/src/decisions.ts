@@ -2,13 +2,129 @@ import { createHash } from 'node:crypto'
 
 import {
   canonicalJson,
+  decisionAssertionFingerprint,
   makeOwnedPath,
+  newRecordId,
   validatePublicRecord,
   type DecisionAction,
   type DecisionObservation,
+  type PullRequestObservation,
   type RecordId,
+  type RepositoryObservation,
+  type ReviewLedger,
+  type ReviewManifest,
   type Sha256,
 } from '@factory/contract'
+
+export type DecisionObservationSource = DecisionObservation['source']
+
+function reviewRoot(manifest: ReviewManifest): readonly string[] {
+  return manifest.subject.kind === 'workspace'
+    ? ['workspace', manifest.reviewId]
+    : [
+        'pull-requests',
+        'github',
+        manifest.subject.repositoryKey,
+        String(manifest.subject.number),
+        manifest.reviewId,
+      ]
+}
+
+function validateCommittedReview(manifest: ReviewManifest, ledger: ReviewLedger): void {
+  const root = reviewRoot(manifest)
+  validatePublicRecord(makeOwnedPath('reviews', [...root, 'manifest.json']), manifest)
+  validatePublicRecord(makeOwnedPath('reviews', [...root, 'ledger.json']), ledger)
+  if (ledger.reviewId !== manifest.reviewId) throw new TypeError('decision ledger review mismatch')
+  if (manifest.disposition === 'failed') throw new TypeError('failed review has no decision ledger')
+}
+
+function observationSource(
+  manifest: ReviewManifest,
+  subjectRecord: unknown,
+): DecisionObservationSource {
+  if (manifest.subject.kind === 'pull-request') {
+    const path = makeOwnedPath('pull-requests', [
+      manifest.subject.provider,
+      manifest.subject.repositoryKey,
+      String(manifest.subject.number),
+      'observations',
+      `${manifest.subject.observationId}.json`,
+    ])
+    validatePublicRecord(path, subjectRecord)
+    const observation = subjectRecord as PullRequestObservation
+    if (
+      observation.provider !== manifest.subject.provider ||
+      observation.repositoryKey !== manifest.subject.repositoryKey ||
+      observation.number !== manifest.subject.number ||
+      observation.observationId !== manifest.subject.observationId
+    )
+      throw new TypeError('decision pull-request source differs from its review subject')
+    return {
+      kind: 'pull-request',
+      provider: manifest.subject.provider,
+      repositoryKey: manifest.subject.repositoryKey,
+      number: manifest.subject.number,
+      observationId: manifest.subject.observationId,
+    }
+  }
+  const path = makeOwnedPath('repository-observations', [
+    `${manifest.subject.repositoryObservationId}.json`,
+  ])
+  validatePublicRecord(path, subjectRecord)
+  const observation = subjectRecord as RepositoryObservation
+  return {
+    kind: 'workspace',
+    branch: observation.git.branch ?? null,
+    exactSnapshot:
+      observation.startState === observation.endState &&
+      !observation.limitations.some(item => item.code === 'repository-race'),
+  }
+}
+
+/** Reproduce decision observations exactly from one accepted review and its pinned subject. */
+export function deriveDecisionObservations(
+  manifest: ReviewManifest,
+  ledger: ReviewLedger,
+  subjectRecord: unknown,
+): readonly DecisionObservation[] {
+  validateCommittedReview(manifest, ledger)
+  const source = observationSource(manifest, subjectRecord)
+  return ledger.entries
+    .filter(entry => entry.kind === 'decision')
+    .map(entry => {
+      const digest = createHash('sha256')
+        .update(manifest.reviewId)
+        .update('\0')
+        .update(canonicalJson(manifest.subject))
+        .update('\0')
+        .update(entry.entryId)
+        .digest()
+      const observation: DecisionObservation = {
+        schemaVersion: 1,
+        observationId: newRecordId(
+          'decision',
+          Date.parse(manifest.completedAt),
+          digest.subarray(0, 10),
+        ),
+        reviewId: manifest.reviewId,
+        reviewEntryId: entry.entryId,
+        decisionKey: entry.decisionKey,
+        effect: entry.effect,
+        assertion: entry.assertion,
+        assertionFingerprint: decisionAssertionFingerprint(entry),
+        summary: entry.summary,
+        source,
+        confidence: entry.confidence,
+        observedAt: manifest.completedAt,
+      }
+      validatePublicRecord(
+        makeOwnedPath('decisions', ['observations', `${observation.observationId}.json`]),
+        observation,
+      )
+      return observation
+    })
+    .sort((left, right) => left.observationId.localeCompare(right.observationId))
+}
 
 export type DecisionLifecycle =
   | 'invalid'

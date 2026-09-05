@@ -2,12 +2,15 @@ import { describe, expect, test } from 'bun:test'
 
 import {
   canonicalJson,
-  decisionAssertionFingerprint,
-  type DecisionObservation,
+  reviewSubjectCoverageId,
   type JsonValue,
   type RepositoryRecords,
+  type RepositoryObservation,
+  type ReviewLedger,
+  type ReviewManifest,
 } from '@factory/contract'
 
+import { deriveDecisionObservations } from '../src/decisions'
 import { buildUiProjection } from '../src/ui'
 
 const identity = {
@@ -38,20 +41,80 @@ const turn = {
 } as const
 
 const assertion = { storage: 'append-only' } as const
-const decision: DecisionObservation = {
+const repositoryObservation: RepositoryObservation = {
   schemaVersion: 1,
-  observationId: `decision_${'0'.repeat(25)}1`,
-  reviewId: `review_${'0'.repeat(25)}1`,
-  reviewEntryId: `entry_${'0'.repeat(25)}1`,
-  decisionKey: 'storage.authority',
-  effect: 'assert',
-  assertion,
-  assertionFingerprint: decisionAssertionFingerprint({ effect: 'assert', assertion }),
-  summary: 'The repository store is the only writer.',
-  source: { kind: 'workspace', branch: 'main', exactSnapshot: true },
-  confidence: 'high',
+  observationId: `observation_${'0'.repeat(25)}1`,
+  repositoryId: 'repo_ui',
   observedAt: '2026-09-05T00:00:03Z',
+  completedAt: '2026-09-05T00:00:04Z',
+  git: { head: 'a'.repeat(40), branch: 'main', detached: false },
+  changedPaths: [],
+  worktreeFingerprint: 'a'.repeat(64),
+  limitations: [],
+  startState: 'b'.repeat(64),
+  endState: 'b'.repeat(64),
 }
+const reviewId = `review_${'0'.repeat(25)}1` as const
+const manifest: ReviewManifest = {
+  schemaVersion: 1,
+  reviewId,
+  subject: { kind: 'workspace', repositoryObservationId: repositoryObservation.observationId },
+  patches: [],
+  sessionWatermarks: {},
+  coverageTargetWatermarks: {},
+  subjectFingerprint: 'c'.repeat(64),
+  subjectAttempt: {
+    fingerprint: 'c'.repeat(64),
+    coverageId: reviewSubjectCoverageId('c'.repeat(64), []),
+    effect: 'current-included',
+    limitations: [],
+  },
+  evidenceSelections: [],
+  inputProblems: [],
+  triggerIds: [],
+  associationBatchIds: [],
+  limitations: [],
+  reviewer: { provider: 'codex', model: 'test', effort: 'high' },
+  analyzerVersion: 'test',
+  promptVersion: 'test',
+  policyVersion: 'test',
+  formatVersion: 1,
+  bundleSha256: 'e'.repeat(64),
+  containerImageDigest: `sha256:${'f'.repeat(64)}`,
+  providerCliVersion: 'test',
+  hostPlatform: 'darwin/arm64',
+  startedAt: '2026-09-05T00:00:04Z',
+  completedAt: '2026-09-05T00:00:05Z',
+  disposition: 'complete',
+}
+const ledger: ReviewLedger = {
+  schemaVersion: 1,
+  reviewId,
+  entries: [
+    {
+      entryId: `entry_${'0'.repeat(25)}1`,
+      kind: 'decision',
+      decisionKey: 'storage.authority',
+      effect: 'assert',
+      assertion,
+      summary: 'The repository store is the only writer.',
+      confidence: 'high',
+      evidence: [
+        {
+          object: {
+            algorithm: 'sha256',
+            sha256: '9'.repeat(64),
+            bytes: 1,
+            mediaType: 'text/plain',
+            role: 'review-evidence',
+          },
+          locator: 'line 1',
+        },
+      ],
+    },
+  ],
+}
+const decision = deriveDecisionObservations(manifest, ledger, repositoryObservation)[0]!
 
 const records: RepositoryRecords['records'] = [
   { path: 'sessions/codex/session-one/identity.json' as never, value: identity },
@@ -67,6 +130,19 @@ const records: RepositoryRecords['records'] = [
     path: `sessions/codex/session-one/turns/${turn.turnId}/events.jsonl` as never,
     value: { sequence: 2 },
   },
+  {
+    path: `repository-observations/${repositoryObservation.observationId}.json` as never,
+    value: repositoryObservation as unknown as JsonValue,
+  },
+  {
+    path: `reviews/workspace/${reviewId}/manifest.json` as never,
+    value: manifest as unknown as JsonValue,
+  },
+  {
+    path: `reviews/workspace/${reviewId}/ledger.json` as never,
+    value: ledger as unknown as JsonValue,
+  },
+  { path: `reviews/workspace/${reviewId}/response.txt` as never, value: 'review response' },
   {
     path: `decisions/observations/${decision.observationId}.json` as never,
     value: decision as unknown as JsonValue,
@@ -93,6 +169,7 @@ describe('UI projection', () => {
       scope: 'canonical',
       lifecycle: 'canonical-current',
     })
+    expect(first.decisionActions).toEqual([])
   })
 
   test('makes missing canonical policy explicit', () => {

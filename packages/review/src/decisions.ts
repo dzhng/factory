@@ -2,20 +2,16 @@ import { createHash } from 'node:crypto'
 
 import {
   canonicalJson,
-  decisionAssertionFingerprint,
   makeOwnedPath,
-  newRecordId,
   validatePublicRecord,
   type DecisionAction,
   type DecisionObservation,
   type OwnedPath,
-  type PullRequestObservation,
   type RecordId,
   type ReviewLedger,
   type ReviewManifest,
-  type RepositoryObservation,
 } from '@factory/contract'
-import { foldDecisions } from '@factory/domain'
+import { deriveDecisionObservations, foldDecisions } from '@factory/domain'
 import {
   DecisionAuthorityConflictError,
   type DecisionRecordAuthority,
@@ -26,7 +22,7 @@ import {
 
 import { loadStoredReviews } from './stored-reviews'
 
-export type DecisionObservationSource = DecisionObservation['source']
+export type { DecisionObservationSource } from '@factory/domain'
 export type DecisionActionInput = DecisionAction extends infer Action
   ? Action extends DecisionAction
     ? Omit<Action, 'createdAt' | 'previousActionId'>
@@ -39,115 +35,6 @@ export class StaleDecisionActionError extends Error {
     super('decision action was based on a stale decision view')
     this.name = 'StaleDecisionActionError'
   }
-}
-
-function reviewRoot(manifest: ReviewManifest): readonly string[] {
-  return manifest.subject.kind === 'workspace'
-    ? ['workspace', manifest.reviewId]
-    : [
-        'pull-requests',
-        'github',
-        manifest.subject.repositoryKey,
-        String(manifest.subject.number),
-        manifest.reviewId,
-      ]
-}
-
-function validateCommittedReview(manifest: ReviewManifest, ledger: ReviewLedger): void {
-  const root = reviewRoot(manifest)
-  validatePublicRecord(makeOwnedPath('reviews', [...root, 'manifest.json']), manifest)
-  validatePublicRecord(makeOwnedPath('reviews', [...root, 'ledger.json']), ledger)
-  if (ledger.reviewId !== manifest.reviewId) throw new TypeError('decision ledger review mismatch')
-  if (manifest.disposition === 'failed') throw new TypeError('failed review has no decision ledger')
-}
-
-/** Classify review source from its exact committed subject; GitHub defaults never participate. */
-function decisionObservationSource(
-  manifest: ReviewManifest,
-  subjectRecord: unknown,
-): DecisionObservationSource {
-  if (manifest.subject.kind === 'pull-request') {
-    const path = makeOwnedPath('pull-requests', [
-      manifest.subject.provider,
-      manifest.subject.repositoryKey,
-      String(manifest.subject.number),
-      'observations',
-      `${manifest.subject.observationId}.json`,
-    ])
-    validatePublicRecord(path, subjectRecord)
-    const observation = subjectRecord as PullRequestObservation
-    if (
-      observation.provider !== manifest.subject.provider ||
-      observation.repositoryKey !== manifest.subject.repositoryKey ||
-      observation.number !== manifest.subject.number ||
-      observation.observationId !== manifest.subject.observationId
-    )
-      throw new TypeError('decision pull-request source differs from its review subject')
-    return {
-      kind: 'pull-request',
-      provider: manifest.subject.provider,
-      repositoryKey: manifest.subject.repositoryKey,
-      number: manifest.subject.number,
-      observationId: manifest.subject.observationId,
-    }
-  }
-  const path = makeOwnedPath('repository-observations', [
-    `${manifest.subject.repositoryObservationId}.json`,
-  ])
-  validatePublicRecord(path, subjectRecord)
-  const observation = subjectRecord as RepositoryObservation
-  return {
-    kind: 'workspace',
-    branch: observation.git.branch ?? null,
-    exactSnapshot:
-      observation.startState === observation.endState &&
-      !observation.limitations.some(item => item.code === 'repository-race'),
-  }
-}
-
-/** Derive stable append-only observations only from already validated decision entries. */
-function deriveDecisionObservations(
-  manifest: ReviewManifest,
-  ledger: ReviewLedger,
-  subjectRecord: unknown,
-): readonly DecisionObservation[] {
-  validateCommittedReview(manifest, ledger)
-  const source = decisionObservationSource(manifest, subjectRecord)
-  return ledger.entries
-    .filter(entry => entry.kind === 'decision')
-    .map(entry => {
-      const digest = createHash('sha256')
-        .update(manifest.reviewId)
-        .update('\0')
-        .update(canonicalJson(manifest.subject))
-        .update('\0')
-        .update(entry.entryId)
-        .digest()
-      const observation: DecisionObservation = {
-        schemaVersion: 1,
-        observationId: newRecordId(
-          'decision',
-          Date.parse(manifest.completedAt),
-          digest.subarray(0, 10),
-        ),
-        reviewId: manifest.reviewId,
-        reviewEntryId: entry.entryId,
-        decisionKey: entry.decisionKey,
-        effect: entry.effect,
-        assertion: entry.assertion,
-        assertionFingerprint: decisionAssertionFingerprint(entry),
-        summary: entry.summary,
-        source,
-        confidence: entry.confidence,
-        observedAt: manifest.completedAt,
-      }
-      validatePublicRecord(
-        makeOwnedPath('decisions', ['observations', `${observation.observationId}.json`]),
-        observation,
-      )
-      return observation
-    })
-    .sort((left, right) => left.observationId.localeCompare(right.observationId))
 }
 
 /** Recoverably publish all observations; deterministic IDs make interrupted retries converge. */

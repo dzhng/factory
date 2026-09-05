@@ -18,7 +18,7 @@ import {
   type TurnManifest,
 } from '@factory/contract'
 
-import { foldDecisions, type DecisionView } from './decisions'
+import { deriveDecisionObservations, foldDecisions, type DecisionView } from './decisions'
 
 export type UiLimitation = { code: string; detail: string }
 
@@ -121,6 +121,7 @@ export type UiReadySnapshot = {
   triggers: readonly UiTrigger[]
   reviews: readonly UiReview[]
   decisions: DecisionView | null
+  decisionActions: readonly DecisionAction[]
   diagnostics: readonly { priority: 'normal' | 'high'; message: string }[]
 }
 
@@ -255,6 +256,43 @@ function reviewGroups(
   return groups.sort((left, right) => left.manifest.reviewId.localeCompare(right.manifest.reviewId))
 }
 
+function verifiedDecisionObservations(
+  input: RepositoryRecords,
+  reviews: ReturnType<typeof reviewGroups>,
+  actual: readonly DecisionObservation[],
+): readonly DecisionObservation[] {
+  const byPath = new Map(input.records.map(record => [record.path as string, record.value]))
+  const expected = new Map<string, DecisionObservation>()
+  for (const review of reviews) {
+    if (review.ledger === undefined) continue
+    const subjectPath =
+      review.manifest.subject.kind === 'workspace'
+        ? `repository-observations/${review.manifest.subject.repositoryObservationId}.json`
+        : `pull-requests/github/${review.manifest.subject.repositoryKey}/${review.manifest.subject.number}/observations/${review.manifest.subject.observationId}.json`
+    const subject = byPath.get(subjectPath)
+    if (subject === undefined) throw new TypeError('decision review subject record is absent')
+    for (const observation of deriveDecisionObservations(review.manifest, review.ledger, subject)) {
+      const prior = expected.get(observation.observationId)
+      if (prior !== undefined && canonicalJson(prior) !== canonicalJson(observation))
+        throw new TypeError('accepted reviews derive conflicting decision observations')
+      expected.set(observation.observationId, observation)
+    }
+  }
+  const observed = new Map<string, DecisionObservation>(
+    actual.map(item => [item.observationId, item]),
+  )
+  for (const observation of actual) {
+    const source = expected.get(observation.observationId)
+    if (source === undefined || canonicalJson(source) !== canonicalJson(observation))
+      throw new TypeError('decision observation is not derived from its accepted review entry')
+  }
+  for (const observationId of expected.keys()) {
+    if (!observed.has(observationId))
+      throw new TypeError('accepted review decision observation has not been recovered')
+  }
+  return actual
+}
+
 /** Rebuild the complete presentation-safe UI state exclusively from validated portable records. */
 export function buildUiProjection(input: RepositoryRecords): UiSnapshot {
   const identities = new Map<string, SessionIdentity>()
@@ -297,6 +335,7 @@ export function buildUiProjection(input: RepositoryRecords): UiSnapshot {
   }
 
   const reviews = reviewGroups(input)
+  const verifiedDecisions = verifiedDecisionObservations(input, reviews, decisionObservations)
   const acceptedReviews = new Set(coverageActions.map(action => action.reviewId))
   const triggerCoverage = new Map<string, UiTrigger['coverage']>()
   for (const review of reviews) {
@@ -349,7 +388,7 @@ export function buildUiProjection(input: RepositoryRecords): UiSnapshot {
   const decisions =
     input.config.canonicalBranch === undefined
       ? null
-      : foldDecisions(decisionObservations, decisionActions, input.config.canonicalBranch)
+      : foldDecisions(verifiedDecisions, decisionActions, input.config.canonicalBranch)
   const diagnostics: { priority: 'normal' | 'high'; message: string }[] = []
   if (input.config.canonicalBranch === undefined)
     diagnostics.push({
@@ -453,6 +492,9 @@ export function buildUiProjection(input: RepositoryRecords): UiSnapshot {
       }
     }),
     decisions,
+    decisionActions: decisionActions.sort((left, right) =>
+      left.actionId.localeCompare(right.actionId),
+    ),
     diagnostics,
   }
 }

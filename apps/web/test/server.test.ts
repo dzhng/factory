@@ -38,6 +38,7 @@ async function server(options: { conflict?: boolean; state?: 'ready' | 'corrupt'
             triggers: [],
             reviews: [],
             decisions: null,
+            decisionActions: [],
             diagnostics: [],
           },
     actions: {

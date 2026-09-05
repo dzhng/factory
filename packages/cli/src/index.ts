@@ -51,6 +51,7 @@ import {
   type RuntimeJournal,
 } from '@factory/runtime-journal'
 
+import { openCommand, type OpenCommandOptions } from './open'
 import { reviewCommand } from './review'
 
 type Output = { stdout(value: string): void; stderr(value: string): void }
@@ -965,7 +966,12 @@ async function doctor(
 
 export async function runFactoryCli(
   args: readonly string[],
-  options: { environment?: NodeJS.ProcessEnv; cwd?: string; output?: Output } = {},
+  options: {
+    environment?: NodeJS.ProcessEnv
+    cwd?: string
+    output?: Output
+    open?: OpenCommandOptions
+  } = {},
 ): Promise<number> {
   const environment = options.environment ?? process.env
   const cwd = options.cwd ?? process.cwd()
@@ -1075,7 +1081,13 @@ export async function runFactoryCli(
       if (root === undefined) throw new Error('factory review requires a Git repository')
       return await reviewCommand(root, args, environment, output)
     }
-    throw new Error('Usage: factory configure|init|install|uninstall|capture|doctor|review')
+    if (command === 'open') {
+      const root = await gitRoot(cwd, environment)
+      if (root === undefined) throw new Error('factory open requires a Git repository')
+      await openCommand(root, environment, output, options.open)
+      return 0
+    }
+    throw new Error('Usage: factory configure|init|install|uninstall|capture|doctor|review|open')
   } catch (error) {
     output.stderr(`${error instanceof Error ? error.message : String(error)}\n`)
     return 1

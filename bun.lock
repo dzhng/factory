@@ -46,6 +46,7 @@
         "@factory/review-plan": "workspace:*",
         "@factory/reviewer": "workspace:*",
         "@factory/runtime-journal": "workspace:*",
+        "@factory/web": "workspace:*",
       },
     },
     "packages/contract": {
