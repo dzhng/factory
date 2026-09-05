@@ -1395,3 +1395,57 @@ second normative schema; the master specification and format own mechanics.
 - **Verdict:** Sound. The two layers prove different boundaries without
   pretending fixture snapshots are repository histories.
 - **Confidence:** High.
+
+## Implementation choices — Slice 12
+
+### Ship two native executables through one stable release channel
+
+- **When:** Slice 12 release-scope checkpoint.
+- **The choice:** V1 uses immutable GitHub Releases containing self-contained
+  Bun executables for macOS arm64 and baseline glibc Linux x64. Intel macOS,
+  Linux arm64, musl, Windows, package-manager channels, and prerelease channels
+  remain unsupported until their own native certification exists.
+- **The gap:** The spec required a distribution channel and architecture matrix
+  before implementation but deliberately did not choose them.
+- **The reach:** Users do not need a host Bun or Node installation, and Factory
+  can own one ordinary executable for crash-safe upgrade. Adding a target means
+  adding a real certification authority, not merely enabling Bun's available
+  cross-compile target.
+- **Verdict:** Sound for a narrow v1. The two lanes cover the primary developer
+  environments without turning untested cross-compilation into a support claim.
+- **Confidence:** Medium until both native CI lanes certify the packed artifact.
+
+### Bind every artifact to one clean committed checkout
+
+- **When:** Slice 12 artifact identity implementation.
+- **The choice:** The release builder resolves its own repository root, requires
+  a clean tracked and untracked inventory, and refuses a requested revision that
+  is not `HEAD`. It embeds version, revision, target, and Bun runtime identity
+  while disabling runtime `.env` and Bun configuration autoloading.
+- **The gap:** A caller-supplied revision or caller working directory could make
+  unrelated bytes claim a trusted source identity.
+- **The reach:** Certification can name exactly what was compiled. Dirty source
+  remains useful for ordinary development builds but can never mint a release
+  artifact.
+- **Verdict:** Sound. Source identity is evidence derived from the compiled
+  checkout rather than release-script input.
+- **Confidence:** High.
+
+### Verify transport and executable identity independently
+
+- **When:** Slice 12 artifact manifest boundary.
+- **The choice:** A trusted adjacent-manifest digest pins the release manifest;
+  that manifest pins the archive; the archive's content manifest separately
+  pins the executable. Verification accepts only the declared regular files,
+  validates the target and release identity twice, checks bounded sizes, and
+  ships Factory's license, SPDX inventory, and the exact Bun 1.3.14 component
+  notice used by the embedded runtime.
+- **The gap:** A checksum downloaded from the same untrusted location as a
+  binary is consistency, not provenance, and an opaque “Bun” SBOM entry would
+  hide the runtime's statically linked license inventory.
+- **The reach:** Artifact acquisition or GitHub attestation must supply the
+  trusted manifest digest before upgrade can receive a `VerifiedRelease`.
+  Changing Bun requires updating the vendored notice and verifier together.
+- **Verdict:** Sound as the local verification half of the release boundary;
+  CI attestation remains the next pass.
+- **Confidence:** High.

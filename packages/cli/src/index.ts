@@ -53,6 +53,9 @@ import {
 
 import { openCommand, type OpenCommandOptions } from './open'
 import { reviewCommand } from './review'
+import { factoryBuildIdentity } from './version'
+
+export { verifyReleaseArtifact, type VerifiedRelease } from './release-manifest'
 
 type Output = { stdout(value: string): void; stderr(value: string): void }
 type OwnedFingerprint = { event: string; fingerprint: string }
@@ -983,6 +986,10 @@ export async function runFactoryCli(
     } satisfies Output)
   const [command] = args
   try {
+    if (command === '--version' || command === 'version') {
+      output.stdout(`${factoryBuildIdentity.version}\n`)
+      return 0
+    }
     if (command === 'configure') {
       if (args.includes('--repo') === args.includes('--global')) {
         throw new Error('factory configure requires exactly one of --repo or --global')
@@ -1087,7 +1094,9 @@ export async function runFactoryCli(
       await openCommand(root, environment, output, options.open)
       return 0
     }
-    throw new Error('Usage: factory configure|init|install|uninstall|capture|doctor|review|open')
+    throw new Error(
+      'Usage: factory configure|init|install|uninstall|capture|doctor|review|open|version',
+    )
   } catch (error) {
     output.stderr(`${error instanceof Error ? error.message : String(error)}\n`)
     return 1

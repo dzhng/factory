@@ -1,5 +1,33 @@
 # 12 — Installation, diagnostics, upgrade, and release proof
 
+Status: **in implementation**
+
+## Resolved release scope
+
+V1 ships self-contained Bun executables as immutable GitHub Release assets.
+The required release matrix is macOS arm64 and glibc Linux x64-baseline. Linux
+arm64, macOS x64, musl Linux, and Windows are not claimed by v1. Each executable has
+one adjacent manifest with its SHA-256 digest, byte length, version, source
+revision, target, and SBOM/license inventory. Certification consumes the exact
+binary later published; it never rebuilds a lookalike for a test.
+
+Factory is MIT licensed. GitHub's release transport and artifact attestation
+provide distribution provenance; Factory's own upgrade boundary additionally
+requires the exact manifest digest before it mints a `VerifiedRelease`.
+
+## Implementation passes
+
+1. Build self-contained target executables with embedded release identity and
+   emit bounded manifests from an allowlisted release builder.
+2. Extract installation inspection and pure diagnostics from CLI orchestration;
+   move read-only runtime and GitHub probes behind their owning packages.
+3. Replace the hook-only transaction with one typed installation transaction,
+   then add verified, crash-safe executable upgrade and recovery.
+4. Certify the packed artifact through the clean install/capture/review/action/
+   UI/diagnose/uninstall journey and emit sanitized JSON/HTML evidence.
+5. Add the native CI matrix, record unavailable external authorities honestly,
+   and run the one-time whole-product review and release audit.
+
 ## Contract
 
 One exact release artifact works on supported macOS and Linux: configure,
