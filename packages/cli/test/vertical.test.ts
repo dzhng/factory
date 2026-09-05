@@ -439,6 +439,35 @@ describe('installed capture vertical', () => {
     })
   })
 
+  test('review execution honors global reviewer preferences and repository overrides', async () => {
+    const value = await createFixture()
+    expect((await command(value.factory, ['init'], value.repository, value.env)).code).toBe(0)
+    expect(
+      (
+        await command(
+          value.factory,
+          ['configure', '--global', '--reviewer', 'claude'],
+          value.repository,
+          value.env,
+        )
+      ).code,
+    ).toBe(0)
+    const globalReview = await command(value.factory, ['review'], value.repository, value.env)
+    expect(JSON.parse(globalReview.stdout).reviewer.provider).toBe('claude')
+    expect(
+      (
+        await command(
+          value.factory,
+          ['configure', '--repo', '--reviewer', 'codex'],
+          value.repository,
+          value.env,
+        )
+      ).code,
+    ).toBe(0)
+    const repoReview = await command(value.factory, ['review'], value.repository, value.env)
+    expect(JSON.parse(repoReview.stdout).reviewer.provider).toBe('codex')
+  })
+
   test('configures from GitHub while preserving explicit override and source-aware drift', async () => {
     const value = await createFixture()
     const gh = join(value.root, 'bin', 'gh')

@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 
+import { resolveConfiguration } from '@factory/capture'
 import { canonicalJson, type RecordId } from '@factory/contract'
 import { foldStoredDecisions, loadStoredReviews } from '@factory/domain'
 import {
@@ -42,6 +43,8 @@ import {
   unavailableReviewerExecutor,
   type ReviewerDefaults,
 } from '@factory/reviewer'
+
+import { globalConfig } from './configuration'
 
 type ReviewOutput = { stdout(value: string): void; stderr(value: string): void }
 
@@ -217,8 +220,9 @@ export async function reviewCommand(
   )
   return await withAdvisoryFileLock(subjectLock, 24 * 60 * 60 * 1_000, async () => {
     const repositorySettings = await store.readConfig()
-    if (repositorySettings.reviewer !== undefined && repositorySettings.reviewer !== 'auto') {
-      const configured = repositorySettings.reviewer
+    const settings = resolveConfiguration({}, repositorySettings, await globalConfig(environment))
+    if (settings.reviewer !== 'auto') {
+      const configured = settings.reviewer
       reviewerAdapter({
         provider: configured.provider,
         model: configured.model ?? reviewerDefaults[configured.provider].model,
@@ -258,7 +262,7 @@ export async function reviewCommand(
     const authoringProvider = reviewAuthoringProvider(evidence)
     const auth = await resolveReviewerAuthentication(environment)
     const selected = selectReviewer(
-      repositorySettings.reviewer ?? 'auto',
+      settings.reviewer,
       authoringProvider,
       auth.availability,
       reviewerDefaults,

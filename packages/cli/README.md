@@ -5,6 +5,10 @@ locations, applies hook patch plans, routes a native Session to its first
 initialized repository, and invokes capture recovery. It never constructs
 repository-owned paths or writes `.factory` directly.
 
+Configuration display and execution share the same precedence fold: repository
+preferences override global preferences, which override built-in defaults. The
+CLI's configuration reader owns validation of the private global file.
+
 `factory capture` is deliberately fail-open for Codex and Claude Code: after
 input classification it always emits the provider's valid empty response and
 exits successfully, even when durable capture or materialization fails. Raw

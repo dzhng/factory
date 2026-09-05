@@ -19,14 +19,15 @@ Verdict: **not clean**. Scope: implementation from `c1b23a7` through
    Session to the second, verifies the resulting bundle, and checks both replay
    modes. Independent Codex review found no remaining issue in this fix; the
    full build, formatting, lint, type, and test gates passed.
-2. **P2 — Global reviewer preferences do not affect execution.**
+2. **Resolved P2 — Global reviewer preferences did not affect execution.**
    [The review command](../../../packages/cli/src/review.ts) passes only the
    repository reviewer setting to selection. In a disposable Docker repository,
    `configure --global --reviewer claude` reported Claude, but the next review's
    output and immutable manifest recorded Codex. Authentication was deliberately
    absent; the failed attempt still proves which reviewer was selected. The
-   existing effective-configuration fold must govern execution as well as the
-   configuration command's display.
+   existing effective-configuration fold now governs execution as well as the
+   configuration command's display. The installed CLI regression proves global
+   selection and repository override precedence in Docker.
 3. **P2 — Automatic review is an accepted but inert preference.**
    [The CLI](../../../packages/cli/src/index.ts) persists `automaticReview`, but
    no production consumer dispatches reviews from it. A Docker reproduction

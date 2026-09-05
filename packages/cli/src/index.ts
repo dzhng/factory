@@ -40,6 +40,7 @@ import {
   type RuntimeJournal,
 } from '@factory/runtime-journal'
 
+import { globalConfig } from './configuration'
 import { runDiagnostics } from './diagnostics'
 import {
   inspectInstallation,
@@ -87,16 +88,6 @@ function stateRoot(environment: NodeJS.ProcessEnv): string {
     environment.XDG_STATE_HOME ?? join(environment.HOME ?? homedir(), '.local', 'state'),
     'factory',
   )
-}
-
-async function readJsonObject(path: string): Promise<Record<string, JsonValue>> {
-  const bytes = await readBoundedOrdinaryFile(path, 1024 * 1024)
-  if (bytes === undefined) return {}
-  const value = JSON.parse(textDecoder.decode(bytes)) as unknown
-  if (value === null || Array.isArray(value) || typeof value !== 'object') {
-    throw new TypeError(`${path} must contain a JSON object`)
-  }
-  return value as Record<string, JsonValue>
 }
 
 async function run(
@@ -213,37 +204,6 @@ function boolOption(value: string | undefined): boolean | undefined {
   if (value === 'true') return true
   if (value === 'false') return false
   throw new TypeError('boolean options must be true or false')
-}
-
-async function globalConfig(environment: NodeJS.ProcessEnv): Promise<GlobalFactoryConfig> {
-  const value = await readJsonObject(join(configRoot(environment), 'config.json'))
-  if (
-    value.repositoryInitialization !== undefined &&
-    value.repositoryInitialization !== 'explicit' &&
-    value.repositoryInitialization !== 'automatic'
-  ) {
-    throw new TypeError('repositoryInitialization is unsupported')
-  }
-  if (value.automaticReview !== undefined && typeof value.automaticReview !== 'boolean') {
-    throw new TypeError('automaticReview must be boolean')
-  }
-  if (
-    value.canonicalBranch !== undefined &&
-    (typeof value.canonicalBranch !== 'string' || !isGitBranchName(value.canonicalBranch))
-  ) {
-    throw new TypeError('canonicalBranch must be a valid Git branch name')
-  }
-  if (
-    value.reviewer !== undefined &&
-    value.reviewer !== 'auto' &&
-    (value.reviewer === null ||
-      Array.isArray(value.reviewer) ||
-      typeof value.reviewer !== 'object' ||
-      (value.reviewer.provider !== 'codex' && value.reviewer.provider !== 'claude'))
-  ) {
-    throw new TypeError('reviewer is unsupported')
-  }
-  return value as GlobalFactoryConfig
 }
 
 async function canonicalSuggestion(
@@ -753,7 +713,7 @@ export async function runFactoryCli(
       }
       if (target === 'global') {
         const path = join(configRoot(environment), 'config.json')
-        const current = await readJsonObject(path)
+        const current = await globalConfig(environment)
         const definedChange = Object.fromEntries(
           Object.entries(change).filter(([, value]) => value !== undefined),
         )
