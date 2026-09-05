@@ -1,97 +1,28 @@
 # Factory v1 specification
 
-Status: **implementation complete; authenticated exact-artifact certification passed; GitHub Release publication pending**
+Status: **implementation review found open behavior gaps; authenticated exact-artifact certification passed; GitHub Release publication pending**
 
 ## Next Agent Prompt
 
-> Continue Factory v1 from this spec. Current status (2026-09-05): the shared
-> workspace is bootstrapped; Slice 01's provider/reference oracle is implemented
-> at `ec8dae8`, and Slice 02's provider-independent reviewer-isolation oracle is
-> implemented at `b669b63`. Slice 03's public contract and sole repository
-> writer are implemented at `82856b7`. Slice 04's durable Git-common runtime
-> journal and Slice 05's safe Git observation plus exact confined reconstruction
-> are implemented through milestone `e4a92a5`. Slice 06 connects provider hooks
-> through the journal, Git observer, and sole repository writer into immutable
-> per-Stop Turns through milestones `0cfee90`, `52d488d`, `52731b9`, and
-> `f7d5299`, with cross-worktree recovery hardened at `618fa5a`. Slice 07 adds
-> the public PR/association contract at `f46b679`, the optional bounded GitHub
-> observation and exact association vertical at `00425da`, and independently
-> audited code-capture deadline hardening at `396dd97`. Slice 08 adds
-> deterministic incremental coverage and independently verified portable
-> workspace/PR bundles through `c934ba8`. Slice 09 implements isolated review
-> execution and immutable acceptance through `37d9a04`. Slice 10 implements
-> verified decision observations, deterministic canonical folding, and linear
-> append-only human actions through `d33b21e`. Slice 11 implements the
-> short-lived loopback interface, shared verified historical projections,
-> typed append-only browser actions, and deterministic visual verification
-> through `77bbf11`. Slice 12 Passes 1–4 add verified release artifacts,
-> owner-supplied diagnostics, one tagged installation transaction, and
-> crash-safe executable upgrade through `5522f88`, then certify the exact
-> packed macOS arm64 artifact through clean install, capture, review, actions,
-> UI, diagnostics, uninstall, and upgrade at `e478528`. Slice 12 Pass 5 adds
-> the native CI and release-authority matrix through `3f6d8ae`; GitHub Actions
-> run `33950555193` passes the whole repository gate, exact glibc Linux
-> x64-baseline certification, native macOS arm64 package verification, and
-> attestations for both candidates. Milestone `40614cb` adds the explicit
-> manual Session-to-PR workflow and carries assertions into later exact PR
-> observations. The completion-audit implementation gaps are now closed: the
-> production reviewer image is public and attested, authenticated certification
-> has an automatic two-provider mode, the exact Node floor passes, and the local
-> macOS arm64 deterministic journey plus report visual gate pass. Exact release
-> evidence is retained at `73e6520`. The remaining authenticated gate passed at
-> `0f2ba19`: the exact packed macOS arm64 artifact reused both existing CLI
-> logins automatically and completed one production-image review through Codex
-> and one through Claude. The sanitized report is retained under
-> `assets/release-certification/`. GitHub Release publication and its artifact
-> attestation remain the only unavailable release authority.
-> Read `AGENTS.md`, `SECURITY.md`, this README, `choices.md`, `format.md`, and
-> Slices 11 and 12 in full.
-> Slice 06's packaged networkless Docker vertical passes both provider fixtures,
-> continuing/cross-repository Sessions, hook recovery, automatic initialization,
-> partial transcripts, Git sentinels, and rebuild after derived-index deletion.
-> Slice 07's deterministic Docker workbench proves coherent complete and partial
-> PR snapshots, typed optional-`gh` failures, rename/fork/GHES identity, exact
-> many-to-many Session associations, force-push invalidation, lifecycle history,
-> bounded provider/CAS/capture work, and crash-safe association batches.
-> Milestone `6fc6c64` published the public Linux amd64/arm64 production reviewer
-> image and proved
-> `ghcr.io/dzhng/factory-reviewer@sha256:8b4d1bb63f727a791c5c20084a840cc75963becaa9225612acf6f42858eb561c`
-> through the isolation oracle. Milestone
-> `babb8e0` added a two-provider authenticated certification mode and passed the
-> exact macOS arm64 deterministic release journey. Factory now automatically
-> reuses each provider CLI's existing login, including Claude's macOS Keychain
-> identity, without separate credential setup. Real Codex and Claude execution
-> passed through the packaged production path at `0f2ba19`. Earlier non-blocking evidence
-> gaps remain recorded: deterministic libc
-> `readdir` error injection was unavailable. The earlier Slice 03/local-file
-> browser limitation was superseded by the executable repository report and its
-> accepted fresh-eyes visual gate. Changed gates: all six
-> prior runnable labs, the PR workbench, decision replay, and workspace/PR
-> review-release journeys pass; SQLite was selected from the
-> measured crash candidates;
-> runtime record validation covers every public v1 family plus the public code
-> manifest; the journal passes 37 Docker tests, repository storage 19, and Git
-> observation/reconstruction 39; the GitHub workspace passes 21 Docker tests
-> with 156 assertions; the combined workspace passes build, formatting, lint,
-> types, and all package tests; the localhost lab matches eight wide/narrow
-> screenshots across twelve scenarios, fresh unprimed critique found no
-> blocking visual defect, and the packaged CLI passes 27 Docker verticals with
-> 275 assertions, including real loopback actions that preserve prior evidence
-> bytes. A dedicated glibc Linux x64 lane passes eight executable-upgrade tests
-> with 79 assertions across every journal boundary, hostile state, contention,
-> and pre-promotion mutation; a musl x64 lane proves that unsupported libc does
-> not claim release authority. Global TODOs: rerun current-client authority when
-> a false-positive-heavy corpus can define verified code-state continuity before
-> enabling it. The journal package
-> now passes an exact pinned Node 22.13.1 SQLite smoke. The local macOS arm64
-> exact-artifact journey passes all deterministic stages; its authenticated
-> Codex/Claude extension discovered both logged-in local CLIs automatically and
-> passed both provider journeys.
-> The hosted macOS lane remains package-only because it lacks Docker. The final
-> sanitized report and screenshot are retained under
-> `assets/release-certification/` and passed fresh-eyes critique.
-> After each authority attempt, update this prompt with the exact candidate,
-> evidence, remaining blockers, and changed gates.
+Continue from the [implementation review](assets/implementation-review.md).
+Resolve acquisition starvation, effective reviewer configuration, automatic
+review dispatch, and the UI's missing canonical-branch drift observation before
+claiming implementation completion. Preserve fail-open capture and the
+repository, credential, and container boundaries in [SECURITY.md](../../SECURITY.md).
+Use the existing ownership seams and verify each fix through its production
+consumer, including repeated reviews when testing forward progress.
+
+The [release report](assets/release-certification/report.json) retains the exact
+macOS arm64 artifact at `0f2ba19` that completed both authenticated provider
+reviews using the existing local CLI logins without user setup. Its
+[visual review](assets/release-certification/visual-review.md) describes the
+report's evidence boundaries. Hosted macOS CI remains package-only; GitHub
+Release publication and its artifact attestation remain pending. Successful
+release journeys do not close the separate behavior findings above.
+
+The ordered [slices](slices/README.md) describe the implementation contracts;
+[choices](choices.md) retain rationale and [format](format.md) owns the durable
+layout. Git history records completed implementation milestones.
 
 This specification defines Factory's first release: a local CLI that captures
 coding-harness Sessions, stores portable evidence with the repository, reviews
