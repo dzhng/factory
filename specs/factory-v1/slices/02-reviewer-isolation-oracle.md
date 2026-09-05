@@ -1,7 +1,7 @@
 # 02 — Reviewer isolation and authentication oracle
 
-Status: **implemented for the provider-independent Linux boundary; live
-provider authority remains explicitly unavailable**
+Status: **provider-independent isolation proven; authenticated execution evidence
+is owned by Slice 09 and the release certification**
 
 ## Contract
 
@@ -43,7 +43,7 @@ process cleanup, and network observations.
   unrelated host paths are absent.
 - Exercise success, timeout, cancellation, killed descendants, and cleanup with
   a fake provider. Record Codex, Claude, and platform certification as verified
-  only when the packaged Slice 09 path runs with explicit test credentials.
+  only when the packaged Slice 09 path runs with existing provider-owned logins.
 - Grep image history, report, output, logs, and fixtures for credential values.
 
 ## Delegated decisions
@@ -76,7 +76,8 @@ cleanup, and credential-value absence.
 The local authority run verified Docker `linux/arm64`, and the native CI release
 lane verifies the same provider-independent boundary on glibc `linux/amd64`.
 Codex 0.144.4 and Claude Code 2.1.261 are credential-free image-certified. The
-published production digest now passes the same isolation oracle, but no
-dedicated test credentials were configured, so neither provider was reported as
-authenticated. Slice 09 owns that remaining packaged real-provider execution
-authority and must obtain it before release acceptance.
+published production digest passes the same isolation oracle. This slice's
+credential-free report is not authenticated evidence; the later
+[release certification](../assets/release-certification/report.json) records
+both packaged provider executions using existing local CLI logins. Final-candidate
+certification remains a separate gate in the master handoff.
