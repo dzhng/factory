@@ -346,6 +346,7 @@ try {
     ...process.env,
     HOME: home,
     XDG_CONFIG_HOME: join(home, '.config'),
+    XDG_CACHE_HOME: join(home, '.cache'),
     XDG_STATE_HOME: join(home, '.state'),
     CODEX_HOME: join(home, '.codex'),
     CLAUDE_CONFIG_DIR: join(home, '.claude'),

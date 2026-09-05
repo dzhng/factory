@@ -48,6 +48,7 @@ async function review(
     new Response(child.stderr).text(),
   ])
   if (code !== 0) throw new Error(`PR review failed: ${stdout}${stderr}`)
+  if (stderr !== '') throw new Error(`Deterministic PR review emitted diagnostics: ${stderr}`)
   return JSON.parse(stdout) as StoredReviewResult
 }
 
@@ -96,6 +97,7 @@ async function main() {
     const baseEnvironment = {
       ...process.env,
       XDG_CONFIG_HOME: join(root, 'global-config'),
+      XDG_CACHE_HOME: join(root, 'global-cache'),
       PATH: `${bin}:${process.env.PATH ?? ''}`,
       FACTORY_CODEX_REVIEW_MODEL: 'gpt-test',
       FACTORY_CODEX_REVIEW_EFFORT: 'high',
