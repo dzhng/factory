@@ -1387,9 +1387,6 @@ async function reviewCommand(
       effort: configured.effort ?? reviewerDefaults[configured.provider].effort,
     })
   }
-  const imageDigest = environment.FACTORY_REVIEWER_IMAGE_DIGEST
-  if (!imageDigest || !/^sha256:[0-9a-f]{64}$/.test(imageDigest))
-    throw new Error('FACTORY_REVIEWER_IMAGE_DIGEST must pin an immutable reviewer image')
   const subjectLock = join(
     coordinator.runtimeRoot,
     `subject-${createHash('sha256')
@@ -1449,13 +1446,11 @@ async function reviewCommand(
     const plan = planReview(bindReviewPolicies(evidence, policies))
     if (plan.status !== 'ready') {
       if (plan.status === 'already-reviewed') {
-        const prior = committedReviews
-          .filter(review => reviewSubjectLineage(review, stored.records) === lineage)
-          .sort((left, right) => left.reviewId.localeCompare(right.reviewId))
-          .at(-1)
+        const priorId = plan.priorLedger?.ledger.reviewId
+        const prior = committedReviews.find(review => review.reviewId === priorId)
         if (prior !== undefined) {
           output.stdout(reviewResultOutput(prior, 'already-reviewed'))
-          return 0
+          return (await reviewFindingsEnforced(store, prior.reviewId, options.failOn)) ? 1 : 0
         }
       }
       output.stdout(
@@ -1463,6 +1458,9 @@ async function reviewCommand(
       )
       return plan.status === 'unavailable' ? 1 : 0
     }
+    const imageDigest = environment.FACTORY_REVIEWER_IMAGE_DIGEST
+    if (!imageDigest || !/^sha256:[0-9a-f]{64}$/.test(imageDigest))
+      throw new Error('FACTORY_REVIEWER_IMAGE_DIGEST must pin an immutable reviewer image')
     const bundleParent = await mkdtemp(join(coordinator.runtimeRoot, 'review-bundle-'))
     try {
       const built = await buildBundle(

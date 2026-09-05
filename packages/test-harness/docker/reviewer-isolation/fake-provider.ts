@@ -12,9 +12,22 @@ const prompt = await new Response(Bun.stdin.stream()).text()
 if (!prompt.includes('/review-input') || !prompt.includes('newline-delimited JSON'))
   throw new Error('Factory review prompt was not delivered on stdin')
 const bundle = (await Bun.file('/review-input/bundle.json').json()) as { inventory: unknown[] }
-const response = `${JSON.stringify({ kind: 'summary', summary: 'Deterministic fake review completed', evidence: [{ object: bundle.inventory[0] }] })}\n`
 const authPath = provider === 'codex' ? '/auth/codex/auth.json' : '/auth/claude/.credentials.json'
 const behavior = await Bun.file(authPath).text()
+const response = `${JSON.stringify(
+  behavior.includes('factory-test-high-finding')
+    ? {
+        kind: 'finding',
+        severity: 'high',
+        summary: 'Deterministic fake finding',
+        evidence: [{ object: bundle.inventory[0] }],
+      }
+    : {
+        kind: 'summary',
+        summary: 'Deterministic fake review completed',
+        evidence: [{ object: bundle.inventory[0] }],
+      },
+)}\n`
 if (provider === 'codex') {
   const outputIndex = process.argv.indexOf('--output-last-message')
   if (

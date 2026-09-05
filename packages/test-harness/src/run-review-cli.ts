@@ -42,7 +42,7 @@ async function main() {
     const authRoot = join(root, 'dedicated-auth')
     await mkdir(authRoot)
     const auth = join(authRoot, 'auth.json')
-    await writeFile(auth, '{}\n', { mode: 0o444 })
+    await writeFile(auth, 'factory-test-high-finding\n', { mode: 0o444 })
     await chmod(auth, 0o444)
     const image = await command(
       ['docker', 'build', '-q', resolve(import.meta.dir, '../docker/reviewer-isolation')],
@@ -95,16 +95,24 @@ async function main() {
     if (accepted === undefined || noOp === undefined)
       throw new Error(`concurrent review did not converge: ${JSON.stringify(firstResults)}`)
     const secondOutput: string[] = []
-    const second = await runFactoryCli(['review'], {
+    const { FACTORY_REVIEWER_IMAGE_DIGEST: _imageDigest, ...noImageEnvironment } = environment
+    const second = await runFactoryCli(['review', '--fail-on', 'high'], {
       cwd: root,
-      environment,
+      environment: noImageEnvironment,
       output: {
         stdout: value => secondOutput.push(value),
         stderr: value => secondOutput.push(value),
       },
     })
-    if (second !== 0 || !secondOutput.join('').includes('already-reviewed'))
-      throw new Error(`factory review retry was not a no-op: ${secondOutput.join('')}`)
+    const retried = JSON.parse(secondOutput.join('')) as Record<string, string>
+    if (
+      second !== 1 ||
+      retried.status !== 'already-reviewed' ||
+      retried.reviewId !== accepted.reviewId
+    )
+      throw new Error(
+        `factory review retry did not enforce its exact prior ledger: ${secondOutput.join('')}`,
+      )
     process.stdout.write(
       canonicalJson({ schemaVersion: 1, first: accepted.disposition, retry: 'already-reviewed' }),
     )
