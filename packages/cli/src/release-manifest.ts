@@ -293,13 +293,33 @@ export async function verifyReleaseArtifact(input: {
     executable.byteLength,
   )
   for (const prohibited of [
-    'coding-agent-plugin',
-    '/Users/david/dev/',
-    'SUPABASE_SERVICE_ROLE_KEY',
-    'packages/control-plane/',
+    {
+      label: 'legacy donor name',
+      bytes: [
+        99, 111, 100, 105, 110, 103, 45, 97, 103, 101, 110, 116, 45, 112, 108, 117, 103, 105, 110,
+      ],
+    },
+    {
+      label: 'developer checkout path',
+      bytes: [47, 85, 115, 101, 114, 115, 47, 100, 97, 118, 105, 100, 47, 100, 101, 118, 47],
+    },
+    {
+      label: 'hosted service credential name',
+      bytes: [
+        83, 85, 80, 65, 66, 65, 83, 69, 95, 83, 69, 82, 86, 73, 67, 69, 95, 82, 79, 76, 69, 95, 75,
+        69, 89,
+      ],
+    },
+    {
+      label: 'hosted control-plane path',
+      bytes: [
+        112, 97, 99, 107, 97, 103, 101, 115, 47, 99, 111, 110, 116, 114, 111, 108, 45, 112, 108, 97,
+        110, 101, 47,
+      ],
+    },
   ]) {
-    if (executableBytes.includes(prohibited)) {
-      throw new TypeError(`release executable contains prohibited content: ${prohibited}`)
+    if (executableBytes.includes(Uint8Array.from(prohibited.bytes))) {
+      throw new TypeError(`release executable contains prohibited ${prohibited.label}`)
     }
   }
   return new VerifiedRelease(

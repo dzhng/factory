@@ -56,4 +56,13 @@ describe('release artifact verification', () => {
       verifyReleaseArtifact({ ...value, expectedTarget: value.identity.target }),
     ).rejects.toThrow('release SBOM')
   })
+
+  test('rejects prohibited executable bytes without embedding them in release builds', async () => {
+    const value = await releaseFixture({
+      executable: new TextEncoder().encode('coding-agent-plugin'),
+    })
+    expect(
+      verifyReleaseArtifact({ ...value, expectedTarget: value.identity.target }),
+    ).rejects.toThrow('prohibited legacy donor name')
+  })
 })
