@@ -1,6 +1,6 @@
 # Factory v1 specification
 
-Status: **in implementation; Slices 01–11 are complete**
+Status: **implementation complete; release acceptance blocked on external authority**
 
 ## Next Agent Prompt
 
@@ -28,10 +28,16 @@ Status: **in implementation; Slices 01–11 are complete**
 > owner-supplied diagnostics, one tagged installation transaction, and
 > crash-safe executable upgrade through `5522f88`, then certify the exact
 > packed macOS arm64 artifact through clean install, capture, review, actions,
-> UI, diagnostics, uninstall, and upgrade at `e478528`.
-> Next, implement Slice 12 Pass 5: land the native CI/release-authority matrix,
-> preserve unavailable macOS hosted-Docker and external-provider authorities as
-> explicit gaps, then run the one-time whole-product review and release audit.
+> UI, diagnostics, uninstall, and upgrade at `e478528`. Slice 12 Pass 5 adds
+> the native CI and release-authority matrix through `3f6d8ae`; GitHub Actions
+> run `33950555193` passes the whole repository gate, exact glibc Linux
+> x64-baseline certification, native macOS arm64 package verification, and
+> attestations for both candidates. The final independent review is clean.
+> All implementation slices are complete. The next pickup is release
+> acceptance: run the packaged production path with dedicated Codex and Claude
+> Code test credentials, and run the complete macOS arm64 journey on an
+> environment that provides Docker. Do not publish or mark v1 shipped until
+> both authorities pass.
 > Read `AGENTS.md`, `SECURITY.md`, this README, `choices.md`, `format.md`, and
 > Slices 11 and 12 in full.
 > Slice 06's packaged networkless Docker vertical passes both provider fixtures,
@@ -41,16 +47,15 @@ Status: **in implementation; Slices 01–11 are complete**
 > PR snapshots, typed optional-`gh` failures, rename/fork/GHES identity, exact
 > many-to-many Session associations, force-push invalidation, lifecycle history,
 > bounded provider/CAS/capture work, and crash-safe association batches.
-> Current evidence gaps: Docker registry DNS prevented the pinned current-client
-> refresh; no dedicated provider test credentials exist; native `linux/amd64`
-> isolation was not run; Docker repository/journal/Git evidence used locally
-> available Bun 1.3.11 rather than pinned 1.3.14; exact Node 22.13 journal
-> packaging is unavailable although Node 24 passes; Slice 03 browser screenshot
-> critique was blocked by local-file policy; and deterministic libc `readdir`
-> error injection plus macOS/musl/Node reconstruction gates remain Slice 12
-> authority. These are explicit unavailable authorities, not passes. Real Codex
-> and Claude execution is a Slice 09 release gate through the packaged
-> production path; never borrow a developer login. Changed gates: all six
+> Current release blockers: no dedicated provider test credentials exist, and
+> the hosted native macOS arm64 runner lacks Docker reviewer authority. These
+> are explicit unavailable authorities, not passes. Real Codex and Claude
+> execution must run through the packaged production path; never borrow a
+> developer login. Earlier non-blocking evidence gaps remain recorded: Docker
+> registry DNS prevented the pinned current-client refresh, exact Node 22.13
+> journal packaging was unavailable although Node 24 passed, deterministic libc
+> `readdir` error injection was unavailable, and the Slice 03/local report
+> browser gates were blocked by local-file policy. Changed gates: all six
 > prior runnable labs, the PR workbench, decision replay, and workspace/PR
 > review-release journeys pass; SQLite was selected from the
 > measured crash candidates;
@@ -65,14 +70,14 @@ Status: **in implementation; Slices 01–11 are complete**
 > bytes. A dedicated glibc Linux x64 lane passes eight executable-upgrade tests
 > with 79 assertions across every journal boundary, hostile state, contention,
 > and pre-promotion mutation; a musl x64 lane proves that unsupported libc does
-> not claim release authority. Global TODOs: rerun current-client
-> authority when the registry is reachable; define verified code-state
-> continuity before enabling it; complete the native release matrix. The local
-> macOS arm64 exact-artifact journey passes all seven stages, but its report
-> screenshot gate remains unavailable because the app browser cannot render a
-> local file.
-> After every pass, update this prompt with the completed commit, exact next
-> pickup, blockers, and changed gates.
+> not claim release authority. Global TODOs: rerun current-client authority when
+> the registry is reachable; define verified code-state continuity before
+> enabling it. The local macOS arm64 exact-artifact journey passes all seven
+> deterministic stages, but the hosted macOS lane remains package-only because
+> it lacks Docker. Its report screenshot gate remains unavailable because the
+> app browser cannot render a local file.
+> After each authority attempt, update this prompt with the exact candidate,
+> evidence, remaining blockers, and changed gates.
 
 This specification defines Factory's first release: a local CLI that captures
 coding-harness Sessions, stores portable evidence with the repository, reviews

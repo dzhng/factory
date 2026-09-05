@@ -1,6 +1,6 @@
 # 12 — Installation, diagnostics, upgrade, and release proof
 
-Status: **Passes 1–4 complete; Pass 5 in implementation**
+Status: **implementation complete; release acceptance blocked on external authority**
 
 ## Resolved release scope
 
@@ -54,10 +54,14 @@ harness owns certification and introduces no new product authority.
 
 ## Runnable artifact
 
-`bun run release:verify` packs and installs the exact artifact, runs the full
-journey in clean Linux Docker and real macOS runners, and emits a sanitized
-HTML/JSON report with artifact digest, platform/architecture, Node/Bun/Git/
-Docker/provider versions, journey verdicts, and unavailable optional authority.
+`bun run release:verify` either packs a clean committed checkout or accepts an
+already packed candidate, verifies and installs those exact bytes, runs the full
+journey on a native host with Docker, and emits a sanitized HTML/JSON report
+with artifact digest, platform/architecture, Node/Bun/Git/Docker/provider
+versions, journey verdicts, and unavailable optional authority. Hosted Linux
+provides complete journey authority. Hosted macOS verifies the native package
+but records its unavailable Docker reviewer authority; a local native macOS
+arm64 run proves the complete deterministic fixture journey.
 
 ## Verification
 
@@ -97,3 +101,19 @@ feedback is non-blocking; a missing platform/provider authority blocks release.
 Repository growth, association accuracy, partial-review usefulness, and reviewer
 quality become measured post-v1 improvement inputs, never permission for silent
 pruning or heuristic grouping.
+
+## Release acceptance
+
+All five implementation passes are complete through `3f6d8ae`. GitHub Actions
+run `33950555193` passed the repository gate, exact glibc Linux x64-baseline
+certification, native macOS arm64 package verification, and attestations for
+both candidates. The local native macOS arm64 exact-artifact journey passed all
+seven deterministic stages.
+
+Release remains blocked until dedicated Codex and Claude Code test credentials
+certify the packaged production path and a macOS arm64 environment with Docker
+completes that same path. Automated publication must not turn package-only
+macOS evidence into a release claim. The local HTML report screenshot is also
+unavailable because the app browser refused local-file rendering; this is a
+human presentation checkpoint, not a substitute for either missing execution
+authority.

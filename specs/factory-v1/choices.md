@@ -1413,7 +1413,9 @@ second normative schema; the master specification and format own mechanics.
   cross-compile target.
 - **Verdict:** Sound for a narrow v1. The two lanes cover the primary developer
   environments without turning untested cross-compilation into a support claim.
-- **Confidence:** Medium until both native CI lanes certify the packed artifact.
+- **Confidence:** High in the target boundary and native packaging; release
+  acceptance remains blocked until macOS has complete Docker-backed journey
+  authority.
 
 ### Bind every artifact to one clean committed checkout
 
@@ -1446,8 +1448,8 @@ second normative schema; the master specification and format own mechanics.
 - **The reach:** Artifact acquisition or GitHub attestation must supply the
   trusted manifest digest before upgrade can receive a `VerifiedRelease`.
   Changing Bun requires updating the vendored notice and verifier together.
-- **Verdict:** Sound as the local verification half of the release boundary;
-  CI attestation remains the next pass.
+- **Verdict:** Sound. Local verification and CI provenance remain independent
+  authorities, and main-branch candidates now receive GitHub attestations.
 - **Confidence:** High.
 
 ### Keep runtime diagnostics behind the journal owner
@@ -1598,8 +1600,8 @@ second normative schema; the master specification and format own mechanics.
 - **Verdict:** Sound. Every recoverable boundary proves either the old or the
   verified new executable without granting JSON shape or ambient concurrency
   the authority to replace the installation.
-- **Confidence:** High for glibc Linux x64; native macOS artifact certification
-  remains Pass 4 release evidence.
+- **Confidence:** High for glibc Linux x64 and the local native macOS arm64
+  deterministic journey; hosted macOS complete authority remains unavailable.
 
 ### Certify one verified artifact without borrowing host identity
 
@@ -1617,12 +1619,13 @@ second normative schema; the master specification and format own mechanics.
 - **The reach:** The sanitized report can prove native packaging, capture,
   review, localhost actions, diagnostics, upgrade, and uninstall without
   retaining scratch paths or credentials. Real Codex and Claude credentials and
-  GitHub release attestation remain explicitly unavailable until independent
-  release lanes supply them.
+  GitHub Release publication remains explicitly unavailable until independent
+  release lanes supply them. Main-branch candidate attestations are now present
+  but do not imply publication or authenticated provider execution.
 - **Verdict:** Sound. The harness proves the shipped-byte journey and names the
   authorities it does not possess instead of turning substitutes into passes.
-- **Confidence:** High for the native macOS arm64 harness; the Linux CI lane and
-  external attestations remain Pass 5 work.
+- **Confidence:** High for the native macOS arm64 harness and complete Linux CI
+  journey. Authenticated provider execution remains unavailable.
 
 ### Keep packaging evidence distinct from complete certification
 
