@@ -1028,3 +1028,19 @@ second normative schema; the master specification and format own mechanics.
 - **Verdict:** Needs-user. Choose and publish the production image separately;
   keeping the missing-authority refusal is the safe reversible state.
 - **Confidence:** Medium.
+
+### Serialize one current review per subject before observing it
+
+- **When:** Slice 09 concurrent CLI hardening.
+- **The choice:** Factory holds a Git-common lock for the workspace repository
+  or exact PR number across fresh observation, planning, execution, and
+  acceptance. A waiter observes and replans only after the first publication.
+  The lower-level bundle attempt lock remains responsible for crash recovery.
+- **The gap:** Fresh observations intentionally receive distinct IDs, so locking
+  only by bundle digest allowed simultaneous commands to review identical state
+  twice.
+- **The reach:** Concurrency is serialized per subject, not globally across a
+  repository. Workspace and different PR reviews remain independent.
+- **Verdict:** Sound. The lock protects the user-visible operation whose no-op
+  decision depends on the review committed immediately before it.
+- **Confidence:** High.

@@ -108,6 +108,8 @@ export type GithubPrObserverOptions = {
     deadlineMs: number
   }) => Promise<ObjectRef | undefined>
   now?: () => Date
+  /** Exact local repository whose authenticated gh context is being observed. */
+  cwd?: string
 }
 
 /** Runtime-only typed failure when no provider-stable repository identity can be proven. */
@@ -357,6 +359,7 @@ export async function runBoundedGh(
   maximumBytes: number,
   maximumDurationMs: number,
   executable = 'gh',
+  cwd?: string,
 ): Promise<GhCommandResult> {
   if (!Number.isSafeInteger(maximumBytes) || maximumBytes < 1) {
     throw new TypeError('maximumBytes must be a positive integer')
@@ -366,6 +369,7 @@ export async function runBoundedGh(
   }
   return await new Promise(resolve => {
     const child = spawn(executable, [...args], {
+      ...(cwd === undefined ? {} : { cwd }),
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     const stdout: Buffer[] = []
@@ -452,6 +456,8 @@ export class GithubPrObserver {
           args,
           maximumBytes,
           Math.min(maximumDurationMs, duration ?? maximumDurationMs),
+          'gh',
+          options.cwd,
         ))
     this.now = options.now ?? (() => new Date())
     this.maxCommits = options.maxCommits ?? 250
@@ -975,6 +981,7 @@ export type GithubRepositoryMapperOptions = {
   maxCommandDurationMs?: number
   maxAcquisitionDurationMs?: number
   now?: () => Date
+  cwd?: string
 }
 
 export type GithubRepositoryMappingUnavailable = {
@@ -1010,7 +1017,7 @@ export async function observeGithubRepositoryMapping(
   const run =
     options.run ??
     ((args: readonly string[], duration?: number) =>
-      runBoundedGh(args, maximumBytes, duration ?? maximumDurationMs))
+      runBoundedGh(args, maximumBytes, duration ?? maximumDurationMs, 'gh', options.cwd))
   const observedAt = (options.now ?? (() => new Date()))().toISOString()
   const deadline = performance.now() + maximumAcquisitionDurationMs
   const execution = await settleWithinDeadline(

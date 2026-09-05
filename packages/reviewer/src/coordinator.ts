@@ -1,6 +1,17 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
-import { chmod, lstat, mkdir, open, readdir, realpath, rename, rm, unlink } from 'node:fs/promises'
+import {
+  chmod,
+  lstat,
+  mkdir,
+  open,
+  opendir,
+  readdir,
+  realpath,
+  rename,
+  rm,
+  unlink,
+} from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 
 import { canonicalJson, newRecordId, type RecordId, type ReviewManifest } from '@factory/contract'
@@ -96,8 +107,20 @@ function attemptKey(
 }
 
 async function privateDirectory(path: string): Promise<void> {
-  await mkdir(path, { recursive: true, mode: 0o700 })
-  await chmod(path, 0o700)
+  try {
+    await mkdir(path, { mode: 0o700 })
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+  }
+  const handle = await open(path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW)
+  try {
+    const info = await handle.stat()
+    if (!info.isDirectory() || info.uid !== process.getuid?.())
+      throw new Error('review runtime path is not an owned ordinary directory')
+    await handle.chmod(0o700)
+  } finally {
+    await handle.close()
+  }
 }
 
 async function cleanupStartedArtifacts(
@@ -291,33 +314,43 @@ export class ReviewAttemptCoordinator {
   private async attemptRoots(): Promise<readonly { key: string; path: string }[]> {
     const roots: { key: string; path: string }[] = []
     let count = 0
-    for (const entry of await readdir(this.runtimeRoot, { withFileTypes: true })) {
-      count += 1
-      if (count > 10_000) throw new Error('review attempt inventory exceeds its bound')
-      if (!/^[0-9a-f]{64}$/.test(entry.name)) continue
-      const path = join(this.runtimeRoot, entry.name)
-      const info = await lstat(path)
-      if (info.isSymbolicLink() || !info.isDirectory())
-        throw new Error('review attempt root is not an ordinary directory')
-      roots.push({ key: entry.name, path })
+    const directory = await opendir(this.runtimeRoot)
+    try {
+      for await (const entry of directory) {
+        count += 1
+        if (count > 10_000) throw new Error('review attempt inventory exceeds its bound')
+        if (!/^[0-9a-f]{64}$/.test(entry.name)) continue
+        const path = join(this.runtimeRoot, entry.name)
+        const info = await lstat(path)
+        if (info.isSymbolicLink() || !info.isDirectory())
+          throw new Error('review attempt root is not an ordinary directory')
+        roots.push({ key: entry.name, path })
+      }
+    } finally {
+      try {
+        await directory.close()
+      } catch {
+        // Async iteration may already have closed the descriptor.
+      }
     }
     return roots.sort((left, right) => left.key.localeCompare(right.key))
   }
 
   private async recoverStartedAttempts(): Promise<void> {
     for (const root of await this.attemptRoots()) {
-      await withAdvisoryFileLock(
-        join(root.path, 'attempt.lock'),
-        24 * 60 * 60 * 1_000,
-        async () => {
+      try {
+        await withAdvisoryFileLock(join(root.path, 'attempt.lock'), 1, async () => {
           await cleanupStateTemps(root.path)
           const state = await readState(join(root.path, 'state.json'))
           if (state === undefined) return
           if (state.key !== root.key) throw new Error('review attempt root identity is corrupt')
           if (state.phase === 'started')
             await cleanupStartedArtifacts(root.path, state.containerIdentity, 30_000)
-        },
-      )
+        })
+      } catch (error) {
+        if (!(error instanceof Error) || error.message !== 'advisory file lock is unavailable')
+          throw error
+      }
     }
   }
 

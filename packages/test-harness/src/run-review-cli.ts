@@ -71,18 +71,29 @@ async function main() {
       if (code !== 1 || errors.length === 0)
         throw new Error(`factory review accepted invalid flags: ${invalid.join(' ')}`)
     }
-    const firstOutput: string[] = []
-    const first = await runFactoryCli(['review'], {
-      cwd: root,
-      environment,
-      output: {
-        stdout: value => firstOutput.push(value),
-        stderr: value => firstOutput.push(value),
-      },
-    })
-    if (first !== 0) throw new Error(`factory review failed: ${firstOutput.join('')}`)
-    const accepted = JSON.parse(firstOutput.join('')) as { disposition: string }
-    if (accepted.disposition !== 'complete') throw new Error('fake CLI review was not complete')
+    const firstOutputs: string[][] = [[], []]
+    const firstCodes = await Promise.all(
+      firstOutputs.map(
+        async collected =>
+          await runFactoryCli(['review'], {
+            cwd: root,
+            environment,
+            output: {
+              stdout: value => collected.push(value),
+              stderr: value => collected.push(value),
+            },
+          }),
+      ),
+    )
+    if (firstCodes.some(code => code !== 0))
+      throw new Error(`concurrent factory review failed: ${firstOutputs.flat().join('')}`)
+    const firstResults = firstOutputs.map(
+      output => JSON.parse(output.join('')) as Record<string, string>,
+    )
+    const accepted = firstResults.find(result => result.disposition === 'complete')
+    const noOp = firstResults.find(result => result.status === 'already-reviewed')
+    if (accepted === undefined || noOp === undefined)
+      throw new Error(`concurrent review did not converge: ${JSON.stringify(firstResults)}`)
     const secondOutput: string[] = []
     const second = await runFactoryCli(['review'], {
       cwd: root,

@@ -497,10 +497,13 @@ export async function runIsolationProbe(
   } catch (error) {
     probeFailure = error
   } finally {
-    if (creationSucceeded || (creationInvoked && !creationResolved))
+    const ambiguousCreation = creationInvoked && !creationResolved
+    if (creationSucceeded || ambiguousCreation)
       await cleanupOwnedReviewerContainer(containerIdentity, 5_000).catch(error => {
         removalFailure = error instanceof Error ? error : new Error('reviewer cleanup failed')
       })
+    if (ambiguousCreation && removalFailure === undefined)
+      removalFailure = new Error('reviewer container creation did not reach a terminal result')
   }
 
   if (removalFailure !== undefined)

@@ -41,6 +41,7 @@ import {
   parseRepositoryConfig,
   type JsonValue,
   type GithubRepositoryMappingObservation,
+  type AvailablePullRequestObservation,
   type RepositoryConfig,
   type RepositoryId,
   type RepositoryObservation,
@@ -48,6 +49,8 @@ import {
   type OwnedPath,
   type ReviewLedger,
   type ReviewManifest,
+  type SessionPullRequestAssociation,
+  type ReviewTrigger,
   type TurnManifest,
 } from '@factory/contract'
 import { deriveAssociations } from '@factory/domain'
@@ -1115,6 +1118,7 @@ async function freshReviewSubject(
   const hostname = (environment.GH_HOST ?? 'github.com').toLowerCase()
   const mapping = await observeGithubRepositoryMapping(store.manifest.repositoryId, hostname, {
     objects,
+    cwd: repositoryRoot,
   })
   if ('availability' in mapping)
     throw new Error(`pull-request repository mapping unavailable: ${mapping.reason}`)
@@ -1122,7 +1126,7 @@ async function freshReviewSubject(
   const [owner, name, ...extra] = mapping.repository.split('/')
   if (!owner || !name || extra.length !== 0)
     throw new Error('pull-request repository mapping returned an invalid name')
-  const observation = await new GithubPrObserver({ objects }).observe({
+  const observation = await new GithubPrObserver({ objects, cwd: repositoryRoot }).observe({
     hostname: mapping.hostname,
     owner,
     name,
@@ -1142,26 +1146,56 @@ async function freshReviewSubject(
         return [value.observationId, value] as const
       }),
   )
+  const recordByPath = new Map(records.map(record => [record.path, record.value]))
   const sessions = records
-    .filter(record => /^sessions\/[^/]+\/[^/]+\/turns\/[^/]+\/manifest\.json$/.test(record.path))
+    .filter(record => /^review-triggers\/[^/]+\.json$/.test(record.path))
     .flatMap(record => {
-      const turn = record.value as unknown as TurnManifest
+      const trigger = record.value as unknown as ReviewTrigger
+      const turn = recordByPath.get(
+        `sessions/${trigger.provider}/${trigger.sessionKey}/turns/${trigger.turnId}/manifest.json` as OwnedPath,
+      ) as TurnManifest | undefined
+      if (turn === undefined) return []
       const repositoryObservation =
         turn.repositoryObservationId === undefined
           ? undefined
           : repositoryObservations.get(turn.repositoryObservationId)
       if (repositoryObservation === undefined) return []
-      const provider = record.path.split('/')[1]
-      if (provider !== 'codex' && provider !== 'claude') return []
-      return [{ provider: provider as 'codex' | 'claude', turn, repositoryObservation }]
+      return [{ provider: trigger.provider, turn, repositoryObservation }]
     })
   const repositoryMappings = records
     .filter(record => record.path.includes('/repository-mappings/'))
     .map(record => record.value as unknown as GithubRepositoryMappingObservation)
+  const priorPullRequests = new Map(
+    records
+      .filter(
+        record =>
+          new RegExp(
+            `^pull-requests/github/${observation.repositoryKey}/${observation.number}/observations/[^/]+\\.json$`,
+          ).test(record.path) &&
+          (record.value as { availability?: string }).availability === 'available' &&
+          (record.value as { observationId?: string }).observationId !== observation.observationId,
+      )
+      .map(record => {
+        const value = record.value as unknown as AvailablePullRequestObservation
+        return [value.observationId, value] as const
+      }),
+  )
+  const previous = records
+    .filter(record =>
+      new RegExp(
+        `^pull-requests/github/${observation.repositoryKey}/${observation.number}/associations/[^/]+/[^/]+\\.json$`,
+      ).test(record.path),
+    )
+    .flatMap(record => {
+      const association = record.value as unknown as SessionPullRequestAssociation
+      const pullRequest = priorPullRequests.get(association.pullRequestObservationId)
+      return pullRequest === undefined ? [] : [{ pullRequest, association }]
+    })
   const associations = deriveAssociations({
     pullRequest: observation,
     sessions,
     repositoryMappings,
+    previous,
   })
   await persistPullRequestEvidence(store, observation, associations)
   return `pull-requests/github/${observation.repositoryKey}/${observation.number}/observations/${observation.observationId}.json` as OwnedPath
@@ -1316,112 +1350,133 @@ async function reviewCommand(
     return 0
   }
   const store = await openRepositoryStore(repositoryRoot)
-  const subjectPath = await freshReviewSubject(
-    repositoryRoot,
-    store,
-    options.pullRequest,
-    environment,
+  const subjectLock = join(
+    coordinator.runtimeRoot,
+    `subject-${createHash('sha256')
+      .update(
+        canonicalJson({
+          repositoryId: store.manifest.repositoryId,
+          pullRequest: options.pullRequest ?? null,
+        }),
+      )
+      .digest('hex')}.lock`,
   )
-  const stored = await store.readRecords()
-  const committedReviews = committedReviewManifests(stored.records)
-  const lineage = subjectPathLineage(subjectPath, stored.records)
-  const retryGeneration = committedReviews
-    .filter(
-      review =>
-        reviewSubjectLineage(review, stored.records) === lineage &&
-        (review.disposition === 'failed' ||
-          review.limitations.some(item => item.code === 'invalid-review-output')),
+  return await withAdvisoryFileLock(subjectLock, 24 * 60 * 60 * 1_000, async () => {
+    const subjectPath = await freshReviewSubject(
+      repositoryRoot,
+      store,
+      options.pullRequest,
+      environment,
     )
-    .map(review => review.reviewId)
-    .sort()
-    .at(-1)
-  await coordinator.reconcileAccepted(committedReviews)
-  const reader = await openReviewRepositoryReader(store.factoryRoot)
-  const history = await loadReviewHistory(reader)
-  const evidence = await loadReviewInputs(reader, {
-    mode: options.mode,
-    subjectPath,
-    history,
-    reviewLimits: (await repositoryConfig(repositoryRoot)).reviewLimits,
-    ...(options.sessionKey === undefined ? {} : { sessionKey: options.sessionKey }),
-  })
-  const authoringProvider = reviewAuthoringProvider(evidence)
-  const auth = await dedicatedReviewerAuth(environment)
-  const repositorySettings = await repositoryConfig(repositoryRoot)
-  const selected = selectReviewer(
-    repositorySettings.reviewer ?? 'auto',
-    authoringProvider,
-    auth.availability,
-    requiredReviewDefaults(environment),
-  )
-  const policies = {
-    reviewer: selected.choice.settings,
-    analyzerVersion: 'factory-review-analyzer-v1',
-    promptVersion: REVIEW_PROMPT_VERSION,
-    policyVersion: 'factory-review-policy-v1',
-    formatVersion: 1 as const,
-  }
-  const plan = planReview(bindReviewPolicies(evidence, policies))
-  if (plan.status !== 'ready') {
-    output.stdout(
-      canonicalJson({ schemaVersion: 1, status: plan.status, limitations: plan.limitations }),
+    const stored = await store.readRecords()
+    const committedReviews = committedReviewManifests(stored.records)
+    const lineage = subjectPathLineage(subjectPath, stored.records)
+    const retryGeneration = committedReviews
+      .filter(
+        review =>
+          reviewSubjectLineage(review, stored.records) === lineage &&
+          (review.disposition === 'failed' ||
+            review.limitations.some(item => item.code === 'invalid-review-output')),
+      )
+      .map(review => review.reviewId)
+      .sort()
+      .at(-1)
+    await coordinator.reconcileAccepted(committedReviews)
+    const reader = await openReviewRepositoryReader(store.factoryRoot)
+    const history = await loadReviewHistory(reader)
+    const evidence = await loadReviewInputs(reader, {
+      mode: options.mode,
+      subjectPath,
+      history,
+      reviewLimits: (await repositoryConfig(repositoryRoot)).reviewLimits,
+      ...(options.sessionKey === undefined ? {} : { sessionKey: options.sessionKey }),
+    })
+    const authoringProvider = reviewAuthoringProvider(evidence)
+    const auth = await dedicatedReviewerAuth(environment)
+    const repositorySettings = await repositoryConfig(repositoryRoot)
+    const selected = selectReviewer(
+      repositorySettings.reviewer ?? 'auto',
+      authoringProvider,
+      auth.availability,
+      requiredReviewDefaults(environment),
     )
-    return plan.status === 'unavailable' ? 1 : 0
-  }
-  const imageDigest = environment.FACTORY_REVIEWER_IMAGE_DIGEST
-  if (!imageDigest || !/^sha256:[0-9a-f]{64}$/.test(imageDigest))
-    throw new Error('FACTORY_REVIEWER_IMAGE_DIGEST must pin an immutable reviewer image')
-  const bundleParent = await mkdtemp(join(coordinator.runtimeRoot, 'review-bundle-'))
-  try {
-    const built = await buildBundle(plan, store, join(bundleParent, 'bundle'))
-    const bundle = await openVerifiedReviewBundle(built.path, built.sha256)
-    const mount = auth.mounts[selected.choice.settings.provider]
-    let raw
-    let executionGeneration = retryGeneration
-    for (let advances = 0; ; advances += 1) {
-      if (advances > 64) throw new Error('review attempt tombstone chain exceeds its bound')
-      try {
-        raw = await coordinator.run(
-          bundle,
-          selected.choice,
-          selected.kind === 'selected' ? dockerReviewerExecutor : unavailableReviewerExecutor(),
-          {
-            imageDigest,
-            auth: mount === undefined ? [] : [mount],
-            timeoutMs: 10 * 60 * 1000,
-            ...(executionGeneration === undefined ? {} : { retryGeneration: executionGeneration }),
-          },
-        )
-        break
-      } catch (error) {
-        if (!(error instanceof ReviewAttemptAlreadyFinalizedError)) throw error
-        const currentReviews = committedReviewManifests((await store.readRecords()).records)
-        if (!currentReviews.some(review => review.reviewId === error.reviewId)) {
-          executionGeneration = error.reviewId
-          continue
-        }
-        const enforced = await reviewFindingsEnforced(store, error.reviewId, options.failOn)
-        output.stdout(
-          canonicalJson({
-            schemaVersion: 1,
-            status: 'already-reviewed',
-            reviewId: error.reviewId,
-            ...error.outcome,
-          }),
-        )
-        return error.outcome.executionFailed || enforced ? 1 : 0
-      }
+    const policies = {
+      reviewer: selected.choice.settings,
+      analyzerVersion: 'factory-review-analyzer-v1',
+      promptVersion: REVIEW_PROMPT_VERSION,
+      policyVersion: 'factory-review-policy-v1',
+      formatVersion: 1 as const,
     }
-    const accepted = await acceptReview(await validateReview(bundle, raw), store)
-    await coordinator.finalize(bundle, selected.choice, imageDigest, accepted, executionGeneration)
-    const enforced = await reviewFindingsEnforced(store, accepted.reviewId, options.failOn)
-    output.stdout(
-      canonicalJson({ schemaVersion: 1, ...accepted, reviewer: selected.choice.settings }),
-    )
-    return accepted.executionFailed || enforced ? 1 : 0
-  } finally {
-    await rm(bundleParent, { recursive: true, force: true })
-  }
+    const plan = planReview(bindReviewPolicies(evidence, policies))
+    if (plan.status !== 'ready') {
+      output.stdout(
+        canonicalJson({ schemaVersion: 1, status: plan.status, limitations: plan.limitations }),
+      )
+      return plan.status === 'unavailable' ? 1 : 0
+    }
+    const imageDigest = environment.FACTORY_REVIEWER_IMAGE_DIGEST
+    if (!imageDigest || !/^sha256:[0-9a-f]{64}$/.test(imageDigest))
+      throw new Error('FACTORY_REVIEWER_IMAGE_DIGEST must pin an immutable reviewer image')
+    const bundleParent = await mkdtemp(join(coordinator.runtimeRoot, 'review-bundle-'))
+    try {
+      const built = await buildBundle(plan, store, join(bundleParent, 'bundle'))
+      const bundle = await openVerifiedReviewBundle(built.path, built.sha256)
+      const mount = auth.mounts[selected.choice.settings.provider]
+      let raw
+      let executionGeneration = retryGeneration
+      for (let advances = 0; ; advances += 1) {
+        if (advances > 64) throw new Error('review attempt tombstone chain exceeds its bound')
+        try {
+          raw = await coordinator.run(
+            bundle,
+            selected.choice,
+            selected.kind === 'selected' ? dockerReviewerExecutor : unavailableReviewerExecutor(),
+            {
+              imageDigest,
+              auth: mount === undefined ? [] : [mount],
+              timeoutMs: 10 * 60 * 1000,
+              ...(executionGeneration === undefined
+                ? {}
+                : { retryGeneration: executionGeneration }),
+            },
+          )
+          break
+        } catch (error) {
+          if (!(error instanceof ReviewAttemptAlreadyFinalizedError)) throw error
+          const currentReviews = committedReviewManifests((await store.readRecords()).records)
+          if (!currentReviews.some(review => review.reviewId === error.reviewId)) {
+            executionGeneration = error.reviewId
+            continue
+          }
+          const enforced = await reviewFindingsEnforced(store, error.reviewId, options.failOn)
+          output.stdout(
+            canonicalJson({
+              schemaVersion: 1,
+              status: 'already-reviewed',
+              reviewId: error.reviewId,
+              ...error.outcome,
+            }),
+          )
+          return error.outcome.executionFailed || enforced ? 1 : 0
+        }
+      }
+      const accepted = await acceptReview(await validateReview(bundle, raw), store)
+      await coordinator.finalize(
+        bundle,
+        selected.choice,
+        imageDigest,
+        accepted,
+        executionGeneration,
+      )
+      const enforced = await reviewFindingsEnforced(store, accepted.reviewId, options.failOn)
+      output.stdout(
+        canonicalJson({ schemaVersion: 1, ...accepted, reviewer: selected.choice.settings }),
+      )
+      return accepted.executionFailed || enforced ? 1 : 0
+    } finally {
+      await rm(bundleParent, { recursive: true, force: true })
+    }
+  })
 }
 
 export async function runFactoryCli(

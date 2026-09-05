@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'bun:test'
-import { mkdtemp } from 'node:fs/promises'
+import { mkdir, mkdtemp, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+
+import { withAdvisoryFileLock } from '@factory/repository'
 
 import { openVerifiedReviewBundle, readReviewerRawAttempt } from '../src'
 import { sealReviewerRawAttempt } from '../src/attempt'
@@ -18,6 +20,25 @@ async function fixture() {
 }
 
 describe('review attempt coordinator', () => {
+  test('skips unrelated active attempts and rejects linked runtime roots', async () => {
+    const runtime = await mkdtemp(join(tmpdir(), 'factory-review-attempt-'))
+    await ReviewAttemptCoordinator.open({ testRuntimeRoot: runtime })
+    const attempts = join(runtime, 'review-attempts-v1')
+    const active = join(attempts, 'a'.repeat(64))
+    await mkdir(active)
+    const started = performance.now()
+    await withAdvisoryFileLock(join(active, 'attempt.lock'), 1_000, async () => {
+      await ReviewAttemptCoordinator.open({ testRuntimeRoot: runtime })
+    })
+    expect(performance.now() - started).toBeLessThan(250)
+
+    const target = await mkdtemp(join(tmpdir(), 'factory-review-attempt-target-'))
+    await symlink(target, join(attempts, 'b'.repeat(64)))
+    await expect(ReviewAttemptCoordinator.open({ testRuntimeRoot: runtime })).rejects.toThrow(
+      'not an ordinary directory',
+    )
+  })
+
   test('singleflights one logical attempt and reuses its stable identity', async () => {
     const runtime = await mkdtemp(join(tmpdir(), 'factory-review-attempt-'))
     const coordinator = await ReviewAttemptCoordinator.open({ testRuntimeRoot: runtime })
