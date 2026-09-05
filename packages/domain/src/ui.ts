@@ -102,8 +102,9 @@ export type UiRepositoryObservation = {
   limitations: readonly UiLimitation[]
 }
 
-export type UiSnapshot = {
+export type UiReadySnapshot = {
   schemaVersion: 1
+  state: 'ready'
   canonicalBranch: string | null
   counts: {
     sessions: number
@@ -122,6 +123,15 @@ export type UiSnapshot = {
   decisions: DecisionView | null
   diagnostics: readonly { priority: 'normal' | 'high'; message: string }[]
 }
+
+export type UiUnavailableSnapshot = {
+  schemaVersion: 1
+  state: 'corrupt' | 'upgrade-required'
+  title: string
+  message: string
+}
+
+export type UiSnapshot = UiReadySnapshot | UiUnavailableSnapshot
 
 const textEncoder = new TextEncoder()
 const MAX_RESPONSE_PREVIEW_BYTES = 16 * 1024
@@ -355,6 +365,7 @@ export function buildUiProjection(input: RepositoryRecords): UiSnapshot {
 
   return {
     schemaVersion: 1,
+    state: 'ready',
     canonicalBranch: input.config.canonicalBranch ?? null,
     counts: {
       sessions: sessions.length,
@@ -443,5 +454,20 @@ export function buildUiProjection(input: RepositoryRecords): UiSnapshot {
     }),
     decisions,
     diagnostics,
+  }
+}
+
+/** Produce a path-free read failure view; unavailable repositories never gain action authority. */
+export function buildUnavailableUiProjection(
+  state: UiUnavailableSnapshot['state'],
+): UiUnavailableSnapshot {
+  return {
+    schemaVersion: 1,
+    state,
+    title: state === 'upgrade-required' ? 'Factory upgrade required' : 'Factory data is unreadable',
+    message:
+      state === 'upgrade-required'
+        ? 'This repository requires a newer Factory reader. Upgrade Factory before opening it.'
+        : 'Factory could not validate this repository evidence. No actions are available until the data is repaired.',
   }
 }

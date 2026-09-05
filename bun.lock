@@ -13,6 +13,14 @@
         "typescript": "5.9.2",
       },
     },
+    "apps/web": {
+      "name": "@factory/web",
+      "version": "0.0.0",
+      "dependencies": {
+        "@factory/contract": "workspace:*",
+        "@factory/domain": "workspace:*",
+      },
+    },
     "packages/capture": {
       "name": "@factory/capture",
       "version": "0.0.0",
@@ -71,6 +79,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@factory/contract": "workspace:*",
+        "@factory/domain": "workspace:*",
         "@factory/repository": "workspace:*",
         "@factory/reviewer": "workspace:*",
       },
@@ -81,6 +90,7 @@
       "dependencies": {
         "@factory/capture": "workspace:*",
         "@factory/contract": "workspace:*",
+        "@factory/domain": "workspace:*",
         "@factory/github": "workspace:*",
         "@factory/repository": "workspace:*",
       },
@@ -139,6 +149,8 @@
     "@factory/runtime-journal": ["@factory/runtime-journal@workspace:packages/runtime-journal"],
 
     "@factory/test-harness": ["@factory/test-harness@workspace:packages/test-harness"],
+
+    "@factory/web": ["@factory/web@workspace:apps/web"],
 
     "@oxfmt/binding-android-arm-eabi": ["@oxfmt/binding-android-arm-eabi@0.57.0", "", { "os": "android", "cpu": "arm" }, "sha512-qVBsEO+KugOsCmUHcO8iqNnqc65p7PCKpCs8M66mPZ+Ri+CWbcpoQOEJBg2OTu03+0qu++NK1jj6IzvQVs0Sig=="],
 

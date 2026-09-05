@@ -81,6 +81,8 @@ describe('UI projection', () => {
       records: [...records].reverse(),
     })
 
+    if (first.state !== 'ready' || second.state !== 'ready') throw new Error('fixture is ready')
+
     expect(canonicalJson(first)).toBe(canonicalJson(second))
     expect(first.sessions[0]).toMatchObject({
       sessionKey: 'session-one',
@@ -95,6 +97,7 @@ describe('UI projection', () => {
 
   test('makes missing canonical policy explicit', () => {
     const snapshot = buildUiProjection({ config: {}, records: [] })
+    if (snapshot.state !== 'ready') throw new Error('fixture is ready')
     expect(snapshot.decisions).toBeNull()
     expect(snapshot.diagnostics).toEqual([
       { priority: 'high', message: expect.stringContaining('Canonical branch') },
