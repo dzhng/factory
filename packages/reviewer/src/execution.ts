@@ -15,7 +15,7 @@ import {
   type VerifiedReviewBundle,
 } from './bundle'
 import { planReviewerIsolation, type ReadonlyAuthMount } from './isolation'
-import { ReviewerCleanupUnprovenError } from './probe'
+import { ReviewerCleanupUnprovenError, ReviewerDockerUnavailableError } from './probe'
 import { runReviewerContainer } from './runner'
 
 export type ReviewerExecutionInput = {
@@ -67,6 +67,15 @@ export interface ReviewerExecutor {
     choice: ReviewerChoice,
     input: ReviewerExecutionInput,
   ): Promise<ReviewerRawAttempt>
+}
+
+export function reviewerExecutionFailureTermination(
+  error: unknown,
+): 'docker-unavailable' | 'crashed' {
+  return error instanceof ReviewerDockerUnavailableError ||
+    (error as NodeJS.ErrnoException).code === 'ENOENT'
+    ? 'docker-unavailable'
+    : 'crashed'
 }
 
 async function immutableBundleSnapshot(
@@ -183,8 +192,7 @@ export const dockerReviewerExecutor: ReviewerExecutor = {
         reviewId: input.reviewId,
         bundleSha256: before.sha256,
         response: new Uint8Array(),
-        termination:
-          (error as NodeJS.ErrnoException).code === 'ENOENT' ? 'docker-unavailable' : 'crashed',
+        termination: reviewerExecutionFailureTermination(error),
         exitCode: null,
         outputTruncated: false,
         reviewer: choice,

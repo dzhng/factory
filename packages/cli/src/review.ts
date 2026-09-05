@@ -25,7 +25,6 @@ import {
 } from '@factory/review-plan'
 import {
   REVIEW_PROMPT_VERSION,
-  ReviewAttemptAlreadyFinalizedError,
   ReviewAttemptCoordinator,
   dockerReviewerExecutor,
   openVerifiedReviewBundle,
@@ -277,51 +276,19 @@ export async function reviewCommand(
       )
       const bundle = await openVerifiedReviewBundle(built.path, built.sha256)
       const mount = auth.mounts[selected.choice.settings.provider]
-      let raw
-      let executionGeneration = retryGeneration
-      for (let advances = 0; ; advances += 1) {
-        if (advances > 64) throw new Error('review attempt tombstone chain exceeds its bound')
-        try {
-          raw = await coordinator.run(
-            bundle,
-            selected.choice,
-            selected.kind === 'selected' ? dockerReviewerExecutor : unavailableReviewerExecutor(),
-            {
-              imageDigest,
-              auth: mount === undefined ? [] : [mount],
-              timeoutMs: 10 * 60 * 1000,
-              ...(executionGeneration === undefined
-                ? {}
-                : { retryGeneration: executionGeneration }),
-            },
-          )
-          break
-        } catch (error) {
-          if (!(error instanceof ReviewAttemptAlreadyFinalizedError)) throw error
-          const currentReviews = loadStoredReviews((await store.readRecords()).records)
-          const matches = currentReviews.filter(
-            review => review.manifest.reviewId === error.reviewId && review.lineage === lineage,
-          )
-          if (matches.length === 0) {
-            executionGeneration = error.reviewId
-            continue
-          }
-          if (matches.length !== 1)
-            throw new Error('finalized review identity is ambiguous in the current subject')
-          const current = matches[0]!
-          const enforced = storedReviewFindingsMeetThreshold(current, options.failOn)
-          output.stdout(canonicalJson(storedReviewResult(current, 'already-reviewed')))
-          return error.outcome.executionFailed || enforced ? 1 : 0
-        }
-      }
-      const accepted = await acceptReview(await validateReview(bundle, raw), store)
-      await coordinator.finalize(
+      const raw = await coordinator.run(
         bundle,
         selected.choice,
-        imageDigest,
-        accepted,
-        executionGeneration,
+        selected.kind === 'selected' ? dockerReviewerExecutor : unavailableReviewerExecutor(),
+        {
+          imageDigest,
+          auth: mount === undefined ? [] : [mount],
+          timeoutMs: 10 * 60 * 1000,
+          ...(retryGeneration === undefined ? {} : { retryGeneration }),
+        },
       )
+      const accepted = await acceptReview(await validateReview(bundle, raw), store)
+      await coordinator.finalize(bundle, selected.choice, imageDigest, accepted, retryGeneration)
       const acceptedReview = loadStoredReviews((await store.readRecords()).records).find(
         review => review.manifest.reviewId === accepted.reviewId && review.lineage === lineage,
       )

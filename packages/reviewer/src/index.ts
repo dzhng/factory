@@ -20,11 +20,7 @@ export {
   type ReviewerRawAttempt,
   type ReviewerRawAttemptSnapshot,
 } from './attempt.js'
-export {
-  ReviewAttemptAlreadyFinalizedError,
-  ReviewAttemptCoordinator,
-  type ReviewAttemptCoordinatorOptions,
-} from './coordinator.js'
+export { ReviewAttemptCoordinator, type ReviewAttemptCoordinatorOptions } from './coordinator.js'
 export {
   REVIEW_PROMPT_VERSION,
   reviewerAdapter,

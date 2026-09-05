@@ -562,6 +562,7 @@ describe('sole repository writer', () => {
       subjectRecord: canonicalJson(trigger),
       records: [{ path: subjectPath, sha256: subjectSha256 }],
       inventory: [],
+      recordObjects: [],
     }
 
     await expect(
@@ -596,7 +597,19 @@ describe('sole repository writer', () => {
         review.manifestPath,
       ),
     ).rejects.toThrow()
-    await store.publishReview(authority, review.records, review.manifestPath)
+    const subjectObject = {
+      algorithm: 'sha256' as const,
+      sha256: subjectSha256,
+      bytes: subjectBytes.byteLength,
+      mediaType: 'application/json',
+      role: 'review-history-record',
+    }
+    await store.publishReview(
+      { ...authority, recordObjects: [{ path: subjectPath, object: subjectObject }] },
+      review.records,
+      review.manifestPath,
+    )
     expect(await store.readImmutable(review.manifestPath)).toEqual(review.records.at(-1)!.bytes)
+    expect(await store.getObject(subjectObject)).toEqual(subjectBytes)
   })
 })

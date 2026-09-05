@@ -51,6 +51,10 @@ type ValidatedState = {
   subjectPath: ReturnType<typeof makeOwnedPath>
   subjectRecord: string
   inventory: readonly import('@factory/contract').ObjectRef[]
+  recordObjects: readonly {
+    path: ReturnType<typeof makeOwnedPath>
+    object: import('@factory/contract').ObjectRef
+  }[]
   records: readonly { path: ReturnType<typeof makeOwnedPath>; sha256: string }[]
 }
 
@@ -190,6 +194,7 @@ export async function validateReview(
     subjectPath: verified.authority.subjectPath,
     subjectRecord: canonicalJson(verified.authority.subjectRecord),
     inventory: verified.authority.inventory,
+    recordObjects: verified.authority.recordObjects,
     records: verified.authority.records,
   })
   return capability
@@ -222,6 +227,7 @@ export async function acceptReview(
       subjectRecord: state.subjectRecord,
       records: state.records,
       inventory: state.inventory,
+      recordObjects: state.recordObjects,
     },
     records,
     manifestPath,

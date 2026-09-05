@@ -40,6 +40,23 @@ async function partialFixture() {
   return { bundle, manifest, sha256: report.bundles.partial }
 }
 
+async function incrementalFixture() {
+  const root = join(import.meta.dir, '../../../specs/factory-v1/assets/review-plan')
+  const report = JSON.parse(await readFile(join(root, 'report.json'), 'utf8')) as {
+    bundles: { pullRequestIncremental: string }
+  }
+  const path = join(root, 'pr-incremental-bundle')
+  const bundle = await openVerifiedReviewBundle(path, report.bundles.pullRequestIncremental)
+  const manifest = JSON.parse(await readFile(join(path, 'bundle.json'), 'utf8')) as {
+    inventory: unknown[]
+    plan: {
+      priorLedger: { path: string; object: unknown }
+      policies: { reviewer: { provider: 'codex'; model: string; effort: string } }
+    }
+  }
+  return { bundle, manifest, sha256: report.bundles.pullRequestIncremental }
+}
+
 async function authorizedStore(
   bundle: Awaited<ReturnType<typeof openVerifiedReviewBundle>>,
   methods: Record<string, unknown>,
@@ -159,6 +176,47 @@ describe('immutable review acceptance', () => {
     expect(review.reviewer).toEqual(bundleManifest.plan.policies.reviewer)
     expect(review.bundleSha256).toHaveLength(64)
     expect(canonicalJson(review.limitations)).toBe(canonicalJson([]))
+  })
+
+  test('carries prior ledger bytes into CAS publication authority', async () => {
+    const { bundle, manifest: bundleManifest, sha256 } = await incrementalFixture()
+    const validated = await validateReview(
+      bundle,
+      sealReviewerRawAttempt({
+        reviewId,
+        bundleSha256: sha256,
+        response: new TextEncoder().encode(
+          `${JSON.stringify({ kind: 'summary', summary: 'Incremental review completed', evidence: [{ object: bundleManifest.inventory[0] }] })}\n`,
+        ),
+        termination: 'completed',
+        exitCode: 0,
+        outputTruncated: false,
+        reviewer: { settings: bundleManifest.plan.policies.reviewer },
+        imageDigest: `sha256:${'b'.repeat(64)}`,
+        providerCliVersion: 'fake-1',
+        hostPlatform: 'linux/arm64',
+        startedAt: at,
+        completedAt: at,
+      }),
+    )
+    let authority: { recordObjects: readonly { path: string; object: unknown }[] } | undefined
+    const store = await authorizedStore(bundle, {
+      async publishImmutableGroup() {
+        return { path: '', sha256: '', bytes: 0 }
+      },
+    })
+    const publishReview = store.publishReview.bind(store)
+    store.publishReview = async (value, records, commitPath) => {
+      authority = value
+      return await publishReview(value, records, commitPath)
+    }
+    await acceptReview(validated, store)
+    expect(authority!.recordObjects).toEqual([
+      {
+        path: bundleManifest.plan.priorLedger.path,
+        object: bundleManifest.plan.priorLedger.object,
+      },
+    ])
   })
 
   test('salvages a valid prefix as partial and reports execution failure separately', async () => {

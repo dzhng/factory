@@ -16,6 +16,14 @@ export class ReviewerCleanupUnprovenError extends Error {
   }
 }
 
+/** Docker could not establish a reviewer process, so no provider crash occurred. */
+export class ReviewerDockerUnavailableError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ReviewerDockerUnavailableError'
+  }
+}
+
 export type ContainerObservation = {
   providerVersion: string
   uid: number
@@ -318,7 +326,9 @@ export async function runObservedReviewerContainer(
     commandOptions(),
   )
   if (observedImage.exitCode !== 0 || observedImage.stdout.trim() !== options.imageDigest) {
-    throw new Error('Docker could not verify the requested reviewer image ID')
+    throw new ReviewerDockerUnavailableError(
+      'Docker could not verify the requested reviewer image ID',
+    )
   }
   const dockerArgs = [
     'create',
@@ -401,7 +411,9 @@ export async function runObservedReviewerContainer(
       throw error
     }
     if (created.exitCode !== 0) {
-      throw new Error(`Docker refused reviewer container: ${created.stderr.trim()}`)
+      throw new ReviewerDockerUnavailableError(
+        `Docker refused reviewer container: ${created.stderr.trim()}`,
+      )
     }
     creationSucceeded = true
     const mountedAuth = await Promise.all(plan.auth.map(({ hostPath }) => lstat(hostPath)))
@@ -427,7 +439,7 @@ export async function runObservedReviewerContainer(
       throw new Error('Reviewer authentication contents changed after container creation')
     const inspected = await runCommand('docker', ['inspect', containerName], commandOptions())
     if (inspected.exitCode !== 0) {
-      throw new Error('Docker could not inspect the reviewer container')
+      throw new ReviewerDockerUnavailableError('Docker could not inspect the reviewer container')
     }
     const [container] = JSON.parse(inspected.stdout) as [
       {
@@ -518,7 +530,9 @@ export async function runObservedReviewerContainer(
     }
     const started = await runCommand('docker', ['start', containerName], commandOptions())
     if (started.exitCode !== 0) {
-      throw new Error(`Docker could not start reviewer container: ${started.stderr.trim()}`)
+      throw new ReviewerDockerUnavailableError(
+        `Docker could not start reviewer container: ${started.stderr.trim()}`,
+      )
     }
     const waited = await runCommand('docker', ['wait', containerName], {
       ...commandOptions(),

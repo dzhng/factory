@@ -34,6 +34,7 @@ before provider startup.
 
 Logical attempts singleflight in private Git-common runtime state. A response is
 retained there only while immutable acceptance is pending; successful
-publication replaces it with a response-free finalized marker. Recovery uses
-the recorded container name and ownership label and never cleans an unproven
-container.
+publication removes the transient attempt directory because portable review
+history then owns durable idempotence. Recovery matches the complete attempt
+facts, uses the recorded container name and ownership label, and never cleans an
+unproven container.

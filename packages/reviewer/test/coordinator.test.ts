@@ -3,11 +3,12 @@ import { mkdir, mkdtemp, readFile, readdir, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import type { ReviewManifest } from '@factory/contract'
 import { withAdvisoryFileLock } from '@factory/repository'
 
 import { openVerifiedReviewBundle, readReviewerRawAttempt } from '../src'
 import { sealReviewerRawAttempt } from '../src/attempt'
-import { ReviewAttemptAlreadyFinalizedError, ReviewAttemptCoordinator } from '../src/coordinator'
+import { ReviewAttemptCoordinator } from '../src/coordinator'
 
 async function fixture() {
   const root = join(import.meta.dir, '../../../specs/factory-v1/assets/review-plan')
@@ -84,19 +85,11 @@ describe('review attempt coordinator', () => {
       disposition: 'complete',
       executionFailed: false,
     })
-    expect(await readFile(statePath, 'utf8')).not.toContain('responseBase64')
-    await coordinator.finalize(bundle, choice, input.imageDigest, {
-      reviewId: readReviewerRawAttempt(first).reviewId,
-      disposition: 'complete',
-      executionFailed: false,
-    })
-    await expect(coordinator.run(bundle, choice, executor, input)).rejects.toBeInstanceOf(
-      ReviewAttemptAlreadyFinalizedError,
-    )
+    await expect(readFile(statePath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
     expect(executions).toBe(1)
   })
 
-  test('advances beyond a finalized execution failure only with durable retry history', async () => {
+  test('advances beyond an accepted execution failure with durable retry history', async () => {
     const runtime = await mkdtemp(join(tmpdir(), 'factory-review-attempt-'))
     const coordinator = await ReviewAttemptCoordinator.open({ testRuntimeRoot: runtime })
     const { bundle, sha256 } = await fixture()
@@ -129,14 +122,55 @@ describe('review attempt coordinator', () => {
       disposition: 'failed',
       executionFailed: true,
     })
-    await expect(coordinator.run(bundle, choice, executor, input)).rejects.toMatchObject({
-      outcome: { disposition: 'failed', executionFailed: true },
-    })
     const retried = await coordinator.run(bundle, choice, executor, {
       ...input,
       retryGeneration: failedId,
     })
     expect(readReviewerRawAttempt(retried).reviewId).not.toBe(failedId)
     expect(executions).toBe(2)
+  })
+
+  test('reconciles duplicate review IDs by exact durable attempt facts', async () => {
+    const runtime = await mkdtemp(join(tmpdir(), 'factory-review-attempt-'))
+    const coordinator = await ReviewAttemptCoordinator.open({ testRuntimeRoot: runtime })
+    const { bundle, sha256 } = await fixture()
+    const choice = { settings: { provider: 'codex' as const, model: 'gpt-test', effort: 'high' } }
+    const imageDigest = `sha256:${'b'.repeat(64)}`
+    const attempt = await coordinator.run(
+      bundle,
+      choice,
+      {
+        async run(_bundle, reviewer, input) {
+          return sealReviewerRawAttempt({
+            reviewId: input.reviewId,
+            bundleSha256: sha256,
+            response: new Uint8Array(),
+            termination: 'completed',
+            exitCode: 0,
+            outputTruncated: false,
+            reviewer,
+            imageDigest,
+            providerCliVersion: 'fake-1',
+            hostPlatform: 'linux/arm64',
+            startedAt: '2026-09-05T00:00:00Z',
+            completedAt: '2026-09-05T00:00:01Z',
+          })
+        },
+      },
+      { imageDigest, auth: [], timeoutMs: 100 },
+    )
+    const reviewId = readReviewerRawAttempt(attempt).reviewId
+    const base = {
+      reviewId,
+      reviewer: choice.settings,
+      containerImageDigest: imageDigest,
+      disposition: 'complete',
+      limitations: [],
+    } as unknown as ReviewManifest
+    await coordinator.reconcileAccepted([
+      { ...base, bundleSha256: 'a'.repeat(64) },
+      { ...base, bundleSha256: sha256 },
+    ])
+    expect(await readdir(join(runtime, 'review-attempts-v1'))).toEqual([])
   })
 })

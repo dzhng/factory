@@ -60,6 +60,8 @@ export type ReviewPublicationAuthority = {
   subjectRecord: string
   records: readonly { path: OwnedPath; sha256: string }[]
   inventory: readonly ObjectRef[]
+  /** Target-owned records to copy into CAS before a new manifest references them. */
+  recordObjects: readonly { path: OwnedPath; object: ObjectRef }[]
 }
 
 export type RepositoryRecords = {
@@ -620,6 +622,19 @@ export class RepositoryStore {
     if (canonicalJson([...paths].sort()) !== canonicalJson(expected.sort()))
       throw new TypeError('review publication has the wrong manifest/response/ledger shape')
     const ordered = [...snapshots.filter(record => record.path !== commitPath), manifest]
+    const authorityRecords = new Map(authority.records.map(record => [record.path, record]))
+    const importedPaths = new Set<string>()
+    for (const imported of authority.recordObjects) {
+      validateObjectRef(imported.object)
+      const record = authorityRecords.get(imported.path)
+      if (
+        record === undefined ||
+        record.sha256 !== imported.object.sha256 ||
+        importedPaths.has(imported.path)
+      )
+        throw new TypeError('review publication record object lacks exact record authority')
+      importedPaths.add(imported.path)
+    }
     await this.withMutationLock(async () => {
       if (
         authority.repositoryId !== undefined &&
@@ -631,6 +646,14 @@ export class RepositoryStore {
       if (decodeUtf8(subjectBytes) !== authority.subjectRecord)
         throw new TypeError('review subject differs from the target repository')
       for (const object of authority.inventory) await this.getObject(object)
+      for (const imported of authority.recordObjects) {
+        const bytes = await this.readImmutable(imported.path, imported.object.sha256)
+        if (bytes.byteLength !== imported.object.bytes)
+          throw new TypeError('review publication record object length differs from authority')
+        const path = objectOwnedPath(imported.object.sha256)
+        const destination = await ensureOwnedParent(this.factoryRoot, path)
+        await atomicCreate(destination, path, bytes, this.stagingRoot)
+      }
       for (const record of ordered) {
         const destination = await ensureOwnedParent(this.factoryRoot, record.path)
         await atomicCreate(destination, record.path, record.bytes, this.stagingRoot)

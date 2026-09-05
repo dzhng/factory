@@ -65,27 +65,6 @@ type AttemptState =
       containerIdentity: { name: string; label: string }
       attempt: PersistedSnapshot
     }
-  | {
-      schemaVersion: 1
-      key: string
-      reviewId: RecordId
-      phase: 'finalized'
-      containerIdentity: { name: string; label: string }
-      outcome: {
-        disposition: 'complete' | 'partial' | 'failed'
-        executionFailed: boolean
-      }
-    }
-
-export class ReviewAttemptAlreadyFinalizedError extends Error {
-  constructor(
-    readonly reviewId: RecordId,
-    readonly outcome: { disposition: 'complete' | 'partial' | 'failed'; executionFailed: boolean },
-  ) {
-    super(`Review attempt is already finalized: ${reviewId}`)
-    this.name = 'ReviewAttemptAlreadyFinalizedError'
-  }
-}
 
 function attemptKey(
   verified: Awaited<ReturnType<typeof readVerifiedReviewBundle>>,
@@ -243,16 +222,6 @@ function isAttemptState(value: unknown): value is AttemptState {
   )
     return false
   if (state.phase === 'started') return Object.keys(state).length === 5
-  if (state.phase === 'finalized') {
-    const outcome = state.outcome as Record<string, unknown> | undefined
-    return (
-      Object.keys(state).length === 6 &&
-      outcome !== undefined &&
-      ['complete', 'partial', 'failed'].includes(String(outcome.disposition)) &&
-      typeof outcome.executionFailed === 'boolean' &&
-      Object.keys(outcome).sort().join(',') === 'disposition,executionFailed'
-    )
-  }
   if (state.phase !== 'completed' || state.attempt === null || typeof state.attempt !== 'object')
     return false
   const attemptKeys = Object.keys(state.attempt as Record<string, unknown>).sort()
@@ -391,8 +360,6 @@ export class ReviewAttemptCoordinator {
               throw new Error('durable review attempt facts differ from their identity')
             return attempt
           }
-          if (state.phase === 'finalized')
-            throw new ReviewAttemptAlreadyFinalizedError(state.reviewId, state.outcome)
           await cleanupStartedArtifacts(
             attemptRoot,
             state.containerIdentity,
@@ -433,16 +400,12 @@ export class ReviewAttemptCoordinator {
     )
   }
 
-  /** Delete transient response state only after its immutable review publication succeeds. */
+  /** Delete transient attempt state only after its immutable review publication succeeds. */
   async finalize(
     bundle: VerifiedReviewBundle,
     choice: ReviewerChoice,
     imageDigest: string,
-    accepted: {
-      reviewId: RecordId
-      disposition: 'complete' | 'partial' | 'failed'
-      executionFailed: boolean
-    },
+    accepted: { reviewId: RecordId },
     retryGeneration?: RecordId,
   ): Promise<void> {
     const key = attemptKey(
@@ -462,67 +425,48 @@ export class ReviewAttemptCoordinator {
         if (state === undefined) throw new Error('review attempt finalization state is absent')
         if (state.key !== key || state.reviewId !== accepted.reviewId)
           throw new Error('review attempt finalization identity differs from durable state')
-        if (state.phase === 'finalized') return
         if (state.phase !== 'completed')
           throw new Error('review attempt is not complete enough to finalize')
-        await atomicState(statePath, {
-          schemaVersion: 1,
-          key,
-          reviewId: accepted.reviewId,
-          phase: 'finalized',
-          containerIdentity: state.containerIdentity,
-          outcome: {
-            disposition: accepted.disposition,
-            executionFailed: accepted.executionFailed,
-          },
-        })
       },
     )
+    await rm(attemptRoot, { recursive: true })
   }
 
   /** Reconcile acceptance that committed before a process died during finalization. */
   async reconcileAccepted(reviews: readonly ReviewManifest[]): Promise<void> {
-    const byId = new Map(reviews.map(review => [review.reviewId, review]))
     for (const root of await this.attemptRoots()) {
-      const key = root.key
       const attemptRoot = root.path
       const statePath = join(attemptRoot, 'state.json')
       let state = await readState(statePath)
-      if (state === undefined || state.phase === 'finalized' || state.phase === 'started') continue
-      const review = byId.get(state.reviewId)
-      if (review === undefined) continue
+      if (state === undefined || state.phase === 'started') continue
       const observed = readReviewerRawAttempt(restored(state.attempt))
-      if (
-        observed.reviewId !== review.reviewId ||
-        observed.bundleSha256 !== review.bundleSha256 ||
-        canonicalJson(observed.reviewer.settings) !== canonicalJson(review.reviewer) ||
-        observed.imageDigest !== review.containerImageDigest
+      const review = reviews.find(
+        candidate =>
+          observed.reviewId === candidate.reviewId &&
+          observed.bundleSha256 === candidate.bundleSha256 &&
+          canonicalJson(observed.reviewer.settings) === canonicalJson(candidate.reviewer) &&
+          observed.imageDigest === candidate.containerImageDigest,
       )
-        throw new Error('accepted review differs from its durable attempt state')
+      if (review === undefined) continue
       await withAdvisoryFileLock(
         join(attemptRoot, 'attempt.lock'),
         24 * 60 * 60 * 1_000,
         async () => {
           await cleanupStateTemps(attemptRoot)
           state = await readState(statePath)
-          if (state === undefined || state.phase === 'finalized') return
+          if (state === undefined) return
           if (state.phase !== 'completed' || state.reviewId !== review.reviewId)
             throw new Error('review attempt changed during acceptance reconciliation')
-          await atomicState(statePath, {
-            schemaVersion: 1,
-            key,
-            reviewId: review.reviewId,
-            phase: 'finalized',
-            containerIdentity: state.containerIdentity,
-            outcome: {
-              disposition: review.disposition,
-              executionFailed:
-                review.disposition === 'failed' ||
-                review.limitations.some(item => item.code === 'invalid-review-output'),
-            },
-          })
+          const current = readReviewerRawAttempt(restored(state.attempt))
+          if (
+            current.bundleSha256 !== review.bundleSha256 ||
+            canonicalJson(current.reviewer.settings) !== canonicalJson(review.reviewer) ||
+            current.imageDigest !== review.containerImageDigest
+          )
+            throw new Error('review attempt changed during acceptance reconciliation')
         },
       )
+      await rm(attemptRoot, { recursive: true })
     }
   }
 

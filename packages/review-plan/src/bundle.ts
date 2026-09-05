@@ -547,6 +547,8 @@ export type ReviewAcceptanceAuthority = {
   records: readonly { path: OwnedPath; sha256: string }[]
   /** CAS objects that must exist in the target repository, excluding bundle-derived artifacts. */
   inventory: readonly ObjectRef[]
+  /** Existing immutable records whose exact bytes must also be materialized in target CAS. */
+  recordObjects: readonly { path: OwnedPath; object: ObjectRef }[]
   repositoryId?: string
 }
 
@@ -1427,6 +1429,15 @@ export async function verifyBundle(
             manifest.plan.priorLedger === undefined ||
             canonicalJson(reference) !== canonicalJson(manifest.plan.priorLedger.object),
         ),
+        recordObjects:
+          manifest.plan.priorLedger === undefined
+            ? []
+            : [
+                {
+                  path: manifest.plan.priorLedger.path as OwnedPath,
+                  object: manifest.plan.priorLedger.object,
+                },
+              ],
         repositoryId: manifest.repositoryId,
       },
     }
