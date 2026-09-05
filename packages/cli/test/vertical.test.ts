@@ -17,7 +17,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { canonicalJson, type RecordId } from '@factory/contract'
-import { initializeRepositoryStore, type RepositoryStore } from '@factory/repository'
+import {
+  initializeRepositoryStore,
+  openRepositoryStore,
+  type RepositoryStore,
+} from '@factory/repository'
 import { acceptReview, validateReview } from '@factory/review'
 import { openVerifiedReviewBundle, readVerifiedReviewBundle } from '@factory/reviewer'
 import type { LocalUiHandle } from '@factory/web'
@@ -253,6 +257,68 @@ async function acceptBundleReview(
 }
 
 describe('installed capture vertical', () => {
+  test('configures from GitHub while preserving explicit override and source-aware drift', async () => {
+    const value = await createFixture()
+    const gh = join(value.root, 'bin', 'gh')
+    await writeFile(gh, '#!/bin/sh\n[ "$1 $2" = "repo view" ] || exit 2\nprintf "trunk\\n"\n')
+    await chmod(gh, 0o755)
+    await initializeRepositoryStore(
+      value.repository,
+      {
+        schemaVersion: 1,
+        format: 'factory-repository',
+        minimumReaderVersion: '0.1.0',
+        repositoryId: 'repo_default_branch',
+        createdAt: '2026-09-05T00:00:00Z',
+      },
+      {},
+    )
+
+    expect(
+      await command(value.factory, ['configure', '--repo'], value.repository, value.env),
+    ).toMatchObject({
+      code: 0,
+    })
+    expect((await openRepositoryStore(value.repository)).readConfig()).resolves.toMatchObject({
+      canonicalBranch: 'trunk',
+    })
+
+    expect(
+      await command(
+        value.factory,
+        ['configure', '--repo', '--canonical-branch', 'release'],
+        value.repository,
+        value.env,
+      ),
+    ).toMatchObject({ code: 0 })
+    expect(
+      await command(
+        value.factory,
+        ['configure', '--repo', '--canonical-branch', 'HEAD'],
+        value.repository,
+        value.env,
+      ),
+    ).toMatchObject({ code: 1, stderr: expect.stringContaining('valid Git branch name') })
+    const githubDoctor = await command(value.factory, ['doctor'], value.repository, value.env)
+    expect(githubDoctor).toMatchObject({ code: 0, stderr: '' })
+    const githubDrift = JSON.parse(githubDoctor.stdout)
+    expect(githubDrift).toMatchObject({
+      canonicalBranch: 'release',
+      observedDefaultBranch: 'trunk',
+      canonicalBranchDrift: true,
+    })
+
+    await unlink(gh)
+    const localFallback = JSON.parse(
+      (await command(value.factory, ['doctor'], value.repository, value.env)).stdout,
+    )
+    expect(localFallback).toMatchObject({
+      canonicalBranch: 'release',
+      observedDefaultBranch: 'main',
+      canonicalBranchDrift: false,
+    })
+  })
+
   test('serves factory open only for the foreground CLI lifetime', async () => {
     const value = await createFixture()
     expect(await command(value.factory, ['init'], value.repository, value.env)).toMatchObject({
@@ -971,7 +1037,7 @@ describe('installed capture vertical', () => {
           const name = createHash('sha256')
             .update(`diagnostic-${first + offset}`)
             .digest('hex')
-          await writeFile(join(diagnostics, `${name}.txt`), 'diagnostic\n')
+          await writeFile(join(diagnostics, `${name}.txt`), 'diagnostic\n', { mode: 0o600 })
         }),
       )
     }

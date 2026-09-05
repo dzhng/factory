@@ -4,6 +4,7 @@ import { relative, resolve } from 'node:path'
 
 import {
   canonicalJson,
+  isGitBranchName,
   makeOwnedPath,
   newRecordId,
   type EvidenceEnvelope,
@@ -773,15 +774,23 @@ export async function suggestCanonicalBranch(
   discovery: CanonicalBranchDiscovery,
   explicit?: string,
 ): Promise<CanonicalBranchSuggestion | undefined> {
-  if (explicit !== undefined) return { branch: explicit, source: 'explicit' }
+  if (explicit !== undefined) return canonicalBranchSuggestion(explicit, 'explicit')
   const github = await discovery.gh()
-  if (github !== undefined) return { branch: github, source: 'github' }
+  if (github !== undefined) return canonicalBranchSuggestion(github, 'github')
   const remote = await discovery.remoteHead()
-  if (remote !== undefined) return { branch: remote, source: 'remote-head' }
+  if (remote !== undefined) return canonicalBranchSuggestion(remote, 'remote-head')
   const local = await discovery.localBranches()
   if (local.includes('main')) return { branch: 'main', source: 'local-main' }
   if (local.includes('master')) return { branch: 'master', source: 'local-master' }
   return undefined
+}
+
+function canonicalBranchSuggestion(
+  branch: string,
+  source: CanonicalBranchSuggestion['source'],
+): CanonicalBranchSuggestion {
+  if (!isGitBranchName(branch)) throw new TypeError(`Invalid ${source} canonical branch`)
+  return { branch, source }
 }
 
 async function hasFactoryConflict(repositoryRoot: string): Promise<boolean> {

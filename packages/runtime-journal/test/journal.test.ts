@@ -209,7 +209,7 @@ describe('runtime journal', () => {
     await mkdir(join(symlinkedRepository, '.git'))
     await symlink(external, join(symlinkedRepository, '.git', 'factory-runtime'))
     await expect(inspectRuntimeJournal(symlinkedRepository)).rejects.toThrow(
-      'Runtime path is not an ordinary directory',
+      'Runtime root is not an ordinary directory',
     )
 
     const sidecarRepository = await initializedRepository('factory-inspect-sidecar-')

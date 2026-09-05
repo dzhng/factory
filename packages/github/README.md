@@ -23,3 +23,10 @@ deadline can leave only an unreferenced object, which is inert because no
 observation or completion marker names it. Optional code capture has its own
 smaller phase deadline inside that total budget, so a hanging snapshot provider
 does not consume the entire PR acquisition window.
+
+The same boundary owns the optional default-branch observation used by
+configuration and diagnostics. It runs one fixed, bounded `gh repo view` query
+and returns either a validated branch name or a typed availability reason; it
+does not make the mutable provider setting durable. Only this provider-backed
+observation can establish GitHub drift. Local remote-HEAD and `main`/`master`
+fallbacks remain setup suggestions, not claims about GitHub.

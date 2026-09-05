@@ -14,6 +14,30 @@ export type GithubRepositoryKey = `ghr_${string}`
 export function isGithubRepositoryLocator(value: string): boolean {
   return /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/.test(value)
 }
+/** Git's portable branch-name grammar, without consulting mutable repository state. */
+export function isGitBranchName(value: string): boolean {
+  if (
+    value.length === 0 ||
+    value.length > 4_096 ||
+    value === 'HEAD' ||
+    value.startsWith('-') ||
+    value.startsWith('/') ||
+    value.endsWith('/') ||
+    value.endsWith('.') ||
+    value.includes('..') ||
+    value.includes('//') ||
+    value.includes('@{') ||
+    [...value].some(character => {
+      const code = character.codePointAt(0)!
+      return code <= 0x20 || code === 0x7f || '~^:?*[\\'.includes(character)
+    })
+  ) {
+    return false
+  }
+  return value
+    .split('/')
+    .every(component => !component.startsWith('.') && !component.endsWith('.lock'))
+}
 /** Canonical stable GitHub identity: normalized host plus provider repository node ID. */
 export function githubRepositoryKey(
   hostname: string,
@@ -695,9 +719,9 @@ export function parseRepositoryConfig(value: unknown): RepositoryConfig {
   canonicalJson(value)
   if (
     'canonicalBranch' in value &&
-    (typeof value.canonicalBranch !== 'string' || value.canonicalBranch.length === 0)
+    (typeof value.canonicalBranch !== 'string' || !isGitBranchName(value.canonicalBranch))
   ) {
-    throw new TypeError('canonicalBranch must be a string')
+    throw new TypeError('canonicalBranch must be a valid Git branch name')
   }
   if ('automaticReview' in value && typeof value.automaticReview !== 'boolean') {
     throw new TypeError('automaticReview must be a boolean')

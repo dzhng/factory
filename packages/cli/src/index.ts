@@ -33,10 +33,12 @@ import {
 import {
   FACTORY_READER_VERSION,
   canonicalJson,
+  isGitBranchName,
   newRecordId,
   type JsonValue,
   type RepositoryId,
 } from '@factory/contract'
+import { observeGithubDefaultBranch } from '@factory/github'
 import {
   initializeRepositoryStore,
   openRepositoryStore,
@@ -271,9 +273,9 @@ async function globalConfig(environment: NodeJS.ProcessEnv): Promise<GlobalFacto
   }
   if (
     value.canonicalBranch !== undefined &&
-    (typeof value.canonicalBranch !== 'string' || value.canonicalBranch.trim() === '')
+    (typeof value.canonicalBranch !== 'string' || !isGitBranchName(value.canonicalBranch))
   ) {
-    throw new TypeError('canonicalBranch must be a nonblank string')
+    throw new TypeError('canonicalBranch must be a valid Git branch name')
   }
   if (
     value.reviewer !== undefined &&
@@ -296,17 +298,11 @@ async function canonicalSuggestion(
   return await suggestCanonicalBranch(
     {
       gh: async () => {
-        const auth = await run('gh', ['auth', 'status'], repositoryRoot, environment).catch(
-          () => undefined,
-        )
-        if (auth?.code !== 0) return undefined
-        const result = await run(
-          'gh',
-          ['repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'],
-          repositoryRoot,
+        const observation = await observeGithubDefaultBranch({
+          cwd: repositoryRoot,
           environment,
-        ).catch(() => undefined)
-        return result?.code === 0 && result.stdout.trim() ? result.stdout.trim() : undefined
+        })
+        return observation.availability === 'available' ? observation.branch : undefined
       },
       remoteHead: async () => {
         const result = await run(
@@ -902,7 +898,7 @@ async function doctor(
     canonicalBranch: config.canonicalBranch ?? null,
     observedDefaultBranch: suggestion?.branch ?? null,
     canonicalBranchDrift:
-      typeof config.canonicalBranch === 'string' && suggestion !== undefined
+      typeof config.canonicalBranch === 'string' && suggestion?.source === 'github'
         ? config.canonicalBranch !== suggestion.branch
         : false,
     repair,
@@ -937,8 +933,12 @@ export async function runFactoryCli(
         throw new Error('factory configure requires exactly one of --repo or --global')
       }
       const target = args.includes('--repo') ? 'repo' : 'global'
+      const canonicalBranch = readOption(args, '--canonical-branch')
+      if (canonicalBranch !== undefined && !isGitBranchName(canonicalBranch)) {
+        throw new TypeError('--canonical-branch must be a valid Git branch name')
+      }
       const change: GlobalFactoryConfig = {
-        canonicalBranch: readOption(args, '--canonical-branch'),
+        canonicalBranch,
         automaticReview: boolOption(readOption(args, '--automatic-review')),
       }
       const initialization = readOption(args, '--repository-initialization')

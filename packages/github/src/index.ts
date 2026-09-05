@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto'
 import {
   canonicalJson,
   githubRepositoryKey,
+  isGitBranchName,
   isGithubRepositoryLocator,
   makeOwnedPath,
   newRecordId,
@@ -44,6 +45,28 @@ export type GhCommandResult =
 
 export interface GhCommandRunner {
   run(args: readonly string[], maximumDurationMs?: number): Promise<GhCommandResult>
+}
+
+export type GithubDefaultBranchObservation =
+  | { availability: 'available'; branch: string }
+  | {
+      availability: 'unavailable'
+      reason:
+        | 'gh-missing'
+        | 'authentication-required'
+        | 'command-timeout'
+        | 'output-limit'
+        | 'command-failed'
+        | 'malformed-response'
+    }
+
+export type GithubDefaultBranchOptions = {
+  run?: GhCommandRunner['run']
+  maximumBytes?: number
+  maximumDurationMs?: number
+  executable?: string
+  cwd?: string
+  environment?: NodeJS.ProcessEnv
 }
 
 export interface PrObjectStore {
@@ -432,6 +455,65 @@ export async function runBoundedGh(
       terminate('timeout')
     }, maximumDurationMs)
   })
+}
+
+/** Observe GitHub's current default branch without making it durable configuration. */
+export async function observeGithubDefaultBranch(
+  options: GithubDefaultBranchOptions = {},
+): Promise<GithubDefaultBranchObservation> {
+  const maximumBytes = options.maximumBytes ?? 4_096
+  const maximumDurationMs = options.maximumDurationMs ?? 10_000
+  if (!Number.isSafeInteger(maximumBytes) || maximumBytes < 1)
+    throw new TypeError('maximumBytes must be a positive integer')
+  if (!Number.isSafeInteger(maximumDurationMs) || maximumDurationMs < 1)
+    throw new TypeError('maximumDurationMs must be a positive integer')
+  const run =
+    options.run ??
+    ((args: readonly string[], duration?: number) =>
+      runBoundedGh(
+        args,
+        maximumBytes,
+        duration ?? maximumDurationMs,
+        options.executable,
+        options.cwd,
+        options.environment,
+      ))
+  const result = await run(
+    ['repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'],
+    maximumDurationMs,
+  )
+  if (result.kind !== 'completed') {
+    const reason = {
+      missing: 'gh-missing',
+      timeout: 'command-timeout',
+      'output-limit': 'output-limit',
+    }[result.kind] as 'gh-missing' | 'command-timeout' | 'output-limit'
+    return { availability: 'unavailable', reason }
+  }
+  if (result.exitCode !== 0) {
+    const message = new TextDecoder().decode(result.stderr).toLowerCase()
+    return {
+      availability: 'unavailable',
+      reason:
+        message.includes('auth') || message.includes('login')
+          ? 'authentication-required'
+          : 'command-failed',
+    }
+  }
+  try {
+    const output = new TextDecoder('utf-8', { fatal: true }).decode(result.stdout)
+    const branch = output.endsWith('\r\n')
+      ? output.slice(0, -2)
+      : output.endsWith('\n')
+        ? output.slice(0, -1)
+        : output
+    if (!isGitBranchName(branch)) {
+      return { availability: 'unavailable', reason: 'malformed-response' }
+    }
+    return { availability: 'available', branch }
+  } catch {
+    return { availability: 'unavailable', reason: 'malformed-response' }
+  }
 }
 
 export class GithubPrObserver {

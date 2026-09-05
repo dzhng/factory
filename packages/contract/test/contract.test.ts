@@ -169,6 +169,11 @@ describe('public repository contract', () => {
       reviewLimits: { maxSessions: 2, futureLimit: 3 },
     })
     expect(parseRepositoryConfig({ reviewer: 'auto' })).toEqual({ reviewer: 'auto' })
+    for (const canonicalBranch of ['HEAD', '-option', 'foo..bar', 'topic.lock', 'space here']) {
+      expect(() => parseRepositoryConfig({ canonicalBranch })).toThrow(
+        'canonicalBranch must be a valid Git branch name',
+      )
+    }
     expect(() =>
       parseRepositoryManifest({
         schemaVersion: 1,

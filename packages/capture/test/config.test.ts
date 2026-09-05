@@ -54,4 +54,18 @@ describe('capture configuration', () => {
       ),
     ).toEqual({ branch: 'release', source: 'explicit' })
   })
+
+  test('rejects invalid discovered and explicit canonical branches', async () => {
+    const discovery = {
+      gh: async () => undefined,
+      remoteHead: async () => 'foo..bar',
+      localBranches: async () => [],
+    }
+    await expect(suggestCanonicalBranch(discovery)).rejects.toThrow(
+      'Invalid remote-head canonical branch',
+    )
+    await expect(suggestCanonicalBranch(discovery, 'HEAD')).rejects.toThrow(
+      'Invalid explicit canonical branch',
+    )
+  })
 })

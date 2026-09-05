@@ -1613,26 +1613,32 @@ export async function inspectRuntimeJournal(
   const root = join(runtimeRoot, 'journal-v1')
   const databasePath = join(root, 'journal.sqlite')
   try {
-    await requirePrivateDirectoryReadOnly(runtimeRoot)
-    await requirePrivateDirectoryReadOnly(root)
-    await requirePrivateFileReadOnly(databasePath, MAX_DATABASE_FILE_BYTES)
-    await requireMissingOrPrivateFileReadOnly(`${databasePath}-wal`, MAX_DATABASE_FILE_BYTES)
-    await requireMissingOrPrivateFileReadOnly(`${databasePath}-shm`, MAX_DATABASE_FILE_BYTES)
+    const runtimeInfo = await lstat(runtimeRoot)
+    if (runtimeInfo.isSymbolicLink() || !runtimeInfo.isDirectory())
+      throw new JournalCorruptionError('Runtime root is not an ordinary directory')
   } catch (error) {
-    if (isCode(error, 'ENOENT')) {
-      try {
-        const rootInfo = await lstat(root)
-        if (rootInfo.isSymbolicLink() || !rootInfo.isDirectory()) {
-          throw new JournalCorruptionError('Runtime journal root is not an ordinary directory')
-        }
-      } catch (rootError) {
-        if (isCode(rootError, 'ENOENT')) return { state: 'absent', storageBytes: 0 }
-        throw rootError
-      }
-      throw new JournalCorruptionError('Runtime journal database is missing')
-    }
+    if (isCode(error, 'ENOENT')) return { state: 'absent', storageBytes: 0 }
     throw error
   }
+  try {
+    const rootInfo = await lstat(root)
+    if (rootInfo.isSymbolicLink() || !rootInfo.isDirectory())
+      throw new JournalCorruptionError('Runtime journal root is not an ordinary directory')
+  } catch (error) {
+    if (isCode(error, 'ENOENT')) return { state: 'absent', storageBytes: 0 }
+    throw error
+  }
+  await requirePrivateDirectoryReadOnly(runtimeRoot)
+  await requirePrivateDirectoryReadOnly(root)
+  try {
+    await requirePrivateFileReadOnly(databasePath, MAX_DATABASE_FILE_BYTES)
+  } catch (error) {
+    if (isCode(error, 'ENOENT'))
+      throw new JournalCorruptionError('Runtime journal database is missing')
+    throw error
+  }
+  await requireMissingOrPrivateFileReadOnly(`${databasePath}-wal`, MAX_DATABASE_FILE_BYTES)
+  await requireMissingOrPrivateFileReadOnly(`${databasePath}-shm`, MAX_DATABASE_FILE_BYTES)
 
   const database = await openSqliteReadOnly(databasePath)
   let pendingStops: number

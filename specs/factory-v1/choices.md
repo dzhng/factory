@@ -1466,3 +1466,21 @@ second normative schema; the master specification and format own mechanics.
 - **Verdict:** Sound. The component that owns recoverable machine state also
   owns its interpretation.
 - **Confidence:** High.
+
+### Let only GitHub evidence establish default-branch drift
+
+- **When:** Slice 12 configuration and diagnostic ownership pass.
+- **The choice:** The GitHub adapter owns one fixed, bounded `gh repo view`
+  observation that returns a typed branch or availability reason. Configuration
+  prefers that branch when no user value exists; explicit values remain
+  authoritative. Doctor reports drift only when a GitHub-backed observation
+  disagrees, never when a remote-HEAD or local-name fallback differs.
+- **The gap:** The CLI previously assembled `gh` commands itself and treated any
+  setup fallback as evidence that GitHub's mutable default had changed.
+- **The reach:** A high-priority canonical-branch warning now has provider
+  evidence behind it. GitHub command policy and failure classification evolve
+  in one adapter, while offline setup remains useful without overstating what
+  was observed.
+- **Verdict:** Sound. Suggestion and drift use the same ordering without
+  collapsing their different authority.
+- **Confidence:** High.

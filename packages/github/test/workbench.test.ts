@@ -16,6 +16,7 @@ import { deriveAssociations, verifyAssociationBatch } from '../../domain/src/ind
 import { initializeRepositoryStore, type RepositoryStore } from '../../repository/src/index'
 import {
   GithubPrObserver,
+  observeGithubDefaultBranch,
   observeGithubRepositoryMapping,
   persistPullRequestEvidence,
   runBoundedGh,
@@ -174,6 +175,64 @@ function observerFor(
   }
 }
 const ref = { hostname: 'github.example.com', owner: 'owner', name: 'repo', number: 42 }
+
+describe('default branch observation', () => {
+  test('uses one fixed bounded gh query and returns a typed branch', async () => {
+    const calls: Array<{ args: readonly string[]; duration?: number }> = []
+    const observation = await observeGithubDefaultBranch({
+      maximumDurationMs: 321,
+      run: async (args, duration) => {
+        calls.push({ args, duration })
+        return completed('main\n')
+      },
+    })
+
+    expect(observation).toEqual({ availability: 'available', branch: 'main' })
+    expect(calls).toEqual([
+      {
+        args: ['repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'],
+        duration: 321,
+      },
+    ])
+  })
+
+  test('classifies absence, authentication, bounds, and malformed output', async () => {
+    const observe = (result: GhCommandResult) =>
+      observeGithubDefaultBranch({ run: async () => result })
+
+    expect(await observe({ kind: 'missing', stdout: Buffer.of(), stderr: Buffer.of() })).toEqual({
+      availability: 'unavailable',
+      reason: 'gh-missing',
+    })
+    expect(
+      await observe({
+        kind: 'completed',
+        exitCode: 1,
+        stdout: Buffer.of(),
+        stderr: Buffer.from('authentication required; run gh auth login'),
+      }),
+    ).toEqual({ availability: 'unavailable', reason: 'authentication-required' })
+    expect(await observe({ kind: 'timeout', stdout: Buffer.of(), stderr: Buffer.of() })).toEqual({
+      availability: 'unavailable',
+      reason: 'command-timeout',
+    })
+    expect(
+      await observe({ kind: 'output-limit', stdout: Buffer.of(), stderr: Buffer.of() }),
+    ).toEqual({ availability: 'unavailable', reason: 'output-limit' })
+    expect(await observe(completed('main\nother\n'))).toEqual({
+      availability: 'unavailable',
+      reason: 'malformed-response',
+    })
+    expect(await observe(completed('refs/.hidden\n'))).toEqual({
+      availability: 'unavailable',
+      reason: 'malformed-response',
+    })
+    expect(await observe(completed('main \n'))).toEqual({
+      availability: 'unavailable',
+      reason: 'malformed-response',
+    })
+  })
+})
 
 describe('bounded coherent GitHub observation', () => {
   test('freezes exact metadata/diff with fork and GHES identities', async () => {
