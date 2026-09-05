@@ -7,7 +7,7 @@ import {
   runIsolationProbe,
   type IsolationReport,
   type ReviewerProvider,
-} from '@factory/reviewer'
+} from '@factory/reviewer/testing'
 
 type ProviderAuthority = {
   provider: 'codex' | 'claude'

@@ -87,6 +87,18 @@ function storeFor(review?: ReviewManifest) {
                   path: `reviews/workspace/${review.reviewId}/manifest.json`,
                   value: review,
                 },
+                {
+                  path: `reviews/workspace/${review.reviewId}/response.txt`,
+                  value: '',
+                },
+                ...(review.disposition === 'failed'
+                  ? []
+                  : [
+                      {
+                        path: `reviews/workspace/${review.reviewId}/ledger.json`,
+                        value: {},
+                      },
+                    ]),
               ],
       }
     },

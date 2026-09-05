@@ -141,7 +141,7 @@ describe('reviewer isolation plan', () => {
   test('refuses a mount source Docker could parse as extra options', () => {
     expect(
       planReviewerIsolation({
-        provider: 'fake',
+        provider: 'codex',
         bundleHostPath: '/tmp/factory/bundle,readonly',
         outputHostPath: '/tmp/factory/output',
         auth: [],
@@ -156,7 +156,7 @@ describe('reviewer isolation plan', () => {
     await symlink(bundle, join(root, 'output'))
 
     const result = await resolveReviewerIsolation({
-      provider: 'fake',
+      provider: 'codex',
       bundleHostPath: bundle,
       outputHostPath: join(root, 'output'),
       auth: [],

@@ -28,19 +28,22 @@ import { readVerifiedReviewBundle, type ReviewerChoice, type VerifiedReviewBundl
 import type { ReviewerExecutionInput, ReviewerExecutor } from './execution'
 import { cleanupOwnedReviewerContainer } from './probe'
 
-export type ReviewAttemptBoundary = 'identity-persisted' | 'attempt-persisted'
-
 export type ReviewAttemptCoordinatorOptions =
   | {
       repositoryRoot: string
       testRuntimeRoot?: never
-      onBoundary?: (boundary: ReviewAttemptBoundary) => void | Promise<void>
     }
   | {
       repositoryRoot?: never
       testRuntimeRoot: string
-      onBoundary?: (boundary: ReviewAttemptBoundary) => void | Promise<void>
     }
+
+type ReviewAttemptRunInput = Omit<
+  ReviewerExecutionInput,
+  'reviewId' | 'runtimeRoot' | 'containerIdentity'
+> & {
+  retryGeneration?: RecordId
+}
 
 type PersistedSnapshot = Omit<ReviewerRawAttemptSnapshot, 'response'> & {
   responseBase64: string
@@ -293,10 +296,7 @@ function restored(attempt: PersistedSnapshot): ReviewerRawAttempt {
 }
 
 export class ReviewAttemptCoordinator {
-  private constructor(
-    readonly runtimeRoot: string,
-    private readonly onBoundary?: ReviewAttemptCoordinatorOptions['onBoundary'],
-  ) {}
+  private constructor(readonly runtimeRoot: string) {}
 
   static async open(options: ReviewAttemptCoordinatorOptions): Promise<ReviewAttemptCoordinator> {
     const authorityRoot =
@@ -306,7 +306,7 @@ export class ReviewAttemptCoordinator {
     await privateDirectory(authorityRoot)
     const root = join(await realpath(authorityRoot), 'review-attempts-v1')
     await privateDirectory(root)
-    const coordinator = new ReviewAttemptCoordinator(root, options.onBoundary)
+    const coordinator = new ReviewAttemptCoordinator(root)
     await coordinator.recoverStartedAttempts()
     return coordinator
   }
@@ -358,10 +358,11 @@ export class ReviewAttemptCoordinator {
     bundle: VerifiedReviewBundle,
     choice: ReviewerChoice,
     executor: ReviewerExecutor,
-    input: Omit<ReviewerExecutionInput, 'reviewId' | 'runtimeRoot' | 'containerIdentity'>,
+    input: ReviewAttemptRunInput,
   ): Promise<ReviewerRawAttempt> {
     const verified = await readVerifiedReviewBundle(bundle)
-    const key = attemptKey(verified, choice, input.imageDigest, input.retryGeneration)
+    const { retryGeneration, ...executionInput } = input
+    const key = attemptKey(verified, choice, input.imageDigest, retryGeneration)
     const attemptRoot = join(this.runtimeRoot, key)
     const containerIdentity = {
       name: `factory-review-${key.slice(0, 20)}`,
@@ -392,7 +393,11 @@ export class ReviewAttemptCoordinator {
           }
           if (state.phase === 'finalized')
             throw new ReviewAttemptAlreadyFinalizedError(state.reviewId, state.outcome)
-          await cleanupStartedArtifacts(attemptRoot, state.containerIdentity, input.timeoutMs)
+          await cleanupStartedArtifacts(
+            attemptRoot,
+            state.containerIdentity,
+            executionInput.timeoutMs,
+          )
           return await this.executeStarted(
             state.reviewId,
             key,
@@ -401,7 +406,7 @@ export class ReviewAttemptCoordinator {
             bundle,
             choice,
             executor,
-            input,
+            executionInput,
             state.containerIdentity,
           )
         }
@@ -413,7 +418,6 @@ export class ReviewAttemptCoordinator {
           phase: 'started',
           containerIdentity,
         })
-        await this.onBoundary?.('identity-persisted')
         return await this.executeStarted(
           reviewId,
           key,
@@ -422,7 +426,7 @@ export class ReviewAttemptCoordinator {
           bundle,
           choice,
           executor,
-          input,
+          executionInput,
           containerIdentity,
         )
       },
@@ -556,7 +560,6 @@ export class ReviewAttemptCoordinator {
       containerIdentity,
       attempt: persisted(observed),
     })
-    await this.onBoundary?.('attempt-persisted')
     return attempt
   }
 }

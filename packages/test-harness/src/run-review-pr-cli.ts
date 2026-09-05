@@ -2,8 +2,10 @@ import { chmod, cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/prom
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
-import { runFactoryCli } from '@factory/cli'
 import { canonicalJson, newRecordId } from '@factory/contract'
+
+const cliPackageRoot = resolve(import.meta.dir, '../../cli')
+const factoryProgram = join(cliPackageRoot, 'dist/factory.js')
 
 async function command(args: readonly string[], cwd: string): Promise<string> {
   const child = Bun.spawn([...args], { cwd, stdout: 'pipe', stderr: 'pipe' })
@@ -33,17 +35,23 @@ async function review(
   root: string,
   environment: NodeJS.ProcessEnv,
 ): Promise<Record<string, unknown>> {
-  const output: string[] = []
-  const code = await runFactoryCli(['review', '--pr', '42', '--force'], {
+  const child = Bun.spawn([process.execPath, factoryProgram, 'review', '--pr', '42', '--force'], {
     cwd: root,
-    environment,
-    output: { stdout: value => output.push(value), stderr: value => output.push(value) },
+    env: environment,
+    stdout: 'pipe',
+    stderr: 'pipe',
   })
-  if (code !== 0) throw new Error(`PR review failed: ${output.join('')}`)
-  return JSON.parse(output.join('')) as Record<string, unknown>
+  const [code, stdout, stderr] = await Promise.all([
+    child.exited,
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+  ])
+  if (code !== 0) throw new Error(`PR review failed: ${stdout}${stderr}`)
+  return JSON.parse(stdout) as Record<string, unknown>
 }
 
 async function main() {
+  await command(['bun', 'run', 'build'], cliPackageRoot)
   const root = await mkdtemp(join(tmpdir(), 'factory-review-pr-cli-'))
   try {
     await command(['git', 'init', '-q'], root)

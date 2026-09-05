@@ -1,43 +1,26 @@
 import { createHash } from 'node:crypto'
-import { lstat, mkdtemp, readFile, realpath, rm } from 'node:fs/promises'
-import { dirname, isAbsolute, join } from 'node:path'
+import { lstat, mkdtemp, realpath, rm } from 'node:fs/promises'
+import { isAbsolute, join } from 'node:path'
 
+import { canonicalJson, type RecordId } from '@factory/contract'
+import { openRepositoryStore, withAdvisoryFileLock } from '@factory/repository'
 import {
-  canonicalJson,
-  newRecordId,
-  parseRepositoryConfig,
-  type AssociationBatch,
-  type AvailablePullRequestObservation,
-  type GithubRepositoryMappingObservation,
-  type OwnedPath,
-  type RecordId,
-  type RepositoryConfig,
-  type ReviewLedger,
-  type ReviewManifest,
-  type SessionPullRequestAssociation,
-} from '@factory/contract'
-import { deriveAssociations } from '@factory/domain'
-import {
-  GithubPrObserver,
-  observeGithubRepositoryMapping,
-  persistGithubRepositoryMapping,
-  persistPullRequestEvidence,
-  verifyAssociationBatch,
-} from '@factory/github'
-import {
-  GitObserver,
-  openRepositoryStore,
-  withAdvisoryFileLock,
-  type RepositoryStore,
-} from '@factory/repository'
-import { acceptPartialCoverageByReviewId, acceptReview, validateReview } from '@factory/review'
+  acceptPartialCoverageByReviewId,
+  acceptReview,
+  committedReviewManifests,
+  reviewFindingsMeetThreshold,
+  reviewSubjectLineage,
+  storedReviewResult,
+  subjectPathLineage,
+  validateReview,
+} from '@factory/review'
 import {
   bindReviewPolicies,
   buildBundle,
-  loadCandidateEvidence,
   loadReviewHistory,
   loadReviewInputs,
   openReviewRepositoryReader,
+  observeReviewSubject,
   planReview,
   reviewAuthoringProvider,
 } from '@factory/review-plan'
@@ -48,6 +31,7 @@ import {
   dockerReviewerExecutor,
   openVerifiedReviewBundle,
   reviewerAdapter,
+  reviewerAuthContainerPath,
   selectReviewer,
   unavailableReviewerExecutor,
   type ReadonlyAuthMount,
@@ -55,19 +39,12 @@ import {
   type ReviewerDefaults,
 } from '@factory/reviewer'
 
-export type ReviewOutput = { stdout(value: string): void; stderr(value: string): void }
+type ReviewOutput = { stdout(value: string): void; stderr(value: string): void }
 
-const textEncoder = new TextEncoder()
 const FACTORY_REVIEWER_DEFAULTS = {
   codex: { model: 'gpt-5.6-sol', effort: 'xhigh' },
   claude: { model: 'claude-opus-5', effort: 'high' },
 } as const
-
-async function repositoryConfig(repositoryRoot: string): Promise<RepositoryConfig> {
-  return parseRepositoryConfig(
-    JSON.parse(await readFile(join(repositoryRoot, '.factory', 'config.json'), 'utf8')),
-  )
-}
 
 function requiredReviewDefaults(environment: NodeJS.ProcessEnv): ReviewerDefaults {
   const values = {
@@ -125,8 +102,7 @@ async function dedicatedReviewerAuth(environment: NodeJS.ProcessEnv): Promise<{
     availability[provider] = true
     mounts[provider] = {
       hostPath: canonicalPath,
-      containerPath:
-        provider === 'codex' ? '/auth/codex/auth.json' : '/auth/claude/.credentials.json',
+      containerPath: reviewerAuthContainerPath(provider),
       expectedIdentity: {
         dev: metadata.dev,
         ino: metadata.ino,
@@ -137,255 +113,6 @@ async function dedicatedReviewerAuth(environment: NodeJS.ProcessEnv): Promise<{
     }
   }
   return { availability, mounts }
-}
-
-async function freshReviewSubject(
-  repositoryRoot: string,
-  store: RepositoryStore,
-  pullRequest: number | undefined,
-  environment: NodeJS.ProcessEnv,
-): Promise<OwnedPath> {
-  const objects = {
-    put: async (bytes: Uint8Array, metadata: { mediaType: string; role: string }) =>
-      await store.putObject(
-        (async function* () {
-          yield bytes
-        })(),
-        metadata,
-      ),
-  }
-  if (pullRequest === undefined) {
-    const observationId = newRecordId('observation')
-    const observed = await new GitObserver(
-      repositoryRoot,
-      { ...objects, get: async reference => await store.getObject(reference) },
-      { repositoryId: store.manifest.repositoryId, observationId },
-    ).observe()
-    if (observed.kind === 'unavailable')
-      throw new Error(`workspace observation unavailable: ${observed.reason.code}`)
-    const observation = observed.kind === 'raced' ? observed.partial : observed.observation
-    const path = `repository-observations/${observation.observationId}.json` as OwnedPath
-    await store.createImmutable(path, textEncoder.encode(canonicalJson(observation)))
-    return path
-  }
-
-  const hostname = (environment.GH_HOST ?? 'github.com').toLowerCase()
-  const mapping = await observeGithubRepositoryMapping(store.manifest.repositoryId, hostname, {
-    objects,
-    cwd: repositoryRoot,
-    environment,
-  })
-  if ('availability' in mapping)
-    throw new Error(`pull-request repository mapping unavailable: ${mapping.reason}`)
-  await persistGithubRepositoryMapping(store, mapping)
-  const [owner, name, ...extra] = mapping.repository.split('/')
-  if (!owner || !name || extra.length !== 0)
-    throw new Error('pull-request repository mapping returned an invalid name')
-  const observation = await new GithubPrObserver({
-    objects,
-    cwd: repositoryRoot,
-    environment,
-  }).observe({
-    hostname: mapping.hostname,
-    owner,
-    name,
-    number: pullRequest,
-  })
-  if (observation.availability === 'unavailable') {
-    if (observation.record !== undefined)
-      await persistPullRequestEvidence(store, observation.record, [])
-    throw new Error(`pull-request observation unavailable: ${observation.reason}`)
-  }
-  const records = (await store.readRecords()).records
-  const recordByPath = new Map(records.map(record => [record.path, record.value]))
-  const reader = await openReviewRepositoryReader(store.factoryRoot)
-  const triggerRecords = records.filter(record =>
-    /^review-triggers\/[^/]+\.json$/.test(record.path),
-  )
-  if (triggerRecords.length > 10_000)
-    throw new Error('pull-request association trigger inventory exceeds its bound')
-  const candidates = new Array<Awaited<ReturnType<typeof loadCandidateEvidence>>>()
-  for (let offset = 0; offset < triggerRecords.length; offset += 8) {
-    candidates.push(
-      ...(await Promise.all(
-        triggerRecords.slice(offset, offset + 8).map(async record => {
-          const triggerId = record.path.slice(
-            'review-triggers/'.length,
-            -'.json'.length,
-          ) as RecordId
-          return await loadCandidateEvidence(reader, {
-            triggerId,
-            scopeProof: { kind: 'workspace-store', repositoryId: store.manifest.repositoryId },
-          })
-        }),
-      )),
-    )
-  }
-  const sessions = candidates.flatMap(candidate => {
-    if (
-      !('trigger' in candidate) ||
-      candidate.repositoryObservation === undefined ||
-      candidate.identity.repositoryId !== store.manifest.repositoryId
-    )
-      return []
-    return [
-      {
-        provider: candidate.trigger.provider,
-        turn: candidate.turn,
-        repositoryObservation: candidate.repositoryObservation,
-      },
-    ]
-  })
-  const repositoryMappings = records
-    .filter(record => record.path.includes('/repository-mappings/'))
-    .map(record => record.value as unknown as GithubRepositoryMappingObservation)
-  const priorPullRequests = new Map(
-    records
-      .filter(
-        record =>
-          new RegExp(
-            `^pull-requests/github/${observation.repositoryKey}/${observation.number}/observations/[^/]+\\.json$`,
-          ).test(record.path) &&
-          (record.value as { availability?: string }).availability === 'available' &&
-          (record.value as { observationId?: string }).observationId !== observation.observationId,
-      )
-      .map(record => {
-        const value = record.value as unknown as AvailablePullRequestObservation
-        return [value.observationId, value] as const
-      }),
-  )
-  const associationRoot = `pull-requests/github/${observation.repositoryKey}/${observation.number}/associations/`
-  const previous = records
-    .filter(
-      record =>
-        record.path.startsWith(associationRoot) && /\/batches\/[^/]+\.json$/.test(record.path),
-    )
-    .flatMap(record => {
-      const batch = record.value as unknown as AssociationBatch
-      const pullRequest = priorPullRequests.get(batch.pullRequestObservationId)
-      if (pullRequest === undefined) return []
-      const root = `${associationRoot}${batch.pullRequestObservationId}`
-      const evidence = batch.evidence.flatMap(reference => {
-        const value = recordByPath.get(`${root}/${reference.evidenceId}.json` as OwnedPath)
-        return value === undefined ? [] : [value as unknown as SessionPullRequestAssociation]
-      })
-      if (!verifyAssociationBatch(batch, pullRequest, evidence)) return []
-      return evidence.map(association => ({ pullRequest, association }))
-    })
-  const associations = deriveAssociations({
-    pullRequest: observation,
-    sessions,
-    repositoryMappings,
-    previous,
-  })
-  await persistPullRequestEvidence(store, observation, associations)
-  return `pull-requests/github/${observation.repositoryKey}/${observation.number}/observations/${observation.observationId}.json` as OwnedPath
-}
-
-function committedReviewManifests(
-  records: Awaited<ReturnType<RepositoryStore['readRecords']>>['records'],
-): ReviewManifest[] {
-  return records
-    .filter(record => /^reviews\/.*\/manifest\.json$/.test(record.path))
-    .map(record => {
-      const review = record.value as unknown as ReviewManifest
-      const root = dirname(record.path)
-      const siblings = records
-        .filter(candidate => dirname(candidate.path) === root)
-        .map(candidate => candidate.path)
-        .sort()
-      const expected = [record.path, `${root}/response.txt`]
-      if (review.disposition !== 'failed') expected.push(`${root}/ledger.json`)
-      if (canonicalJson(siblings) !== canonicalJson(expected.sort()))
-        throw new Error('stored review does not have an exact committed record group')
-      return review
-    })
-}
-
-function reviewResultOutput(review: ReviewManifest, status?: 'already-reviewed'): string {
-  const root =
-    review.subject.kind === 'workspace'
-      ? `reviews/workspace/${review.reviewId}`
-      : `reviews/pull-requests/github/${review.subject.repositoryKey}/${review.subject.number}/${review.reviewId}`
-  return canonicalJson({
-    schemaVersion: 1,
-    ...(status === undefined ? {} : { status }),
-    reviewId: review.reviewId,
-    disposition: review.disposition,
-    limitations: review.limitations,
-    reviewer: { ...review.reviewer, version: review.providerCliVersion },
-    coverageEffect: review.subjectAttempt.effect,
-    paths: {
-      manifest: `${root}/manifest.json`,
-      response: `${root}/response.txt`,
-      ...(review.disposition === 'failed' ? {} : { ledger: `${root}/ledger.json` }),
-    },
-    executionFailed:
-      review.disposition === 'failed' ||
-      review.limitations.some(item => item.code === 'invalid-review-output'),
-  })
-}
-
-function reviewSubjectLineage(
-  review: ReviewManifest,
-  records: Awaited<ReturnType<RepositoryStore['readRecords']>>['records'],
-): string {
-  if (review.subject.kind === 'pull-request')
-    return canonicalJson({
-      kind: review.subject.kind,
-      repositoryKey: review.subject.repositoryKey,
-      number: review.subject.number,
-    })
-  const observationId = review.subject.repositoryObservationId
-  const observation = records.find(
-    record => record.path === `repository-observations/${observationId}.json`,
-  )?.value
-  if (
-    typeof observation !== 'object' ||
-    observation === null ||
-    Array.isArray(observation) ||
-    typeof observation.repositoryId !== 'string'
-  )
-    throw new Error('stored workspace review does not resolve to its subject lineage')
-  return canonicalJson({ kind: review.subject.kind, repositoryId: observation.repositoryId })
-}
-
-function subjectPathLineage(
-  path: OwnedPath,
-  records: Awaited<ReturnType<RepositoryStore['readRecords']>>['records'],
-): string {
-  const subject = records.find(record => record.path === path)?.value
-  if (typeof subject !== 'object' || subject === null || Array.isArray(subject))
-    throw new Error('selected review subject is absent')
-  if (path.startsWith('repository-observations/')) {
-    if (typeof subject.repositoryId !== 'string')
-      throw new Error('selected workspace subject has no repository lineage')
-    return canonicalJson({ kind: 'workspace', repositoryId: subject.repositoryId })
-  }
-  if (typeof subject.repositoryKey !== 'string' || typeof subject.number !== 'number')
-    throw new Error('selected pull-request subject has no repository lineage')
-  return canonicalJson({
-    kind: 'pull-request',
-    repositoryKey: subject.repositoryKey,
-    number: subject.number,
-  })
-}
-
-async function reviewFindingsEnforced(
-  store: RepositoryStore,
-  reviewId: RecordId,
-  failOn: ReviewCliOptions['failOn'],
-): Promise<boolean> {
-  if (failOn === undefined) return false
-  const match = (await store.readRecords()).records.find(record =>
-    record.path.endsWith(`/${reviewId}/ledger.json`),
-  )
-  if (match === undefined) return false
-  const ledger = match.value as unknown as ReviewLedger
-  const ranks = { low: 1, medium: 2, high: 3, critical: 4 } as const
-  return ledger.entries.some(
-    entry => entry.kind === 'finding' && ranks[entry.severity] >= ranks[failOn],
-  )
 }
 
 type ReviewCliOptions = {
@@ -458,7 +185,7 @@ export async function reviewCommand(
   const reviewerDefaults = requiredReviewDefaults(environment)
   reviewerAdapter({ provider: 'codex', ...reviewerDefaults.codex })
   reviewerAdapter({ provider: 'claude', ...reviewerDefaults.claude })
-  const repositorySettings = await repositoryConfig(repositoryRoot)
+  const repositorySettings = await store.readConfig()
   if (repositorySettings.reviewer !== undefined && repositorySettings.reviewer !== 'auto') {
     const configured = repositorySettings.reviewer
     reviewerAdapter({
@@ -479,7 +206,7 @@ export async function reviewCommand(
       .digest('hex')}.lock`,
   )
   return await withAdvisoryFileLock(subjectLock, 24 * 60 * 60 * 1_000, async () => {
-    const subjectPath = await freshReviewSubject(
+    const subjectPath = await observeReviewSubject(
       repositoryRoot,
       store,
       options.pullRequest,
@@ -505,7 +232,7 @@ export async function reviewCommand(
       mode: options.mode,
       subjectPath,
       history,
-      reviewLimits: (await repositoryConfig(repositoryRoot)).reviewLimits,
+      reviewLimits: repositorySettings.reviewLimits,
       ...(options.sessionKey === undefined ? {} : { sessionKey: options.sessionKey }),
     })
     const authoringProvider = reviewAuthoringProvider(evidence)
@@ -529,8 +256,8 @@ export async function reviewCommand(
         const priorId = plan.priorLedger?.ledger.reviewId
         const prior = committedReviews.find(review => review.reviewId === priorId)
         if (prior !== undefined) {
-          output.stdout(reviewResultOutput(prior, 'already-reviewed'))
-          return (await reviewFindingsEnforced(store, prior.reviewId, options.failOn)) ? 1 : 0
+          output.stdout(canonicalJson(storedReviewResult(prior, 'already-reviewed')))
+          return (await reviewFindingsMeetThreshold(store, prior.reviewId, options.failOn)) ? 1 : 0
         }
       }
       output.stdout(
@@ -577,11 +304,13 @@ export async function reviewCommand(
             executionGeneration = error.reviewId
             continue
           }
-          const enforced = await reviewFindingsEnforced(store, error.reviewId, options.failOn)
+          const enforced = await reviewFindingsMeetThreshold(store, error.reviewId, options.failOn)
           output.stdout(
-            reviewResultOutput(
-              currentReviews.find(review => review.reviewId === error.reviewId)!,
-              'already-reviewed',
+            canonicalJson(
+              storedReviewResult(
+                currentReviews.find(review => review.reviewId === error.reviewId)!,
+                'already-reviewed',
+              ),
             ),
           )
           return error.outcome.executionFailed || enforced ? 1 : 0
@@ -595,12 +324,12 @@ export async function reviewCommand(
         accepted,
         executionGeneration,
       )
-      const enforced = await reviewFindingsEnforced(store, accepted.reviewId, options.failOn)
+      const enforced = await reviewFindingsMeetThreshold(store, accepted.reviewId, options.failOn)
       const acceptedManifest = committedReviewManifests((await store.readRecords()).records).find(
         review => review.reviewId === accepted.reviewId,
       )
       if (acceptedManifest === undefined) throw new Error('accepted review manifest is absent')
-      output.stdout(reviewResultOutput(acceptedManifest))
+      output.stdout(canonicalJson(storedReviewResult(acceptedManifest)))
       return accepted.executionFailed || enforced ? 1 : 0
     } finally {
       await rm(bundleParent, { recursive: true, force: true })

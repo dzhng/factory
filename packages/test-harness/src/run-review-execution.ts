@@ -9,13 +9,13 @@ import { acceptReview, validateReview } from '@factory/review'
 import {
   dockerReviewerExecutor,
   openVerifiedReviewBundle,
-  planReviewerIsolation,
   readReviewerRawAttempt,
   readVerifiedReviewBundle,
   reviewerAdapter,
-  runIsolationProbe,
+  reviewerAuthContainerPath,
   type ReviewerChoice,
 } from '@factory/reviewer'
+import { planReviewerIsolation, runIsolationProbe } from '@factory/reviewer/testing'
 
 async function command(args: readonly string[]): Promise<string> {
   const child = Bun.spawn([...args], { stdout: 'pipe', stderr: 'pipe' })
@@ -137,10 +137,7 @@ async function main() {
         auth: [
           {
             hostPath: scenarioAuth,
-            containerPath:
-              expected.provider === 'codex'
-                ? '/auth/codex/auth.json'
-                : '/auth/claude/.credentials.json',
+            containerPath: reviewerAuthContainerPath(expected.provider),
           },
         ],
       })

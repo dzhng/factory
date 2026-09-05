@@ -20,6 +20,12 @@ or for findings:
 {"kind":"finding","severity":"low"|"medium"|"high"|"critical","summary":"nonblank text","evidence":[{"object":<exact ObjectRef from bundle inventory>,"locator":"optional bounded locator"}]}
 Every result requires at least one exact citation. Emit no Markdown fences or prose outside JSONL.`
 
+export function reviewerAuthContainerPath(provider: 'codex' | 'claude') {
+  return provider === 'codex'
+    ? ('/auth/codex/auth.json' as const)
+    : ('/auth/claude/.credentials.json' as const)
+}
+
 function boundedSetting(value: string, label: string, maximum: number): void {
   if (value.trim().length === 0 || Buffer.byteLength(value) > maximum)
     throw new TypeError(`${label} must be nonblank and bounded`)

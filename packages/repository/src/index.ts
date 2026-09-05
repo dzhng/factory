@@ -749,6 +749,12 @@ export class RepositoryStore {
     })
   }
 
+  async readConfig(): Promise<RepositoryConfig> {
+    const configPath = join(this.factoryRoot, 'config.json')
+    await requireOrdinaryFile(configPath)
+    return parseRepositoryConfig(JSON.parse(decodeUtf8(await readFile(configPath))))
+  }
+
   /** Copy a selected, verified CAS inventory into a disposable bundle tree. */
   async materializeObjectInventory(
     refs: readonly ObjectRef[],

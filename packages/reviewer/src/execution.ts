@@ -14,8 +14,9 @@ import {
   type ReviewerChoice,
   type VerifiedReviewBundle,
 } from './bundle'
-import { planReviewerIsolation, type ReadonlyAuthMount } from './index'
-import { ReviewerCleanupUnprovenError, runIsolationProbe } from './probe'
+import { planReviewerIsolation, type ReadonlyAuthMount } from './isolation'
+import { ReviewerCleanupUnprovenError } from './probe'
+import { runReviewerContainer } from './runner'
 
 export type ReviewerExecutionInput = {
   reviewId: RecordId
@@ -27,8 +28,6 @@ export type ReviewerExecutionInput = {
   signal?: AbortSignal
   now?: () => Date
   containerIdentity: { name: string; label: string }
-  /** Latest accepted execution failure; advances a fresh retry beyond its tombstone. */
-  retryGeneration?: RecordId
 }
 
 async function readResponsePrefix(
@@ -140,7 +139,7 @@ export const dockerReviewerExecutor: ReviewerExecutor = {
         auth: input.auth,
       })
       if (!plan.ok) throw new Error(`reviewer isolation refused: ${plan.reason}`)
-      const report = await runIsolationProbe(plan.plan, {
+      const report = await runReviewerContainer(plan.plan, {
         imageDigest: input.imageDigest,
         expectedBundleSha256: before.sha256,
         reviewer: {
@@ -150,7 +149,6 @@ export const dockerReviewerExecutor: ReviewerExecutor = {
         },
         invocation: reviewerAdapter(choice.settings),
         containerIdentity: input.containerIdentity,
-        scenario: 'review',
         timeoutMs: remaining(),
         ...(input.signal === undefined ? {} : { signal: input.signal }),
       })
@@ -173,7 +171,7 @@ export const dockerReviewerExecutor: ReviewerExecutor = {
         outputTruncated: response.truncated,
         reviewer: choice,
         imageDigest: input.imageDigest,
-        providerCliVersion: report.observation?.providerVersion ?? null,
+        providerCliVersion: report.providerCliVersion,
         hostPlatform: `${platform()}/${arch()}`,
         startedAt,
         completedAt: now().toISOString(),

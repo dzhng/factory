@@ -67,6 +67,34 @@ export interface CaptureAdapter {
 const decoder = new TextDecoder('utf-8', { fatal: true })
 const encoder = new TextEncoder()
 
+/** Observe and persist the exact workspace subject used by a downstream review. */
+export async function captureWorkspaceReviewSubject(
+  repositoryRoot: string,
+  store: RepositoryStore,
+): Promise<OwnedPath> {
+  const observationId = newRecordId('observation')
+  const observation = await new GitObserver(
+    repositoryRoot,
+    {
+      put: async (bytes, metadata) =>
+        await store.putObject(
+          (async function* () {
+            yield bytes
+          })(),
+          metadata,
+        ),
+      get: async reference => await store.getObject(reference),
+    },
+    { repositoryId: store.manifest.repositoryId, observationId },
+  ).observe()
+  if (observation.kind === 'unavailable')
+    throw new Error(`workspace observation unavailable: ${observation.reason.code}`)
+  const value = observation.kind === 'raced' ? observation.partial : observation.observation
+  const path = `repository-observations/${value.observationId}.json` as OwnedPath
+  await store.createImmutable(path, encoder.encode(canonicalJson(value)))
+  return path
+}
+
 function sha256(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex')
 }

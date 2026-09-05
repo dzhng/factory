@@ -2,8 +2,10 @@ import { chmod, cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
-import { runFactoryCli } from '@factory/cli'
 import { canonicalJson } from '@factory/contract'
+
+const cliPackageRoot = resolve(import.meta.dir, '../../cli')
+const factoryProgram = join(cliPackageRoot, 'dist/factory.js')
 
 async function command(args: readonly string[], cwd: string): Promise<string> {
   const child = Bun.spawn([...args], { cwd, stdout: 'pipe', stderr: 'pipe' })
@@ -16,7 +18,27 @@ async function command(args: readonly string[], cwd: string): Promise<string> {
   return stdout.trim()
 }
 
+async function factory(
+  args: readonly string[],
+  cwd: string,
+  environment: NodeJS.ProcessEnv,
+): Promise<{ code: number; output: string }> {
+  const child = Bun.spawn([process.execPath, factoryProgram, ...args], {
+    cwd,
+    env: environment,
+    stdout: 'pipe',
+    stderr: 'pipe',
+  })
+  const [code, stdout, stderr] = await Promise.all([
+    child.exited,
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+  ])
+  return { code, output: `${stdout}${stderr}` }
+}
+
 async function main() {
+  await command(['bun', 'run', 'build'], cliPackageRoot)
   const root = await mkdtemp(join(tmpdir(), 'factory-review-cli-'))
   try {
     await command(['git', 'init', '-q'], root)
@@ -62,56 +84,33 @@ async function main() {
       ['review', '--full', '--force'],
       ['review', '--fail-on', 'urgent'],
     ]) {
-      const errors: string[] = []
-      const code = await runFactoryCli(invalid, {
-        cwd: root,
-        environment,
-        output: { stdout: value => errors.push(value), stderr: value => errors.push(value) },
-      })
-      if (code !== 1 || errors.length === 0)
+      const result = await factory(invalid, root, environment)
+      if (result.code !== 1 || result.output.length === 0)
         throw new Error(`factory review accepted invalid flags: ${invalid.join(' ')}`)
     }
-    const firstOutputs: string[][] = [[], []]
-    const firstCodes = await Promise.all(
-      firstOutputs.map(
-        async collected =>
-          await runFactoryCli(['review'], {
-            cwd: root,
-            environment,
-            output: {
-              stdout: value => collected.push(value),
-              stderr: value => collected.push(value),
-            },
-          }),
-      ),
-    )
-    if (firstCodes.some(code => code !== 0))
-      throw new Error(`concurrent factory review failed: ${firstOutputs.flat().join('')}`)
-    const firstResults = firstOutputs.map(
-      output => JSON.parse(output.join('')) as Record<string, string>,
-    )
+    const first = await Promise.all([
+      factory(['review'], root, environment),
+      factory(['review'], root, environment),
+    ])
+    if (first.some(({ code }) => code !== 0))
+      throw new Error(
+        `concurrent factory review failed: ${first.map(({ output }) => output).join('')}`,
+      )
+    const firstResults = first.map(({ output }) => JSON.parse(output) as Record<string, string>)
     const accepted = firstResults.find(result => result.disposition === 'complete')
     const noOp = firstResults.find(result => result.status === 'already-reviewed')
     if (accepted === undefined || noOp === undefined)
       throw new Error(`concurrent review did not converge: ${JSON.stringify(firstResults)}`)
-    const secondOutput: string[] = []
     const { FACTORY_REVIEWER_IMAGE_DIGEST: _imageDigest, ...noImageEnvironment } = environment
-    const second = await runFactoryCli(['review', '--fail-on', 'high'], {
-      cwd: root,
-      environment: noImageEnvironment,
-      output: {
-        stdout: value => secondOutput.push(value),
-        stderr: value => secondOutput.push(value),
-      },
-    })
-    const retried = JSON.parse(secondOutput.join('')) as Record<string, string>
+    const second = await factory(['review', '--fail-on', 'high'], root, noImageEnvironment)
+    const retried = JSON.parse(second.output) as Record<string, string>
     if (
-      second !== 1 ||
+      second.code !== 1 ||
       retried.status !== 'already-reviewed' ||
       retried.reviewId !== accepted.reviewId
     )
       throw new Error(
-        `factory review retry did not enforce its exact prior ledger: ${secondOutput.join('')}`,
+        `factory review retry did not enforce its exact prior ledger: ${second.output}`,
       )
     process.stdout.write(
       canonicalJson({ schemaVersion: 1, first: accepted.disposition, retry: 'already-reviewed' }),

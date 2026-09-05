@@ -36,9 +36,7 @@ import {
   FACTORY_READER_VERSION,
   canonicalJson,
   newRecordId,
-  parseRepositoryConfig,
   type JsonValue,
-  type RepositoryConfig,
   type RepositoryId,
 } from '@factory/contract'
 import {
@@ -285,12 +283,6 @@ async function globalConfig(environment: NodeJS.ProcessEnv): Promise<GlobalFacto
     throw new TypeError('reviewer is unsupported')
   }
   return value as GlobalFactoryConfig
-}
-
-async function repositoryConfig(repositoryRoot: string): Promise<RepositoryConfig> {
-  return parseRepositoryConfig(
-    JSON.parse(await readFile(join(repositoryRoot, '.factory', 'config.json'), 'utf8')),
-  )
 }
 
 async function canonicalSuggestion(
@@ -841,7 +833,7 @@ async function doctor(
   if (repair) await recoverHookTransaction(environment)
   const store = await openRepositoryStore(repositoryRoot)
   const verification = await store.verify()
-  const config = await repositoryConfig(repositoryRoot)
+  const config = await store.readConfig()
   const suggestion = await canonicalSuggestion(repositoryRoot, environment)
   let pendingStops: number | null = null
   let pendingLifecycle: number | null = null
@@ -1020,7 +1012,7 @@ export async function runFactoryCli(
         if (root === undefined)
           throw new Error('factory configure --repo requires a Git repository')
         const store = await openRepositoryStore(root)
-        const current = await repositoryConfig(root)
+        const current = await store.readConfig()
         const branch =
           change.canonicalBranch === undefined && current.canonicalBranch !== undefined
             ? undefined
@@ -1031,7 +1023,7 @@ export async function runFactoryCli(
             ? {}
             : { automaticReview: change.automaticReview }),
         })
-        const next = await repositoryConfig(root)
+        const next = await store.readConfig()
         output.stdout(
           `${join(root, '.factory', 'config.json')}\n${canonicalJson(resolveConfiguration({}, next, await globalConfig(environment)))}`,
         )

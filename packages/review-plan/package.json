@@ -16,6 +16,7 @@
   "dependencies": {
     "@factory/capture": "workspace:*",
     "@factory/contract": "workspace:*",
+    "@factory/domain": "workspace:*",
     "@factory/github": "workspace:*",
     "@factory/repository": "workspace:*"
   }

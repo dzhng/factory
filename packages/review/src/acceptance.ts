@@ -21,6 +21,7 @@ import {
 } from '@factory/reviewer'
 
 import { parseSemanticOutput } from './output'
+import { committedReviewManifests } from './stored-reviews'
 
 export type AttemptTermination = import('@factory/reviewer').ReviewerExecutionTermination
 export type RawAttempt = ReviewerRawAttempt
@@ -285,15 +286,11 @@ export async function acceptPartialCoverage(
   request: PartialCoverageAcceptance,
 ): Promise<ReturnType<typeof makeOwnedPath>> {
   const records = await store.readRecords()
-  const matches = records.records.filter(
-    record =>
-      record.path.endsWith(`/${request.reviewId}/manifest.json`) &&
-      typeof record.value === 'object' &&
-      record.value !== null &&
-      !Array.isArray(record.value),
+  const matches = committedReviewManifests(records.records).filter(
+    review => review.reviewId === request.reviewId,
   )
   if (matches.length !== 1) throw new TypeError('coverage acceptance names no unique review')
-  const review = matches[0]!.value as unknown as ReviewManifest
+  const review = matches[0]!
   if (review.disposition !== 'partial')
     throw new TypeError('coverage acceptance requires a partial review')
   if (canonicalJson(review.subject) !== canonicalJson(request.subject))
@@ -335,15 +332,11 @@ export async function acceptPartialCoverageByReviewId(
   reviewId: RecordId,
 ): Promise<ReturnType<typeof makeOwnedPath>> {
   const records = await store.readRecords()
-  const matches = records.records.filter(
-    record =>
-      record.path.endsWith(`/${reviewId}/manifest.json`) &&
-      typeof record.value === 'object' &&
-      record.value !== null &&
-      !Array.isArray(record.value),
+  const matches = committedReviewManifests(records.records).filter(
+    review => review.reviewId === reviewId,
   )
   if (matches.length !== 1) throw new TypeError('coverage acceptance names no unique review')
-  const review = matches[0]!.value as unknown as ReviewManifest
+  const review = matches[0]!
   if (review.disposition !== 'partial')
     throw new TypeError('coverage acceptance requires a partial review')
   const exact = exactCoverageAction(review)

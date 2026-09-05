@@ -214,6 +214,11 @@ describe('sole repository writer', () => {
         reviewLimits: { maxSessions: 2, futureLimit: 3 },
       },
     )
+    expect(await store.readConfig()).toMatchObject({
+      canonicalBranch: 'trunk',
+      automaticReview: true,
+      futurePolicy: { enabled: true },
+    })
   })
 
   test('keeps open and verify read-only when runtime state is absent', async () => {

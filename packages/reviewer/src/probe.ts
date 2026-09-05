@@ -5,7 +5,7 @@ import { lstat, open, readdir, stat } from 'node:fs/promises'
 import { join, relative } from 'node:path'
 
 import type { ReviewerAdapterInvocation } from './adapter.js'
-import { resolveReviewerIsolation, type MountPlan, type ReviewerProvider } from './index.js'
+import { resolveIsolation, type IsolationProvider, type MountPlan } from './isolation.js'
 
 export type ProbeTermination = 'completed' | 'timed-out' | 'cancelled'
 
@@ -30,7 +30,7 @@ export type ContainerObservation = {
 
 export type IsolationReport = {
   schemaVersion: 1
-  provider: ReviewerProvider
+  provider: IsolationProvider
   imageDigest: string
   networkMode: 'bridge'
   mounts: readonly {
@@ -53,7 +53,7 @@ export type IsolationReport = {
   cleanup: { containerRemoved: boolean }
 }
 
-export type IsolationProbeOptions = {
+export type ObservedContainerOptions = {
   /** Exact immutable image identity; mutable tags are refused. */
   imageDigest: string
   expectedBundleSha256?: string
@@ -246,9 +246,9 @@ async function boundedFileSha256(path: string): Promise<string> {
   }
 }
 
-export async function runIsolationProbe(
-  plan: MountPlan,
-  options: IsolationProbeOptions,
+export async function runObservedReviewerContainer(
+  plan: MountPlan<IsolationProvider>,
+  options: ObservedContainerOptions,
 ): Promise<IsolationReport> {
   if (!/^sha256:[0-9a-f]{64}$/.test(options.imageDigest)) {
     throw new Error('Reviewer image must be addressed by an immutable sha256 image ID')
@@ -258,7 +258,7 @@ export async function runIsolationProbe(
     (!Number.isSafeInteger(options.providerTimeoutMs) || options.providerTimeoutMs < 1)
   )
     throw new TypeError('providerTimeoutMs must be a positive integer')
-  const resolved = await resolveReviewerIsolation({
+  const resolved = await resolveIsolation({
     provider: plan.provider,
     bundleHostPath: plan.bundle.hostPath,
     outputHostPath: plan.output.hostPath,
