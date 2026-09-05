@@ -37,6 +37,12 @@ uninstallation. Its report distinguishes deterministic fixture authority from
 unavailable real-provider credentials and GitHub release attestation; neither
 is converted into a simulated pass.
 
+Incremental certification resumes a captured Session after another provider has
+used the shared journal. It checks exact new-Stop coverage and delivery of the
+accepted prior ledger, then repeats the unchanged review with Docker trapped.
+The no-op must reuse the same immutable review without reaching the provider
+execution boundary; a complete disposition alone cannot establish that claim.
+
 When both local CLIs are logged in, the same command automatically adds one
 production-image review from each provider:
 

@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { constants } from 'node:fs'
 import {
@@ -7,6 +8,7 @@ import {
   mkdtemp,
   open,
   readFile,
+  readdir,
   realpath,
   rm,
   writeFile,
@@ -20,6 +22,8 @@ import {
   verifyReleaseArtifact,
   type ReleaseTarget,
 } from '@factory/cli'
+import { type ReviewLedger, type ReviewManifest, type ReviewTrigger } from '@factory/contract'
+import { type StoredReviewResult } from '@factory/review'
 import {
   DEFAULT_REVIEWER_IMAGE_REFERENCE,
   resolveReviewerAuthentication,
@@ -111,6 +115,7 @@ async function replayProvider(
   repository: string,
   home: string,
   environment: NodeJS.ProcessEnv,
+  continuing = false,
 ): Promise<void> {
   const harnessRoot = resolve(import.meta.dir, '..')
   const fixtureRoot = join(harnessRoot, 'fixtures', 'providers', provider)
@@ -121,7 +126,19 @@ async function replayProvider(
       : '.claude/projects/certification.jsonl',
   )
   await mkdir(dirname(transcript), { recursive: true })
-  await cp(join(fixtureRoot, 'transcript.jsonl'), transcript)
+  if (continuing) {
+    assert.equal(provider, 'codex', 'the resumed release fixture uses Codex native Turn IDs')
+    const previous = await readFile(transcript, 'utf8')
+    const fixture = await readFile(join(fixtureRoot, 'transcript.jsonl'), 'utf8')
+    await writeFile(
+      transcript,
+      previous +
+        fixture
+          .slice(fixture.indexOf('\n') + 1)
+          .replaceAll('turn-1', 'turn-2')
+          .replaceAll('tool-1', 'tool-2'),
+    )
+  } else await cp(join(fixtureRoot, 'transcript.jsonl'), transcript)
   const rows = (await readFile(join(fixtureRoot, 'hooks.jsonl'), 'utf8'))
     .trimEnd()
     .split('\n')
@@ -144,6 +161,12 @@ async function replayProvider(
       'SessionEnd',
     ].includes(String(value.hook_event_name)),
   )) {
+    if (continuing && row.hook_event_name === 'SessionEnd') continue
+    if (continuing) {
+      if (row.hook_event_name === 'SessionStart') row.event_id = 'resume-2'
+      if (row.turn_id !== undefined) row.turn_id = 'turn-2'
+      if (row.tool_use_id !== undefined) row.tool_use_id = 'tool-2'
+    }
     row.cwd = repository
     if (row.transcript_path !== undefined) row.transcript_path = transcript
     if (row.last_assistant_message !== undefined)
@@ -400,7 +423,7 @@ try {
     FACTORY_CODEX_REVIEW_EFFORT: 'high',
   }
   const review = await succeed(executable, ['review'], repository, reviewEnvironment)
-  const reviewResult = JSON.parse(review.stdout) as { disposition: string }
+  const reviewResult = JSON.parse(review.stdout) as StoredReviewResult
   if (reviewResult.disposition !== 'complete')
     throw new Error(`review was not complete: ${review.stdout.trim()}`)
   journeys.push({
@@ -414,6 +437,118 @@ try {
     name: 'ui-action',
     status: 'passed',
     detail: 'loopback projection confirmed a decision',
+  })
+
+  const readManifest = async (result: StoredReviewResult): Promise<ReviewManifest> =>
+    JSON.parse(await readFile(join(repository, '.factory', result.paths.manifest), 'utf8'))
+  const firstManifest = await readManifest(reviewResult)
+  assert.ok(reviewResult.paths.ledger)
+  const firstLedgerBytes = await readFile(join(repository, '.factory', reviewResult.paths.ledger))
+  const triggerDirectory = join(repository, '.factory', 'review-triggers')
+  const originalTriggerFiles = await readdir(triggerDirectory)
+  await replayProvider('codex', executable, repository, home, environment, true)
+  const addedTriggerFiles = (await readdir(triggerDirectory)).filter(
+    name => !originalTriggerFiles.includes(name),
+  )
+  assert.equal(addedTriggerFiles.length, 1, 'continuing Session must publish one new Stop trigger')
+  const newTrigger = JSON.parse(
+    await readFile(join(triggerDirectory, addedTriggerFiles[0]!), 'utf8'),
+  ) as ReviewTrigger
+  assert.equal(newTrigger.provider, 'codex')
+  assert.ok(
+    newTrigger.evidenceWatermark > firstManifest.sessionWatermarks[newTrigger.sessionKey]!,
+    'new Stop must advance the existing Session watermark',
+  )
+  const incremental = JSON.parse(
+    (await succeed(executable, ['review'], repository, reviewEnvironment)).stdout,
+  ) as StoredReviewResult
+  assert.equal(incremental.disposition, 'complete')
+  const incrementalManifest = await readManifest(incremental)
+  assert.notEqual(incremental.reviewId, reviewResult.reviewId)
+  assert.deepEqual(
+    incrementalManifest.triggerIds,
+    [newTrigger.triggerId],
+    'incremental attempt must cover only the new Stop',
+  )
+  assert.deepEqual(incrementalManifest.sessionWatermarks, {
+    [newTrigger.sessionKey]: newTrigger.evidenceWatermark,
+  })
+  assert.equal(
+    incrementalManifest.coverageTargetWatermarks[newTrigger.sessionKey],
+    newTrigger.evidenceWatermark,
+  )
+  assert.equal(
+    incrementalManifest.priorLedger?.sha256,
+    digest(firstLedgerBytes),
+    'incremental input must pin the accepted prior ledger',
+  )
+  const newSelection = incrementalManifest.evidenceSelections.find(
+    selection => selection.triggerId === newTrigger.triggerId,
+  )
+  assert.equal(newSelection?.coverageEffect, 'eligible-included')
+  assert.equal(newSelection?.selectedForReview, true)
+  for (const triggerId of firstManifest.triggerIds) {
+    const selection = incrementalManifest.evidenceSelections.find(
+      item => item.triggerId === triggerId,
+    )
+    assert.equal(
+      selection?.coverageEffect,
+      'settled',
+      'previous Stops must retain exact settled coverage',
+    )
+    assert.equal(selection?.selectedForReview, false)
+  }
+  assert.ok(incremental.paths.ledger)
+  const incrementalLedger = JSON.parse(
+    await readFile(join(repository, '.factory', incremental.paths.ledger), 'utf8'),
+  ) as ReviewLedger
+  assert.ok(
+    incrementalLedger.entries.some(entry =>
+      entry.evidence.some(
+        citation => citation.object?.sha256 === incrementalManifest.priorLedger?.sha256,
+      ),
+    ),
+    'fixture reviewer must demonstrate access to the pinned prior ledger',
+  )
+  journeys.push({
+    name: 'incremental-coverage',
+    status: 'passed',
+    detail: 'continuing Session advances exact Stop coverage with the accepted prior ledger',
+  })
+
+  const noDockerBin = join(scratch, 'no-docker')
+  await mkdir(noDockerBin)
+  const dockerTrap = join(noDockerBin, 'docker')
+  await writeFile(dockerTrap, '#!/bin/sh\nprintf invoked > "$0.invoked"\nexit 77\n', {
+    mode: 0o755,
+  })
+  const reviewsBeforeNoOp = (
+    await readdir(join(repository, '.factory', 'reviews', 'workspace'))
+  ).sort()
+  const repeated = JSON.parse(
+    (
+      await succeed(executable, ['review'], repository, {
+        ...reviewEnvironment,
+        PATH: `${noDockerBin}:${reviewEnvironment.PATH}`,
+      })
+    ).stdout,
+  ) as StoredReviewResult
+  assert.equal(repeated.status, 'already-reviewed')
+  assert.equal(repeated.reviewId, incremental.reviewId)
+  assert.deepEqual(await readManifest(repeated), incrementalManifest)
+  assert.deepEqual(
+    (await readdir(join(repository, '.factory', 'reviews', 'workspace'))).sort(),
+    reviewsBeforeNoOp,
+  )
+  await assert.rejects(
+    readFile(`${dockerTrap}.invoked`),
+    { code: 'ENOENT' },
+    'unchanged review must not invoke Docker',
+  )
+  journeys.push({
+    name: 'unchanged-review',
+    status: 'passed',
+    detail: 'exact prior review reused without Docker or another immutable attempt',
   })
 
   let operationalEnvironment: NodeJS.ProcessEnv = reviewEnvironment

@@ -2,6 +2,9 @@
 import { writeFile } from 'node:fs/promises'
 import { basename } from 'node:path'
 
+import type { ReviewLedger } from '@factory/contract'
+import type { ReviewBundleManifest } from '@factory/review-plan'
+
 const provider = basename(process.argv[1] ?? '')
 if (process.argv.includes('--version')) {
   process.stdout.write(`${provider}-fake/1\n`)
@@ -11,10 +14,23 @@ if (process.argv.includes('--version')) {
 const prompt = await new Response(Bun.stdin.stream()).text()
 if (!prompt.includes('/review-input') || !prompt.includes('newline-delimited JSON'))
   throw new Error('Factory review prompt was not delivered on stdin')
-const bundle = (await Bun.file('/review-input/bundle.json').json()) as { inventory: unknown[] }
+const bundle = (await Bun.file('/review-input/bundle.json').json()) as ReviewBundleManifest
 const authPath = provider === 'codex' ? '/auth/codex/auth.json' : '/auth/claude/.credentials.json'
 const behavior = await Bun.file(authPath).text()
 if (behavior.includes('factory-test-delay')) await Bun.sleep(1_500)
+let decisionEvidence = bundle.inventory[0]
+if (behavior.includes('factory-test-decision') && bundle.plan.priorLedger !== undefined) {
+  const prior = (await Bun.file(
+    `/review-input/.factory/${bundle.plan.priorLedger.path}`,
+  ).json()) as ReviewLedger
+  if (
+    !prior.entries.some(
+      entry => entry.kind === 'decision' && entry.decisionKey === 'release.certification',
+    )
+  )
+    throw new Error('Prior release decision was not delivered in the review bundle')
+  decisionEvidence = bundle.plan.priorLedger.object
+}
 const response = `${JSON.stringify(
   behavior.includes('factory-test-decision')
     ? {
@@ -24,7 +40,7 @@ const response = `${JSON.stringify(
         assertion: { artifact: 'verified' },
         confidence: 'high',
         summary: 'Certify the exact verified release artifact',
-        evidence: [{ object: bundle.inventory[0] }],
+        evidence: [{ object: decisionEvidence }],
       }
     : behavior.includes('factory-test-high-finding')
       ? {
