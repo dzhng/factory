@@ -34,11 +34,12 @@ Status: **implementation completion in progress; release acceptance not yet gran
 > x64-baseline certification, native macOS arm64 package verification, and
 > attestations for both candidates. Milestone `40614cb` adds the explicit
 > manual Session-to-PR workflow and carries assertions into later exact PR
-> observations. A completion audit reopened implementation: Factory still needs
-> a published production reviewer image and an authenticated release-
-> certification mode before release acceptance. It must also run the complete
-> macOS arm64 journey on an environment that provides Docker. Do not publish or
-> mark v1 shipped until those authorities pass.
+> observations. The completion-audit implementation gaps are now closed: the
+> production reviewer image is public and attested, authenticated certification
+> has an explicit two-provider mode, the exact Node floor passes, and the local
+> macOS arm64 deterministic journey plus report visual gate pass. Do not publish
+> or mark v1 shipped until dedicated Codex and Claude test credentials execute
+> that packaged production path.
 > Read `AGENTS.md`, `SECURITY.md`, this README, `choices.md`, `format.md`, and
 > Slices 11 and 12 in full.
 > Slice 06's packaged networkless Docker vertical passes both provider fixtures,
@@ -78,8 +79,8 @@ Status: **implementation completion in progress; release acceptance not yet gran
 > exact-artifact journey passes all seven deterministic stages; its authenticated
 > Codex/Claude extension is ready but cannot run without dedicated credentials.
 > The hosted macOS lane remains package-only because it lacks Docker. Its report
-> screenshot gate remains unavailable because the app browser cannot render a
-> local file.
+> final sanitized report and screenshot are retained under
+> `assets/release-certification/` and passed fresh-eyes critique.
 > After each authority attempt, update this prompt with the exact candidate,
 > evidence, remaining blockers, and changed gates.
 

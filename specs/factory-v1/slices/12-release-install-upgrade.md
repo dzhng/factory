@@ -102,6 +102,12 @@ Repository growth, association accuracy, partial-review usefulness, and reviewer
 quality become measured post-v1 improvement inputs, never permission for silent
 pruning or heuristic grouping.
 
+The exact `b3faed9` macOS arm64 deterministic report and screenshot are retained
+under `assets/release-certification/`. After earlier layouts overemphasized green
+journeys, the accepted report leads with an explicit not-certified verdict and
+its unavailable authorities. A final fresh, unprimed critique accepted the full
+capture with high confidence and found no blocking visual defect.
+
 ## Release acceptance
 
 The original five implementation passes landed through `3f6d8ae`. GitHub Actions
