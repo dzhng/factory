@@ -609,6 +609,7 @@ describe('verified review bundles', () => {
       plan,
       { getObject: async reference => value.objects.get(reference.sha256)! },
       join(parent, 'bundle'),
+      'repo_test',
     )
     expect((await verifyBundle(built.path, built.sha256)).valid).toBe(true)
     const overlappingPlan = planLoadedReview(
@@ -623,6 +624,7 @@ describe('verified review bundles', () => {
       overlappingPlan,
       { getObject: async reference => value.objects.get(reference.sha256)! },
       join(parent, 'overlapping-current-and-history'),
+      'repo_test',
     )
     expect((await verifyBundle(overlapping.path, overlapping.sha256)).valid).toBe(true)
   })
@@ -781,6 +783,7 @@ describe('verified review bundles', () => {
       plan,
       { getObject: async ref => value.objects.get(ref.sha256)! },
       join(parent, 'bundle'),
+      'repo_test',
     )
     expect((await verifyBundle(built.path, built.sha256)).valid).toBe(true)
     const bundleManifestPath = join(built.path, 'bundle.json')
@@ -861,6 +864,7 @@ describe('verified review bundles', () => {
       plan,
       { getObject: async reference => value.objects.get(reference.sha256)! },
       join(parent, 'bundle'),
+      'repo_test',
     )
     expect((await verifyBundle(built.path, built.sha256)).valid).toBe(true)
   })
@@ -874,6 +878,7 @@ describe('verified review bundles', () => {
       planReview(value.input),
       { getObject: async ref => value.objects.get(ref.sha256)! },
       destination,
+      'repo_test',
     )
     const verification = await verifyBundle(destination, built.sha256)
     expect(verification.valid).toBe(true)
@@ -893,6 +898,7 @@ describe('verified review bundles', () => {
       planReview(value.input),
       { getObject: async ref => value.objects.get(ref.sha256)! },
       destination,
+      'repo_test',
     )
     await writeFile(join(destination, 'extra'), 'not declared')
     expect((await verifyBundle(destination, built.sha256)).valid).toBe(false)
@@ -910,6 +916,7 @@ describe('verified review bundles', () => {
       planReview(value.input),
       { getObject: async ref => value.objects.get(ref.sha256)! },
       destination,
+      'repo_test',
     )
     const manifestPath = join(destination, 'bundle.json')
     const original = JSON.parse(await readFile(manifestPath, 'utf8'))

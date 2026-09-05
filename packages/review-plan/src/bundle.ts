@@ -120,6 +120,7 @@ async function verifyCodeManifestClosure(
 export type ReviewBundleManifest = {
   schemaVersion: 1
   format: 'factory-review-bundle'
+  repositoryId: string
   plan: ReviewPlanRecord
   inventory: readonly ObjectRef[]
   files: readonly {
@@ -136,10 +137,16 @@ function validateReviewBundleManifest(value: unknown): asserts value is ReviewBu
   const record = value as Record<string, unknown>
   const keys = Object.keys(record).sort()
   if (
-    canonicalJson(keys) !== canonicalJson(['files', 'format', 'inventory', 'plan', 'schemaVersion'])
+    canonicalJson(keys) !==
+    canonicalJson(['files', 'format', 'inventory', 'plan', 'repositoryId', 'schemaVersion'])
   )
     throw new TypeError('bundle manifest has unknown or missing fields')
-  if (record.schemaVersion !== 1 || record.format !== 'factory-review-bundle')
+  if (
+    record.schemaVersion !== 1 ||
+    record.format !== 'factory-review-bundle' ||
+    typeof record.repositoryId !== 'string' ||
+    !/^repo_[A-Za-z0-9_-]+$/.test(record.repositoryId)
+  )
     throw new TypeError('bundle manifest discriminator is invalid')
   if (!Array.isArray(record.files) || !Array.isArray(record.inventory))
     throw new TypeError('bundle manifest inventories must be arrays')
@@ -170,7 +177,10 @@ function validateReviewBundleManifest(value: unknown): asserts value is ReviewBu
       throw new TypeError('bundle object path is not its exact CAS path')
     }
   }
-  validateReviewPlanRecord(record.plan as ReviewPlanRecord)
+  const plan = record.plan as ReviewPlanRecord
+  validateReviewPlanRecord(plan)
+  if (plan.subject.kind === 'workspace' && plan.subject.repositoryId !== record.repositoryId)
+    throw new TypeError('bundle workspace subject belongs to a different repository')
   ;(record.inventory as unknown[]).forEach(item => validateObjectRef(item as ObjectRef))
 }
 
@@ -756,8 +766,13 @@ export async function buildBundle(
   plan: ReviewPlan,
   source: ReviewObjectSource,
   destination: string,
+  repositoryId: string,
 ): Promise<{ path: string; sha256: string }> {
   if (plan.status !== 'ready') throw new TypeError('only a ready review plan can become a bundle')
+  if (!/^repo_[A-Za-z0-9_-]+$/.test(repositoryId))
+    throw new TypeError('bundle repository identity is invalid')
+  if (plan.subject.kind === 'workspace' && plan.subject.observation.repositoryId !== repositoryId)
+    throw new TypeError('workspace plan belongs to a different repository')
   validateReviewPlanRecord(compactPlan(plan))
   const objects = await expandInventory(plan, source)
   const recordBytes = portableRecords(plan)
@@ -799,6 +814,7 @@ export async function buildBundle(
   const manifest: ReviewBundleManifest = {
     schemaVersion: 1,
     format: 'factory-review-bundle',
+    repositoryId,
     plan: compactPlan(plan),
     inventory: objects.refs,
     files,
@@ -1404,9 +1420,7 @@ export async function verifyBundle(
             sha256: file.sha256,
           }))
           .sort((left, right) => left.path.localeCompare(right.path)),
-        ...(bundledSubject.kind === 'workspace'
-          ? { repositoryId: bundledSubject.observation.repositoryId }
-          : {}),
+        repositoryId: manifest.repositoryId,
       },
     }
   } catch (error) {

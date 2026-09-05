@@ -1465,7 +1465,12 @@ async function reviewCommand(
     }
     const bundleParent = await mkdtemp(join(coordinator.runtimeRoot, 'review-bundle-'))
     try {
-      const built = await buildBundle(plan, store, join(bundleParent, 'bundle'))
+      const built = await buildBundle(
+        plan,
+        store,
+        join(bundleParent, 'bundle'),
+        store.manifest.repositoryId,
+      )
       const bundle = await openVerifiedReviewBundle(built.path, built.sha256)
       const mount = auth.mounts[selected.choice.settings.provider]
       let raw

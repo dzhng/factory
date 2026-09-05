@@ -362,6 +362,7 @@ const completeBundle = await buildBundle(
   complete,
   { getObject: async value => store.objects.get(value.sha256)! },
   join(output, 'complete-bundle'),
+  repositoryId,
 )
 persistReview(store, complete, 1, 'complete')
 const unchanged = await loadPlan(store, subjectPath)
@@ -379,6 +380,7 @@ const partialBundle = await buildBundle(
   partial,
   { getObject: async value => partialStore.objects.get(value.sha256)! },
   join(output, 'partial-bundle'),
+  repositoryId,
 )
 
 const contextStore = new FixtureStore()
@@ -504,6 +506,7 @@ const prBundle = await buildBundle(
   prPlan,
   { getObject: async value => prStore.objects.get(value.sha256)! },
   join(output, 'pr-bundle'),
+  repositoryId,
 )
 persistReview(prStore, prPlan, 3, 'complete')
 const continuingPrCandidate = addCandidate(prStore, 10, sessionObservation)
@@ -524,6 +527,7 @@ const incrementalPrBundle = await buildBundle(
   incrementalPr,
   { getObject: async value => prStore.objects.get(value.sha256)! },
   join(output, 'pr-incremental-bundle'),
+  repositoryId,
 )
 const nextDiff = prStore.putObject(
   new TextEncoder().encode('diff --git a/src/reviewed.ts b/src/reviewed.ts\n+force push\n'),
@@ -600,11 +604,13 @@ const permutationA = await buildBundle(
   continuing,
   bundleSource(store, continuing),
   permutationAPath,
+  repositoryId,
 )
 const permutationB = await buildBundle(
   permuted,
   bundleSource(permutedStore, permuted),
   permutationBPath,
+  repositoryId,
 )
 const permutationEqual =
   canonicalJson(permuted) === canonicalJson(continuing) &&
