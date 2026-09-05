@@ -18,6 +18,11 @@ compares actual hooks with provider-owned semantics. `factory doctor` is
 read-only unless `--repair` is explicit and reports that inspection without
 including provider configuration bytes.
 
+Diagnostic policy is a pure fold over typed observations supplied by the
+repository, runtime journal, GitHub, installation, and reviewer owners. A
+canonical-branch disagreement is high priority only when GitHub actually
+reported its default; offline branch-name fallbacks never manufacture drift.
+
 `factory open` rebuilds a presentation projection from portable repository
 records, serves it only on `127.0.0.1`, and stops when the command exits. The
 browser receives two narrow append-only action seams—decision actions and

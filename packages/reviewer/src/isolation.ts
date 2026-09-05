@@ -65,6 +65,15 @@ function containsPath(parent: string, child: string): boolean {
   )
 }
 
+export function dockerMountPathIssue(
+  hostPath: string,
+): 'host-path-not-absolute' | 'host-root-forbidden' | 'host-path-unsupported' | undefined {
+  if (!isAbsolute(hostPath)) return 'host-path-not-absolute'
+  if (normalize(hostPath) === sep) return 'host-root-forbidden'
+  if (hostPath.includes(',')) return 'host-path-unsupported'
+  return undefined
+}
+
 export function planIsolation<Provider extends IsolationProvider>(
   input: IsolationInput<Provider>,
 ): IsolationPlanResult<Provider> {
@@ -75,21 +84,22 @@ export function planIsolation<Provider extends IsolationProvider>(
   ]
 
   for (const mount of mounts) {
-    if (!isAbsolute(mount.hostPath)) {
+    const issue = dockerMountPathIssue(mount.hostPath)
+    if (issue === 'host-path-not-absolute') {
       return {
         ok: false,
         reason: 'host-path-not-absolute',
         detail: `${mount.role} mount must use an absolute host path`,
       }
     }
-    if (normalize(mount.hostPath) === sep) {
+    if (issue === 'host-root-forbidden') {
       return {
         ok: false,
         reason: 'host-root-forbidden',
         detail: `${mount.role} mount may not expose the host root`,
       }
     }
-    if (mount.hostPath.includes(',')) {
+    if (issue === 'host-path-unsupported') {
       return {
         ok: false,
         reason: 'host-path-unsupported',

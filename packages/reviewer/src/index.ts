@@ -28,6 +28,13 @@ export {
   type ReviewerAdapterInvocation,
 } from './adapter.js'
 export {
+  inspectReviewerEnvironment,
+  resolveReviewerAuthentication,
+  type ReviewerAuthentication,
+  type ReviewerCommandResult,
+  type ReviewerEnvironmentInspection,
+} from './environment.js'
+export {
   planReviewerIsolation,
   resolveReviewerIsolation,
   type AuthFileIdentity,

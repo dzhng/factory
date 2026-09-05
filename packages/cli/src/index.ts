@@ -24,13 +24,14 @@ import {
   type JsonValue,
   type RepositoryId,
 } from '@factory/contract'
-import { observeGithubDefaultBranch } from '@factory/github'
+import { observeGithubDefaultBranch, type GithubDefaultBranchObservation } from '@factory/github'
 import {
   initializeRepositoryStore,
   openRepositoryStore,
   withAdvisoryFileLock,
   type RepositoryStore,
 } from '@factory/repository'
+import { inspectReviewerEnvironment } from '@factory/reviewer'
 import {
   inspectRuntimeJournal,
   openRuntimeJournal,
@@ -38,6 +39,7 @@ import {
   type RuntimeJournal,
 } from '@factory/runtime-journal'
 
+import { runDiagnostics } from './diagnostics'
 import {
   inspectInstallation,
   installHooks,
@@ -238,14 +240,14 @@ async function canonicalSuggestion(
   repositoryRoot: string,
   environment: NodeJS.ProcessEnv,
   explicit?: string,
+  githubObservation?: GithubDefaultBranchObservation,
 ) {
   return await suggestCanonicalBranch(
     {
       gh: async () => {
-        const observation = await observeGithubDefaultBranch({
-          cwd: repositoryRoot,
-          environment,
-        })
+        const observation =
+          githubObservation ??
+          (await observeGithubDefaultBranch({ cwd: repositoryRoot, environment }))
         return observation.availability === 'available' ? observation.branch : undefined
       },
       remoteHead: async () => {
@@ -593,7 +595,11 @@ async function doctor(
   const store = await openRepositoryStore(repositoryRoot)
   const verification = await store.verify()
   const config = await store.readConfig()
-  const suggestion = await canonicalSuggestion(repositoryRoot, environment)
+  const [github, reviewer] = await Promise.all([
+    observeGithubDefaultBranch({ cwd: repositoryRoot, environment }),
+    inspectReviewerEnvironment(environment),
+  ])
+  const suggestion = await canonicalSuggestion(repositoryRoot, environment, undefined, github)
   let runtime = await inspectRuntimeJournal(repositoryRoot)
   if (repair) {
     const repositoryStores = new Map([[repositoryRoot, store]])
@@ -641,6 +647,15 @@ async function doctor(
     ...verification.issues,
     ...projection.issues.map(detail => ({ code: 'incomplete-committed-graph', detail })),
   ]
+  const diagnostics = runDiagnostics({
+    repositoryIssues: verification.issues,
+    projectionIssues: projection.issues,
+    runtime,
+    installation,
+    github,
+    reviewer,
+    ...(config.canonicalBranch === undefined ? {} : { canonicalBranch: config.canonicalBranch }),
+  })
   return {
     repository: issues.length === 0 ? 'ok' : 'invalid',
     issues: issues as unknown as JsonValue,
@@ -649,7 +664,10 @@ async function doctor(
     runtimeStorageBytes: runtime.storageBytes,
     projection: projection as unknown as JsonValue,
     installation: installation as unknown as JsonValue,
+    reviewer: reviewer as unknown as JsonValue,
+    github: github as unknown as JsonValue,
     captureDiagnostics: captureDiagnostics as unknown as JsonValue,
+    diagnostics: diagnostics as unknown as JsonValue,
     canonicalBranch: config.canonicalBranch ?? null,
     observedDefaultBranch: suggestion?.branch ?? null,
     canonicalBranchDrift:

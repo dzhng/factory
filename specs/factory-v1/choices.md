@@ -1519,3 +1519,23 @@ second normative schema; the master specification and format own mechanics.
 - **Verdict:** Sound. The extraction removes duplicated mechanics and creates
   the intended seam for the typed installation transaction.
 - **Confidence:** High.
+
+### Treat reviewer prerequisites as typed observations
+
+- **When:** Slice 12 diagnostic ownership pass.
+- **The choice:** The reviewer package owns bounded Docker-daemon inspection
+  and dedicated credential-file validation. Review execution and Doctor consume
+  the same typed authentication result; Doctor exposes readiness states but no
+  credential path or content. A pure CLI policy fold turns owner observations
+  into bounded diagnostics without running probes or repairs.
+- **The gap:** Reviewer credential validation lived inside the review command,
+  Docker readiness was inferred only after an attempted review, and Doctor had
+  no common severity policy across otherwise typed subsystem observations.
+- **The reach:** Missing Docker, invalid dedicated credentials, hook damage,
+  pending recovery, and repository faults remain independently visible. A
+  canonical-branch disagreement is high severity only when the GitHub adapter
+  returned a default-branch observation; local fallback names cannot
+  manufacture canonical-decision urgency.
+- **Verdict:** Sound. Diagnostics assemble facts from owners without becoming a
+  new authority for GitHub, hooks, credentials, or container execution.
+- **Confidence:** High.

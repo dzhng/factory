@@ -6,9 +6,10 @@ or provider-auth targets outside the selected provider's namespace. Execution
 then observes the container Docker actually created, rather than treating the
 requested arguments as proof.
 
-The reviewer package never discovers repository state, provider credentials, or
-review subjects. Upstream code supplies already-verified paths; the test harness
-owns fake images, live journeys, and human-readable reports.
+The reviewer package never discovers repository state or review subjects.
+Credential discovery is limited to explicit dedicated-file configuration, which
+the package validates before returning an identity-bound read-only mount. The
+test harness owns fake images, live journeys, and human-readable reports.
 
 Bundle verification mints a private capability only for a `ready` plan. The
 execution boundary re-verifies that exact digest before using credentials or
@@ -31,6 +32,11 @@ by its validated non-root owner identity is unavailable; changing that boundary
 requires an explicit security decision. File identity and a bounded content
 digest are checked before creation, after creation, and by the container runner
 before provider startup.
+
+Reviewer prerequisites are observations, not ambient assumptions. This package
+also owns bounded Docker-daemon inspection and exact credential-file readiness.
+Review selection and diagnostics consume the same typed result without exposing
+credential paths or bytes.
 
 Logical attempts singleflight in private Git-common runtime state. A response is
 retained there only while immutable acceptance is pending; successful

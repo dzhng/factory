@@ -306,6 +306,12 @@ describe('installed capture vertical', () => {
       canonicalBranch: 'release',
       observedDefaultBranch: 'trunk',
       canonicalBranchDrift: true,
+      github: { availability: 'available', branch: 'trunk' },
+    })
+    expect(githubDrift.diagnostics).toContainEqual({
+      code: 'canonical-branch-drift',
+      severity: 'high',
+      summary: 'Canonical branch release differs from GitHub default trunk',
     })
 
     await unlink(gh)
@@ -316,7 +322,13 @@ describe('installed capture vertical', () => {
       canonicalBranch: 'release',
       observedDefaultBranch: 'main',
       canonicalBranchDrift: false,
+      github: { availability: 'unavailable', reason: 'gh-missing' },
     })
+    expect(
+      localFallback.diagnostics.some(
+        (diagnostic: { code: string }) => diagnostic.code === 'canonical-branch-drift',
+      ),
+    ).toBeFalse()
   })
 
   test('serves factory open only for the foreground CLI lifetime', async () => {
@@ -528,6 +540,13 @@ describe('installed capture vertical', () => {
       providers: {
         codex: { config: 'available' },
         claude: { config: 'available' },
+      },
+    })
+    expect(report.reviewer).toMatchObject({
+      docker: { availability: 'unavailable', reason: 'missing' },
+      credentials: {
+        codex: { state: 'unconfigured' },
+        claude: { state: 'unconfigured' },
       },
     })
     for (const provider of ['codex', 'claude']) {

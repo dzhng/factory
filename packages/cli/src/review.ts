@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
-import { lstat, mkdtemp, realpath, rm } from 'node:fs/promises'
-import { isAbsolute, join } from 'node:path'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { join } from 'node:path'
 
 import { canonicalJson, type RecordId } from '@factory/contract'
 import { foldStoredDecisions, loadStoredReviews } from '@factory/domain'
@@ -34,11 +34,9 @@ import {
   dockerReviewerExecutor,
   openVerifiedReviewBundle,
   reviewerAdapter,
-  reviewerAuthContainerPath,
+  resolveReviewerAuthentication,
   selectReviewer,
   unavailableReviewerExecutor,
-  type ReadonlyAuthMount,
-  type ReviewerAvailability,
   type ReviewerDefaults,
 } from '@factory/reviewer'
 
@@ -68,58 +66,6 @@ function requiredReviewDefaults(environment: NodeJS.ProcessEnv): ReviewerDefault
     if (!value.model?.trim() || !value.effort?.trim())
       throw new Error(`Factory reviewer defaults are not configured for ${provider}`)
   return values as ReviewerDefaults
-}
-
-async function dedicatedReviewerAuth(environment: NodeJS.ProcessEnv): Promise<{
-  availability: ReviewerAvailability
-  mounts: Partial<Record<'codex' | 'claude', Omit<ReadonlyAuthMount, 'mode'>>>
-}> {
-  const configured = {
-    codex: environment.FACTORY_CODEX_AUTH_FILE,
-    claude: environment.FACTORY_CLAUDE_AUTH_FILE,
-  }
-  const mounts: Partial<Record<'codex' | 'claude', Omit<ReadonlyAuthMount, 'mode'>>> = {}
-  const availability: Record<'codex' | 'claude', boolean> = { codex: false, claude: false }
-  for (const provider of ['codex', 'claude'] as const) {
-    const path = configured[provider]
-    if (path === undefined || !isAbsolute(path)) continue
-    const metadata = await lstat(path).catch(() => undefined)
-    if (
-      metadata === undefined ||
-      metadata.isSymbolicLink() ||
-      !metadata.isFile() ||
-      metadata.size > 1024 * 1024 ||
-      metadata.uid === 0 ||
-      metadata.uid !== process.getuid?.() ||
-      (metadata.mode & 0o400) === 0
-    )
-      continue
-    const canonicalPath = await realpath(path)
-    const canonicalMetadata = await lstat(canonicalPath).catch(() => undefined)
-    if (
-      canonicalMetadata === undefined ||
-      !canonicalMetadata.isFile() ||
-      canonicalMetadata.dev !== metadata.dev ||
-      canonicalMetadata.ino !== metadata.ino ||
-      canonicalMetadata.size !== metadata.size ||
-      canonicalMetadata.uid !== metadata.uid ||
-      canonicalMetadata.mode !== metadata.mode
-    )
-      continue
-    availability[provider] = true
-    mounts[provider] = {
-      hostPath: canonicalPath,
-      containerPath: reviewerAuthContainerPath(provider),
-      expectedIdentity: {
-        dev: metadata.dev,
-        ino: metadata.ino,
-        size: metadata.size,
-        uid: metadata.uid,
-        mode: metadata.mode,
-      },
-    }
-  }
-  return { availability, mounts }
 }
 
 type ReviewCliOptions = {
@@ -243,7 +189,7 @@ export async function reviewCommand(
       ...(options.sessionKey === undefined ? {} : { sessionKey: options.sessionKey }),
     })
     const authoringProvider = reviewAuthoringProvider(evidence)
-    const auth = await dedicatedReviewerAuth(environment)
+    const auth = await resolveReviewerAuthentication(environment)
     const selected = selectReviewer(
       repositorySettings.reviewer ?? 'auto',
       authoringProvider,
