@@ -3,7 +3,46 @@
 This ledger records why the specification has its current shape. It is not a
 second normative schema; the master specification and format own mechanics.
 
-## Configuration completion
+## Whole-spec completion
+
+### Stop reading oversized code instead of hashing bytes that cannot be reviewed
+
+- **When:** Bounded Git observation, `e79b8ae`.
+- **The choice:** A tracked file is larger than the configured capture bound.
+  Factory excludes its content without reading it all merely to compute a
+  fingerprint. If a file grows during a read, Factory reads at most the bound
+  plus the byte needed to detect overflow, then stops. The repository race
+  sentinel—the before/after comparison—uses file identity, size, timestamps,
+  and mode for excluded content, not a purported content hash. Without captured
+  bytes it also does not claim an exact Git-content comparison for that file.
+- **The gap:** Bounded retained memory alone allowed unbounded I/O, and the
+  plan did not define what identity remained when bytes were inadmissible.
+- **The reach:** Huge files cannot force unlimited hashing through either the
+  main capture or race check. Their metadata is only an observation; it cannot
+  prove exact content equality or turn excluded content into reviewed evidence.
+- **Verdict:** Sound. The work bound applies to reading, not only allocation,
+  while explicit exclusions preserve the limit of the claim.
+- **Confidence:** Medium.
+
+### Read native directory outcomes from the call result, not shared error state
+
+- **When:** Native directory boundary, `046b478`.
+- **The choice:** Factory inventories a reconstructed directory through its
+  already bound file descriptor. A native read reports bytes, end-of-directory,
+  or failure in its return value. It does not return to JavaScript and then
+  inspect libc's thread-local `errno`, an error slot unrelated runtime work can
+  change before Factory reads it. Bounded native batches retain raw filename
+  bytes and validate entry lengths before interpreting them. The alternative
+  could misclassify successful end-of-directory as an error—or lose an error—
+  because the result depended on a separate mutable side channel.
+- **The gap:** Descriptor confinement did not define how native success and
+  failure cross the runtime boundary without relying on ambient error state.
+- **The reach:** The supported platform directory layouts remain an explicit
+  native dependency, but no C-compiler requirement is added. Inventory ownership
+  and byte-preserving names remain unchanged.
+- **Verdict:** Sound. One return value carries the operation's own outcome
+  instead of consulting state that can already describe another operation.
+- **Confidence:** High.
 
 ### Keep attempt locks after deleting transient execution state
 
