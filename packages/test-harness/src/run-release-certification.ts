@@ -269,7 +269,8 @@ try {
   }
   const review = await succeed(executable, ['review'], repository, reviewEnvironment)
   const reviewResult = JSON.parse(review.stdout) as { disposition: string }
-  if (reviewResult.disposition !== 'complete') throw new Error('review was not complete')
+  if (reviewResult.disposition !== 'complete')
+    throw new Error(`review was not complete: ${review.stdout.trim()}`)
   journeys.push({
     name: 'review',
     status: 'passed',
