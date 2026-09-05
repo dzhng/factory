@@ -11,7 +11,8 @@ choices ledger. The [capture certificate](assets/live-capture/README.md) now
 records actual callback authority and its current limits. Configurable
 Docker limits and cached update warnings are implemented; their
 [verification](assets/configuration-completion.md) distinguishes controlled
-fixtures from real Docker observations. The
+fixtures from real Docker observations. The [whole-spec review](assets/final-review.md)
+tracks remaining fixes and the test-boundary audit. The
 [implementation review](assets/implementation-review.md) records the resolved
 original findings. Preserve the boundaries in [SECURITY.md](../../SECURITY.md).
 
