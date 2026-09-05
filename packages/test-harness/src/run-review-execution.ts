@@ -100,23 +100,47 @@ async function main() {
     }
 
     for (const expected of [
-      { behavior: 'factory-test-prefix-nonzero', termination: 'completed', exitCode: 1 },
-      { behavior: 'factory-test-prefix-timeout', termination: 'timed-out', exitCode: null },
-      { behavior: 'factory-test-oversized', termination: 'completed', exitCode: 1 },
+      {
+        provider: 'claude',
+        behavior: 'factory-test-prefix-nonzero',
+        termination: 'completed',
+        exitCode: 1,
+      },
+      {
+        provider: 'claude',
+        behavior: 'factory-test-prefix-timeout',
+        termination: 'timed-out',
+        exitCode: null,
+      },
+      {
+        provider: 'claude',
+        behavior: 'factory-test-oversized',
+        termination: 'completed',
+        exitCode: 1,
+      },
+      {
+        provider: 'codex',
+        behavior: 'factory-test-oversized',
+        termination: 'completed',
+        exitCode: 1,
+      },
     ] as const) {
-      const scenarioAuth = join(authRoot, `${expected.behavior}.json`)
-      const scenarioOutput = join(root, expected.behavior)
+      const scenarioAuth = join(authRoot, `${expected.provider}-${expected.behavior}.json`)
+      const scenarioOutput = join(root, `${expected.provider}-${expected.behavior}`)
       await writeFile(scenarioAuth, expected.behavior, { mode: 0o444 })
       await mkdir(scenarioOutput)
       await chmod(scenarioOutput, 0o777)
       const scenarioPlan = planReviewerIsolation({
-        provider: 'claude',
+        provider: expected.provider,
         bundleHostPath: bundlePath,
         outputHostPath: scenarioOutput,
         auth: [
           {
             hostPath: scenarioAuth,
-            containerPath: '/auth/claude/.credentials.json',
+            containerPath:
+              expected.provider === 'codex'
+                ? '/auth/codex/auth.json'
+                : '/auth/claude/.credentials.json',
           },
         ],
       })
@@ -125,11 +149,15 @@ async function main() {
         imageDigest,
         expectedBundleSha256: report.bundles.complete,
         reviewer: {
-          model: 'claude-test',
+          model: `${expected.provider}-test`,
           effort: 'high',
           promptVersion: 'prompt-v1',
         },
-        invocation: reviewerAdapter({ provider: 'claude', model: 'claude-test', effort: 'high' }),
+        invocation: reviewerAdapter({
+          provider: expected.provider,
+          model: `${expected.provider}-test`,
+          effort: 'high',
+        }),
         containerIdentity: {
           name: `factory-review-scenario-${randomUUID()}`,
           label: randomUUID(),
@@ -142,7 +170,7 @@ async function main() {
         scenario.termination !== expected.termination ||
         scenario.exitCode !== expected.exitCode ||
         responseInfo.size === 0 ||
-        (expected.behavior === 'factory-test-oversized' && responseInfo.size <= 1024 * 1024)
+        (expected.behavior === 'factory-test-oversized' && responseInfo.size > 1024 * 1024)
       )
         throw new Error(`review response boundary failed: ${expected.behavior}`)
     }

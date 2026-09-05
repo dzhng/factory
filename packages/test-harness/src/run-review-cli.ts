@@ -50,7 +50,6 @@ async function main() {
     )
     const environment = {
       ...process.env,
-      FACTORY_REVIEW_TEST_MODE: '1',
       FACTORY_CODEX_REVIEW_MODEL: 'gpt-test',
       FACTORY_CODEX_REVIEW_EFFORT: 'high',
       FACTORY_CLAUDE_REVIEW_MODEL: 'claude-test',

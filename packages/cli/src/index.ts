@@ -40,14 +40,25 @@ import {
   newRecordId,
   parseRepositoryConfig,
   type JsonValue,
+  type GithubRepositoryMappingObservation,
   type RepositoryConfig,
   type RepositoryId,
+  type RepositoryObservation,
   type RecordId,
   type OwnedPath,
   type ReviewLedger,
   type ReviewManifest,
+  type TurnManifest,
 } from '@factory/contract'
+import { deriveAssociations } from '@factory/domain'
 import {
+  GithubPrObserver,
+  observeGithubRepositoryMapping,
+  persistGithubRepositoryMapping,
+  persistPullRequestEvidence,
+} from '@factory/github'
+import {
+  GitObserver,
   initializeRepositoryStore,
   openRepositoryStore,
   withAdvisoryFileLock,
@@ -101,6 +112,10 @@ type SessionOwner = {
 
 const textEncoder = new TextEncoder()
 const textDecoder = new TextDecoder('utf-8', { fatal: true })
+const FACTORY_REVIEWER_DEFAULTS = {
+  codex: { model: 'gpt-5.6-sol', effort: 'xhigh' },
+  claude: { model: 'claude-opus-5', effort: 'high' },
+} as const
 
 function configRoot(environment: NodeJS.ProcessEnv): string {
   return join(
@@ -1000,12 +1015,12 @@ async function doctor(
 function requiredReviewDefaults(environment: NodeJS.ProcessEnv): ReviewerDefaults {
   const values = {
     codex: {
-      model: environment.FACTORY_CODEX_REVIEW_MODEL,
-      effort: environment.FACTORY_CODEX_REVIEW_EFFORT,
+      model: environment.FACTORY_CODEX_REVIEW_MODEL ?? FACTORY_REVIEWER_DEFAULTS.codex.model,
+      effort: environment.FACTORY_CODEX_REVIEW_EFFORT ?? FACTORY_REVIEWER_DEFAULTS.codex.effort,
     },
     claude: {
-      model: environment.FACTORY_CLAUDE_REVIEW_MODEL,
-      effort: environment.FACTORY_CLAUDE_REVIEW_EFFORT,
+      model: environment.FACTORY_CLAUDE_REVIEW_MODEL ?? FACTORY_REVIEWER_DEFAULTS.claude.model,
+      effort: environment.FACTORY_CLAUDE_REVIEW_EFFORT ?? FACTORY_REVIEWER_DEFAULTS.claude.effort,
     },
   }
   for (const [provider, value] of Object.entries(values))
@@ -1067,23 +1082,89 @@ async function dedicatedReviewerAuth(environment: NodeJS.ProcessEnv): Promise<{
   return { availability, mounts }
 }
 
-function latestSubjectPath(
-  records: Awaited<ReturnType<RepositoryStore['readRecords']>>['records'],
-  pullRequest?: number,
-): OwnedPath {
-  const candidates = records
-    .filter(record =>
-      pullRequest === undefined
-        ? /^repository-observations\/[^/]+\.json$/.test(record.path)
-        : /^pull-requests\/github\/[^/]+\/[1-9]\d*\/observations\/[^/]+\.json$/.test(record.path) &&
-          typeof record.value === 'object' &&
-          record.value !== null &&
-          !Array.isArray(record.value) &&
-          record.value.number === pullRequest,
-    )
-    .sort((left, right) => canonicalJson(right.value).localeCompare(canonicalJson(left.value)))
-  if (candidates[0] === undefined) throw new Error('Factory has no captured review subject')
-  return candidates[0].path
+async function freshReviewSubject(
+  repositoryRoot: string,
+  store: RepositoryStore,
+  pullRequest: number | undefined,
+  environment: NodeJS.ProcessEnv,
+): Promise<OwnedPath> {
+  const objects = {
+    put: async (bytes: Uint8Array, metadata: { mediaType: string; role: string }) =>
+      await store.putObject(
+        (async function* () {
+          yield bytes
+        })(),
+        metadata,
+      ),
+  }
+  if (pullRequest === undefined) {
+    const observationId = newRecordId('observation')
+    const observed = await new GitObserver(
+      repositoryRoot,
+      { ...objects, get: async reference => await store.getObject(reference) },
+      { repositoryId: store.manifest.repositoryId, observationId },
+    ).observe()
+    if (observed.kind === 'unavailable')
+      throw new Error(`workspace observation unavailable: ${observed.reason.code}`)
+    const observation = observed.kind === 'raced' ? observed.partial : observed.observation
+    const path = `repository-observations/${observation.observationId}.json` as OwnedPath
+    await store.createImmutable(path, textEncoder.encode(canonicalJson(observation)))
+    return path
+  }
+
+  const hostname = (environment.GH_HOST ?? 'github.com').toLowerCase()
+  const mapping = await observeGithubRepositoryMapping(store.manifest.repositoryId, hostname, {
+    objects,
+  })
+  if ('availability' in mapping)
+    throw new Error(`pull-request repository mapping unavailable: ${mapping.reason}`)
+  await persistGithubRepositoryMapping(store, mapping)
+  const [owner, name, ...extra] = mapping.repository.split('/')
+  if (!owner || !name || extra.length !== 0)
+    throw new Error('pull-request repository mapping returned an invalid name')
+  const observation = await new GithubPrObserver({ objects }).observe({
+    hostname: mapping.hostname,
+    owner,
+    name,
+    number: pullRequest,
+  })
+  if (observation.availability === 'unavailable') {
+    if (observation.record !== undefined)
+      await persistPullRequestEvidence(store, observation.record, [])
+    throw new Error(`pull-request observation unavailable: ${observation.reason}`)
+  }
+  const records = (await store.readRecords()).records
+  const repositoryObservations = new Map(
+    records
+      .filter(record => /^repository-observations\/[^/]+\.json$/.test(record.path))
+      .map(record => {
+        const value = record.value as unknown as RepositoryObservation
+        return [value.observationId, value] as const
+      }),
+  )
+  const sessions = records
+    .filter(record => /^sessions\/[^/]+\/[^/]+\/turns\/[^/]+\/manifest\.json$/.test(record.path))
+    .flatMap(record => {
+      const turn = record.value as unknown as TurnManifest
+      const repositoryObservation =
+        turn.repositoryObservationId === undefined
+          ? undefined
+          : repositoryObservations.get(turn.repositoryObservationId)
+      if (repositoryObservation === undefined) return []
+      const provider = record.path.split('/')[1]
+      if (provider !== 'codex' && provider !== 'claude') return []
+      return [{ provider: provider as 'codex' | 'claude', turn, repositoryObservation }]
+    })
+  const repositoryMappings = records
+    .filter(record => record.path.includes('/repository-mappings/'))
+    .map(record => record.value as unknown as GithubRepositoryMappingObservation)
+  const associations = deriveAssociations({
+    pullRequest: observation,
+    sessions,
+    repositoryMappings,
+  })
+  await persistPullRequestEvidence(store, observation, associations)
+  return `pull-requests/github/${observation.repositoryKey}/${observation.number}/observations/${observation.observationId}.json` as OwnedPath
 }
 
 function committedReviewManifests(
@@ -1227,21 +1308,22 @@ async function reviewCommand(
   output: Output,
 ): Promise<number> {
   const options = parseReviewOptions(args)
+  const coordinator = await ReviewAttemptCoordinator.open({ repositoryRoot })
   if (options.acceptPartial !== undefined) {
     const store = await openRepositoryStore(repositoryRoot)
     const path = await acceptPartialCoverageByReviewId(store, options.acceptPartial)
     output.stdout(canonicalJson({ schemaVersion: 1, status: 'accepted-partial', path }))
     return 0
   }
-  const coordinator = await ReviewAttemptCoordinator.open({ repositoryRoot })
-  if (environment.FACTORY_REVIEW_TEST_MODE !== '1')
-    throw new Error(
-      'factory review execution is unavailable until current-subject observation and packaged reviewer authority are configured',
-    )
   const store = await openRepositoryStore(repositoryRoot)
+  const subjectPath = await freshReviewSubject(
+    repositoryRoot,
+    store,
+    options.pullRequest,
+    environment,
+  )
   const stored = await store.readRecords()
   const committedReviews = committedReviewManifests(stored.records)
-  const subjectPath = latestSubjectPath(stored.records, options.pullRequest)
   const lineage = subjectPathLineage(subjectPath, stored.records)
   const retryGeneration = committedReviews
     .filter(
@@ -1313,7 +1395,8 @@ async function reviewCommand(
         break
       } catch (error) {
         if (!(error instanceof ReviewAttemptAlreadyFinalizedError)) throw error
-        if (!committedReviews.some(review => review.reviewId === error.reviewId)) {
+        const currentReviews = committedReviewManifests((await store.readRecords()).records)
+        if (!currentReviews.some(review => review.reviewId === error.reviewId)) {
           executionGeneration = error.reviewId
           continue
         }

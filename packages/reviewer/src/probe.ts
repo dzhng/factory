@@ -44,6 +44,7 @@ export type IsolationReport = {
     capDrop: readonly string[]
     securityOptions: readonly string[]
     tmpfsTargets: readonly string[]
+    fileSizeBytes: number
   }
   termination: ProbeTermination
   exitCode: number | null
@@ -294,6 +295,8 @@ export async function runIsolationProbe(
     'ALL',
     '--security-opt',
     'no-new-privileges',
+    '--ulimit',
+    'fsize=1048576:1048576',
     '--tmpfs',
     '/tmp:rw,noexec,nosuid,nodev,size=16m',
     '--mount',
@@ -325,6 +328,8 @@ export async function runIsolationProbe(
   let inspectedMounts: IsolationReport['mounts'] = []
   let containerPolicy: IsolationReport['containerPolicy'] | undefined
   let creationSucceeded = false
+  let creationInvoked = false
+  let creationResolved = false
   let capturedLogs = ''
   let probeFailure: unknown
   let removalFailure: Error | undefined
@@ -345,7 +350,15 @@ export async function runIsolationProbe(
       })
     )
       throw new Error('Reviewer authentication changed before container creation')
-    const created = await runCommand('docker', dockerArgs, commandOptions())
+    creationInvoked = true
+    let created: CommandResult
+    try {
+      created = await runCommand('docker', dockerArgs, commandOptions())
+      creationResolved = created.termination === 'completed'
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') creationInvoked = false
+      throw error
+    }
     if (created.exitCode !== 0) {
       throw new Error(`Docker refused reviewer container: ${created.stderr.trim()}`)
     }
@@ -379,6 +392,7 @@ export async function runIsolationProbe(
           CapDrop: string[] | null
           SecurityOpt: string[] | null
           Tmpfs: Record<string, string> | null
+          Ulimits: { Name: string; Soft: number; Hard: number }[] | null
         }
         Mounts: { Source: string; Destination: string; RW: boolean }[]
       },
@@ -439,6 +453,8 @@ export async function runIsolationProbe(
       capDrop: container.HostConfig.CapDrop ?? [],
       securityOptions: container.HostConfig.SecurityOpt ?? [],
       tmpfsTargets: Object.keys(container.HostConfig.Tmpfs ?? {}).sort(),
+      fileSizeBytes:
+        container.HostConfig.Ulimits?.find(limit => limit.Name === 'fsize')?.Soft ?? -1,
     }
     if (
       container.HostConfig.NetworkMode !== 'bridge' ||
@@ -446,6 +462,8 @@ export async function runIsolationProbe(
       containerPolicy.user !== containerUser ||
       !containerPolicy.capDrop.includes('ALL') ||
       !containerPolicy.securityOptions.some(option => option.startsWith('no-new-privileges')) ||
+      containerPolicy.fileSizeBytes !== 1024 * 1024 ||
+      container.HostConfig.Ulimits?.find(limit => limit.Name === 'fsize')?.Hard !== 1024 * 1024 ||
       container.HostConfig.Tmpfs?.['/review-input'] !== undefined ||
       canonicalTmpfs(container.HostConfig.Tmpfs?.['/tmp']) !==
         canonicalTmpfs('rw,noexec,nosuid,nodev,size=16m')
@@ -479,7 +497,7 @@ export async function runIsolationProbe(
   } catch (error) {
     probeFailure = error
   } finally {
-    if (creationSucceeded)
+    if (creationSucceeded || (creationInvoked && !creationResolved))
       await cleanupOwnedReviewerContainer(containerIdentity, 5_000).catch(error => {
         removalFailure = error instanceof Error ? error : new Error('reviewer cleanup failed')
       })

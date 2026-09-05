@@ -932,13 +932,12 @@ second normative schema; the master specification and format own mechanics.
 
 - **When:** Slice 09 review identity contract.
 - **The choice:** Review execution requires one complete reviewer identity
-  before it freezes the review plan. The deterministic journey supplies exact
-  fixture settings; production execution stays disabled until versioned Factory
-  defaults are chosen. For example, a future automatic Codex review must record
-  the exact Codex model and effort Factory requested; it must never write a
-  placeholder that means “whatever the provider chose today.” If the installed
-  client cannot force or report those settings, that reviewer is unavailable
-  rather than reproducible by guesswork.
+  before it freezes the review plan. Factory v1 defaults to Codex
+  `gpt-5.6-sol` at `xhigh` effort and Claude `claude-opus-5` at `high` effort;
+  explicit configuration may override them. The manifest records the exact
+  requested identity, never a placeholder meaning “whatever the provider chose
+  today.” If the installed client cannot force or report those settings, that
+  reviewer is unavailable rather than reproducible by guesswork.
 - **The gap:** The spec required manifests to pin model and effort but the
   initial shared reviewer type made both optional and did not say when defaults
   became evidence.
@@ -1012,25 +1011,20 @@ second normative schema; the master specification and format own mechanics.
   machine-local coordination while bounding retained sensitive data.
 - **Confidence:** High.
 
-### Leave production review execution disabled until its authority is packaged
+### Require pinned image authority before production review execution
 
 - **When:** Slice 09 CLI journey integration.
-- **The choice:** The installed command validates review flags and supports the
-  zero-Docker partial-coverage acceptance path, but ordinary model execution
-  currently fails closed. A deterministic test-only journey supplies a pinned
-  fake image, explicit reviewer settings, and a frozen fixture subject. The
-  unbuilt production path must first capture the exact current workspace or PR,
-  ship a pinned reviewer image, and choose versioned product defaults; it must
-  not silently select the newest-looking stored observation or treat developer
-  environment variables as product configuration.
-- **The gap:** The slice specifies execution after a verified bundle, while the
-  packaging/default choice and fresh CLI subject-observation wiring belong to
-  adjacent product work and were not settled here.
-- **The reach:** This branch proves the execution and acceptance boundaries but
-  does not yet make `factory review` a usable production command. Enabling it
-  later requires deleting the test gate only after fresh subject capture and
-  packaged authority reach the same release-shaped journey.
-- **Verdict:** Needs-user. Keep the fail-closed gate as the reversible
-  provisional call; choose the shipped image, model defaults, and credential
-  handoff before enabling production execution.
-- **Confidence:** Low.
+- **The choice:** The installed command captures the exact current workspace or
+  GitHub PR and resolves versioned reviewer defaults, but it still refuses model
+  execution without an immutable reviewer image digest and dedicated readable
+  provider authentication. The deterministic journey supplies a pinned fake
+  image; it is release evidence for the boundary, not a production image.
+- **The gap:** The slice specifies immutable image identity but does not name a
+  published production image digest or distribution channel.
+- **The reach:** Subject capture and review planning are production paths;
+  provider execution remains honestly unavailable until packaging supplies the
+  configured digest. Factory never substitutes a mutable tag or the developer's
+  host CLI.
+- **Verdict:** Needs-user. Choose and publish the production image separately;
+  keeping the missing-authority refusal is the safe reversible state.
+- **Confidence:** Medium.

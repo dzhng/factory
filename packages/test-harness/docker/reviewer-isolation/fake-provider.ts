@@ -26,7 +26,10 @@ if (provider === 'codex') {
     process.env.CODEX_HOME !== '/auth/codex'
   )
     throw new Error('Codex adapter invocation differs from the pinned contract')
-  await writeFile('/out/response.txt', response)
+  await writeFile(
+    '/out/response.txt',
+    behavior.includes('factory-test-oversized') ? response.repeat(20_000) : response,
+  )
 } else {
   if (
     !process.argv.includes('--safe-mode') ||
