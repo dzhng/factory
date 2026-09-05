@@ -944,9 +944,11 @@ second normative schema; the master specification and format own mechanics.
 - **The reach:** Policy identity, bundle hashes, retries, and later comparisons
   all use the same resolved settings. Changing a Factory default becomes an
   explicit policy change that schedules a new current-code review.
-- **Verdict:** Sound. Reproduction depends on exact requested settings, not
-  mutable server defaults.
-- **Confidence:** High.
+- **Verdict:** Needs-user. Exact settings must be pinned, but the cost, latency,
+  and review-quality tradeoff is a product choice. Keep these researched
+  defaults provisionally; reversing them means changing the versioned defaults
+  and naturally scheduling a fresh current-code review.
+- **Confidence:** Medium.
 
 ### Prefer Codex when an automatic review has no authoring Stop
 
@@ -972,10 +974,10 @@ second normative schema; the master specification and format own mechanics.
 - **The choice:** Factory gives the reviewer container one dedicated, read-only
   credential file. If it is mode `0600`, Factory validates that the invoking
   non-root developer owns it and runs the container as that numeric owner UID
-  with a fixed unprivileged group. The file remains provider-owned and unchanged. Root-owned or
-  foreign-owned files are unavailable. The rejected alternative would copy the
-  secret into a temporary file, loosen permissions, pass token environment
-  variables, or bridge a host keyring.
+  with a fixed unprivileged group. The file remains provider-owned and
+  unchanged. Root-owned or foreign-owned files are unavailable. The rejected
+  alternative would copy the secret into a temporary file, loosen permissions,
+  pass token environment variables, or bridge a host keyring.
 - **The gap:** The plan required read-only authentication and prohibited
   developer credentials in tests, but it did not authorize secret staging or a
   keyring bridge for production.
@@ -983,9 +985,11 @@ second normative schema; the master specification and format own mechanics.
   Linux bind mounts without a second secret copy. Keyring-only authentication
   remains unavailable. Future work cannot make review “just work” by weakening
   permissions or borrowing a broader host credential surface.
-- **Verdict:** Sound. Unavailability preserves the documented trust boundary;
-  a usable secret handoff is a security feature, not an implementation detail.
-- **Confidence:** High.
+- **Verdict:** Needs-user. File-only handoff is the safest provisional boundary,
+  but it leaves keyring-only macOS setups unavailable. Reversing it requires a
+  separately designed credential broker or controlled staging protocol, never
+  an implicit host-secret fallback.
+- **Confidence:** Medium.
 
 ### Keep one crash-recovery identity in Git-common runtime state
 
@@ -1010,6 +1014,119 @@ second normative schema; the master specification and format own mechanics.
 - **Verdict:** Sound. It separates portable immutable truth from recoverable
   machine-local coordination while bounding retained sensitive data.
 - **Confidence:** High.
+
+### Sample repository policy after a queued review acquires its subject lock
+
+- **When:** Slice 09 concurrent review closeout.
+- **The choice:** Suppose review A is already running and review B is waiting to
+  inspect the same workspace or pull request. If the user changes Factory's
+  reviewer or evidence limits while B waits, B reads the new settings only
+  after A finishes and B owns the subject lock. It then observes current code
+  and freezes one plan using that fresh policy. The alternative would preserve
+  whatever settings happened to exist when B was invoked, even though its code
+  observation and prior-review history are necessarily newer.
+- **The gap:** The spec required concurrent reviews to converge but did not say
+  whether a queued command freezes policy at invocation or at execution.
+- **The reach:** A queued command means “review when my turn arrives,” not a
+  fully snapshotted background job. Explicit command-line arguments remain
+  fixed, while mutable repository policy is sampled with the evidence it
+  governs.
+- **Verdict:** Sound. Policy and evidence become one internally consistent
+  snapshot instead of combining a new subject with stale limits.
+- **Confidence:** High.
+
+### Let partial acceptance proceed without recovering reviewer runtime state
+
+- **When:** Slice 09 partial-acceptance closeout.
+- **The choice:** If a partial review is already committed in `.factory`,
+  `factory review --accept-partial <id>` appends its exact coverage action
+  without opening Docker coordination state. For example, an orphaned
+  container or corrupt machine-local attempt directory cannot block the user
+  from acknowledging portable evidence that is already valid. A later command
+  that actually executes a reviewer still performs recovery.
+- **The gap:** The spec separated explicit coverage acceptance from review
+  execution but did not say whether the acceptance command must first repair
+  unrelated transient execution state.
+- **The reach:** Portable Git-visible progress does not depend on one machine's
+  disposable recovery files. Runtime cleanup remains mandatory before the next
+  execution rather than becoming an authority for an append-only action.
+- **Verdict:** Sound. The two operations have separate trust inputs and failure
+  modes, so coupling them would create an unnecessary blocker.
+- **Confidence:** High.
+
+### Give one partial review one deterministic coverage-action identity
+
+- **When:** Slice 09 explicit partial acceptance.
+- **The choice:** A coverage action reuses the sortable suffix of the review it
+  accepts, changing only the record prefix from `review_` to `action_`. If two
+  processes accept the same review, both therefore request the same immutable
+  path and converge on one action. The alternative would allocate a fresh
+  action ID on every attempt and need a second semantic deduplication rule.
+- **The gap:** The spec required append-only, idempotent acceptance but did not
+  choose how retries identify the same action.
+- **The reach:** There can be at most one exact whole-review coverage acceptance
+  per review in v1. A future feature that accepts only selected gaps needs a new
+  semantic identity rather than manufacturing several actions with this one.
+- **Verdict:** Sound. The identity directly represents the v1 one-review,
+  one-acceptance contract and avoids duplicate history under concurrency.
+- **Confidence:** High.
+
+### Treat the exact committed review root as the stored-review identity
+
+- **When:** Slice 09 stored-history hardening.
+- **The choice:** Factory loads each committed review as one `StoredReview`: its
+  manifest, exact response and optional ledger paths, ledger contents, and
+  logical subject lineage. It builds that view in one pass over repository
+  records. If the same review ID appears under two otherwise valid subject
+  roots, an ID-only operation fails as ambiguous; it never borrows findings
+  from the first matching ledger.
+- **The gap:** The format permits records to be grouped by subject path but did
+  not promise that a review ID is globally unique across every possible root.
+- **The reach:** Result display, `--fail-on`, retry recovery, and partial
+  acceptance all use the same exact group. Repositories at the public
+  100,000-record bound remain linear to load instead of rescanning the whole
+  tree once per review.
+- **Verdict:** Sound. Exact group membership is already the immutable commit
+  authority; using it everywhere prevents both ambiguity and quadratic work.
+- **Confidence:** High.
+
+### Put fresh review-subject acquisition at the front of review planning
+
+- **When:** Slice 09 ownership closeout.
+- **The choice:** The review-planning package owns acquisition of both kinds of
+  current subject. For a workspace it records the exact Git state; for a pull
+  request it records fresh GitHub evidence and derives associations only from
+  verified Session graphs. The review package owns the opposite end: validated
+  output and committed history. The CLI only sequences those owners.
+- **The gap:** The spec named the planning and acceptance seams but did not say
+  which package owns the live step that creates the subject consumed by a
+  plan.
+- **The reach:** Future subject types enter through one upstream planning edge
+  rather than adding review-specific APIs to capture or reconstructing paths in
+  the CLI. Acceptance remains unable to reach back into live Git or GitHub.
+- **Verdict:** Sound. It keeps acquisition, pure planning, execution, and
+  acceptance as a one-directional dependency chain without a vague parallel
+  workflow abstraction.
+- **Confidence:** High.
+
+### Use ten minutes as the provisional reviewer execution deadline
+
+- **When:** Slice 09 installed review command.
+- **The choice:** Once a verified bundle is ready, Factory gives the selected
+  provider up to ten minutes to produce its bounded response. A valid response
+  prefix still becomes a partial review at the deadline; no valid entry becomes
+  a failed review. The alternative could wait indefinitely or choose a shorter
+  or longer product default.
+- **The gap:** The spec required bounded timeout behavior but did not choose the
+  installed default duration or make it configurable.
+- **The reach:** Very long reviews stop predictably, but unusually large or slow
+  reviews may become partial at ten minutes. Changing this default affects
+  operations, not existing portable review identity, and can be made explicit
+  configuration later.
+- **Verdict:** Needs-user. Keep ten minutes as a reversible provisional default;
+  confirm it from real-provider timing before release or expose a bounded
+  configuration setting.
+- **Confidence:** Medium.
 
 ### Require pinned image authority before production review execution
 
@@ -1043,7 +1160,7 @@ second normative schema; the master specification and format own mechanics.
   repository. Workspace and different PR reviews remain independent.
 - **Verdict:** Sound. The lock protects the user-visible operation whose no-op
   decision depends on the review committed immediately before it.
-- **Confidence:** High.
+- **Confidence:** Medium.
 
 ### Keep reviewer output to one size-limited response surface
 
@@ -1058,4 +1175,4 @@ second normative schema; the master specification and format own mechanics.
   require a separately typed, bounded format rather than relaxing this surface.
 - **Verdict:** Sound. One semantic channel matches the v1 review contract and
   keeps aggregate output auditable.
-- **Confidence:** High.
+- **Confidence:** Medium.
