@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { mkdir, mkdtemp, symlink } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -51,7 +51,7 @@ describe('review attempt coordinator', () => {
         return sealReviewerRawAttempt({
           reviewId: input.reviewId as `review_${string}`,
           bundleSha256: sha256,
-          response: new Uint8Array(),
+          response: new TextEncoder().encode('private provider response'),
           termination: 'completed',
           exitCode: 0,
           outputTruncated: false,
@@ -75,11 +75,16 @@ describe('review attempt coordinator', () => {
     ])
     expect(executions).toBe(1)
     expect(readReviewerRawAttempt(first)).toEqual(readReviewerRawAttempt(second))
+    const attemptsRoot = join(runtime, 'review-attempts-v1')
+    const [attemptKey] = await readdir(attemptsRoot)
+    const statePath = join(attemptsRoot, attemptKey!, 'state.json')
+    expect(await readFile(statePath, 'utf8')).toContain('responseBase64')
     await coordinator.finalize(bundle, choice, input.imageDigest, {
       reviewId: readReviewerRawAttempt(first).reviewId,
       disposition: 'complete',
       executionFailed: false,
     })
+    expect(await readFile(statePath, 'utf8')).not.toContain('responseBase64')
     await coordinator.finalize(bundle, choice, input.imageDigest, {
       reviewId: readReviewerRawAttempt(first).reviewId,
       disposition: 'complete',

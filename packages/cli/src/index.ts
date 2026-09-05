@@ -1146,11 +1146,16 @@ async function freshReviewSubject(
   const records = (await store.readRecords()).records
   const recordByPath = new Map(records.map(record => [record.path, record.value]))
   const reader = await openReviewRepositoryReader(store.factoryRoot)
-  const sessions = (
-    await Promise.all(
-      records
-        .filter(record => /^review-triggers\/[^/]+\.json$/.test(record.path))
-        .map(async record => {
+  const triggerRecords = records.filter(record =>
+    /^review-triggers\/[^/]+\.json$/.test(record.path),
+  )
+  if (triggerRecords.length > 10_000)
+    throw new Error('pull-request association trigger inventory exceeds its bound')
+  const candidates = new Array<Awaited<ReturnType<typeof loadCandidateEvidence>>>()
+  for (let offset = 0; offset < triggerRecords.length; offset += 8) {
+    candidates.push(
+      ...(await Promise.all(
+        triggerRecords.slice(offset, offset + 8).map(async record => {
           const triggerId = record.path.slice(
             'review-triggers/'.length,
             -'.json'.length,
@@ -1160,8 +1165,10 @@ async function freshReviewSubject(
             scopeProof: { kind: 'workspace-store', repositoryId: store.manifest.repositoryId },
           })
         }),
+      )),
     )
-  ).flatMap(candidate => {
+  }
+  const sessions = candidates.flatMap(candidate => {
     if (
       !('trigger' in candidate) ||
       candidate.repositoryObservation === undefined ||
