@@ -1,11 +1,11 @@
 export { parseSemanticOutput, type ParsedSemanticOutput } from './output.js'
 export {
-  committedReviewManifests,
-  reviewFindingsMeetThreshold,
-  reviewSubjectLineage,
+  loadStoredReviews,
+  storedReviewFindingsMeetThreshold,
   storedReviewResult,
   subjectPathLineage,
   type ReviewFindingThreshold,
+  type StoredReview,
   type StoredReviewResult,
 } from './stored-reviews.js'
 export {

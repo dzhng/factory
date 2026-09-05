@@ -16,7 +16,3 @@ provider patches and the repository remains the sole `.factory` writer.
 Transcript reads are bounded and descriptor-relative beneath the configured
 provider home. Missing, racing, forged, or otherwise unsafe transcript input
 produces a readable partial Turn instead of suppressing review.
-
-Workspace review subject acquisition also enters through capture, so the exact
-current Git observation is persisted by the same repository-owned boundary
-before review planning begins.

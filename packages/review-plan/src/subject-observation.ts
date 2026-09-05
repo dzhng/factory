@@ -1,5 +1,6 @@
-import { captureWorkspaceReviewSubject } from '@factory/capture'
 import {
+  canonicalJson,
+  newRecordId,
   type AssociationBatch,
   type AvailablePullRequestObservation,
   type GithubRepositoryMappingObservation,
@@ -15,7 +16,7 @@ import {
   persistPullRequestEvidence,
   verifyAssociationBatch,
 } from '@factory/github'
-import type { RepositoryStore } from '@factory/repository'
+import { GitObserver, type RepositoryStore } from '@factory/repository'
 
 import { loadCandidateEvidence } from './candidate-loader'
 import { openReviewRepositoryReader } from './repository-reader'
@@ -27,8 +28,6 @@ export async function observeReviewSubject(
   pullRequest: number | undefined,
   environment: NodeJS.ProcessEnv,
 ): Promise<OwnedPath> {
-  if (pullRequest === undefined) return await captureWorkspaceReviewSubject(repositoryRoot, store)
-
   const objects = {
     put: async (bytes: Uint8Array, metadata: { mediaType: string; role: string }) =>
       await store.putObject(
@@ -38,6 +37,21 @@ export async function observeReviewSubject(
         metadata,
       ),
   }
+  if (pullRequest === undefined) {
+    const observationId = newRecordId('observation')
+    const observed = await new GitObserver(
+      repositoryRoot,
+      { ...objects, get: async reference => await store.getObject(reference) },
+      { repositoryId: store.manifest.repositoryId, observationId },
+    ).observe()
+    if (observed.kind === 'unavailable')
+      throw new Error(`workspace observation unavailable: ${observed.reason.code}`)
+    const observation = observed.kind === 'raced' ? observed.partial : observed.observation
+    const path = `repository-observations/${observation.observationId}.json` as OwnedPath
+    await store.createImmutable(path, new TextEncoder().encode(canonicalJson(observation)))
+    return path
+  }
+
   const hostname = (environment.GH_HOST ?? 'github.com').toLowerCase()
   const mapping = await observeGithubRepositoryMapping(store.manifest.repositoryId, hostname, {
     objects,

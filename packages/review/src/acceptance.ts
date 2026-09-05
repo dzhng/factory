@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto'
-
 import {
   canonicalJson,
   makeOwnedPath,
@@ -21,7 +19,7 @@ import {
 } from '@factory/reviewer'
 
 import { parseSemanticOutput } from './output'
-import { committedReviewManifests } from './stored-reviews'
+import { loadStoredReviews } from './stored-reviews'
 
 export type AttemptTermination = import('@factory/reviewer').ReviewerExecutionTermination
 export type RawAttempt = ReviewerRawAttempt
@@ -276,9 +274,8 @@ function exactCoverageAction(
   }
 }
 
-function coverageActionId(value: unknown): RecordId {
-  const digest = createHash('sha256').update(canonicalJson(value)).digest('hex').slice(0, 26)
-  return `action_${digest.toUpperCase()}` as RecordId
+function coverageActionId(reviewId: RecordId): RecordId {
+  return `action_${reviewId.slice('review_'.length)}` as RecordId
 }
 
 export async function acceptPartialCoverage(
@@ -286,11 +283,11 @@ export async function acceptPartialCoverage(
   request: PartialCoverageAcceptance,
 ): Promise<ReturnType<typeof makeOwnedPath>> {
   const records = await store.readRecords()
-  const matches = committedReviewManifests(records.records).filter(
-    review => review.reviewId === request.reviewId,
+  const matches = loadStoredReviews(records.records).filter(
+    review => review.manifest.reviewId === request.reviewId,
   )
   if (matches.length !== 1) throw new TypeError('coverage acceptance names no unique review')
-  const review = matches[0]!
+  const review = matches[0]!.manifest
   if (review.disposition !== 'partial')
     throw new TypeError('coverage acceptance requires a partial review')
   if (canonicalJson(review.subject) !== canonicalJson(request.subject))
@@ -320,7 +317,7 @@ export async function acceptPartialCoverage(
   }
   const semantic: Omit<CoverageAction, 'createdAt'> = {
     schemaVersion: 1,
-    actionId: coverageActionId(expected),
+    actionId: coverageActionId(request.reviewId),
     ...expected,
   }
   return (await store.createCoverageAction(semantic)).path
@@ -332,11 +329,11 @@ export async function acceptPartialCoverageByReviewId(
   reviewId: RecordId,
 ): Promise<ReturnType<typeof makeOwnedPath>> {
   const records = await store.readRecords()
-  const matches = committedReviewManifests(records.records).filter(
-    review => review.reviewId === reviewId,
+  const matches = loadStoredReviews(records.records).filter(
+    review => review.manifest.reviewId === reviewId,
   )
   if (matches.length !== 1) throw new TypeError('coverage acceptance names no unique review')
-  const review = matches[0]!
+  const review = matches[0]!.manifest
   if (review.disposition !== 'partial')
     throw new TypeError('coverage acceptance requires a partial review')
   const exact = exactCoverageAction(review)

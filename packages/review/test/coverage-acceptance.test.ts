@@ -74,32 +74,44 @@ function requestFor(review: ReviewManifest): PartialCoverageAcceptance {
   }
 }
 
-function storeFor(review?: ReviewManifest) {
+function storeFor(input?: ReviewManifest | readonly ReviewManifest[]) {
   let action: CoverageAction | undefined
+  const reviews = input === undefined ? [] : Array.isArray(input) ? input : [input]
   const store = {
     async readRecords() {
       return {
-        records:
-          review === undefined
-            ? []
-            : [
-                {
-                  path: `reviews/workspace/${review.reviewId}/manifest.json`,
-                  value: review,
-                },
-                {
-                  path: `reviews/workspace/${review.reviewId}/response.txt`,
-                  value: '',
-                },
-                ...(review.disposition === 'failed'
-                  ? []
-                  : [
-                      {
-                        path: `reviews/workspace/${review.reviewId}/ledger.json`,
-                        value: {},
-                      },
-                    ]),
-              ],
+        records: reviews.flatMap(review => {
+          const root =
+            review.subject.kind === 'workspace'
+              ? `reviews/workspace/${review.reviewId}`
+              : `reviews/pull-requests/github/${review.subject.repositoryKey}/${review.subject.number}/${review.reviewId}`
+          return [
+            ...(review.subject.kind === 'workspace'
+              ? [
+                  {
+                    path: `repository-observations/${review.subject.repositoryObservationId}.json`,
+                    value: { repositoryId: 'repo_review_test' },
+                  },
+                ]
+              : []),
+            {
+              path: `${root}/manifest.json`,
+              value: review,
+            },
+            {
+              path: `${root}/response.txt`,
+              value: '',
+            },
+            ...(review.disposition === 'failed'
+              ? []
+              : [
+                  {
+                    path: `${root}/ledger.json`,
+                    value: { schemaVersion: 1, reviewId: review.reviewId, entries: [] },
+                  },
+                ]),
+          ]
+        }),
       }
     },
     async createCoverageAction(semantic: Omit<CoverageAction, 'createdAt'>) {
@@ -121,6 +133,7 @@ describe('partial review coverage acceptance', () => {
 
     expect(first.readAction()).toEqual(second.readAction())
     expect(path).toEndWith(`${first.readAction()!.actionId}.json`)
+    expect(first.readAction()!.actionId).toMatch(/^action_[0-9A-HJKMNP-TV-Z]{26}$/)
     expect(first.readAction()!.createdAt).not.toBe(review.completedAt)
 
     const direct = storeFor(review)
@@ -152,5 +165,22 @@ describe('partial review coverage acceptance', () => {
       }),
     ).rejects.toThrow('exact partial review gaps')
     expect(canonicalJson(requestFor(review))).toContain('invalid-review-output')
+  })
+
+  test('rejects a review ID that is valid under two exact subject roots', async () => {
+    const review = await partialManifest()
+    const duplicate = {
+      ...review,
+      subject: {
+        kind: 'pull-request',
+        provider: 'github',
+        repositoryKey: 'github.com/R_duplicate',
+        number: 42,
+        observationId: 'observation_00000000000000000000000009',
+      },
+    } as ReviewManifest
+    await expect(
+      acceptPartialCoverageByReviewId(storeFor([review, duplicate]).store, review.reviewId),
+    ).rejects.toThrow('no unique review')
   })
 })

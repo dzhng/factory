@@ -559,9 +559,9 @@ export async function runObservedReviewerContainer(
     throw new ReviewerCleanupUnprovenError({ cause: removalFailure })
   if (probeFailure !== undefined) throw probeFailure
 
-  if (result === undefined) throw new Error('Docker probe did not start')
+  if (result === undefined) throw new Error('Reviewer container did not start')
   if (containerPolicy === undefined) {
-    throw new Error('Docker probe policy was not observed')
+    throw new Error('Reviewer container policy was not observed')
   }
   const inspect = await runCommand('docker', ['inspect', containerName], { timeoutMs: 5_000 })
   if (inspect.exitCode === 0 || !inspect.stderr.toLowerCase().includes('no such object')) {

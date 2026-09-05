@@ -14,6 +14,7 @@ if (!prompt.includes('/review-input') || !prompt.includes('newline-delimited JSO
 const bundle = (await Bun.file('/review-input/bundle.json').json()) as { inventory: unknown[] }
 const authPath = provider === 'codex' ? '/auth/codex/auth.json' : '/auth/claude/.credentials.json'
 const behavior = await Bun.file(authPath).text()
+if (behavior.includes('factory-test-delay')) await Bun.sleep(1_500)
 const response = `${JSON.stringify(
   behavior.includes('factory-test-high-finding')
     ? {

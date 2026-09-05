@@ -1,4 +1,4 @@
-import { chmod, cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { chmod, cp, mkdir, mkdtemp, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -18,23 +18,38 @@ async function command(args: readonly string[], cwd: string): Promise<string> {
   return stdout.trim()
 }
 
-async function factory(
-  args: readonly string[],
-  cwd: string,
-  environment: NodeJS.ProcessEnv,
-): Promise<{ code: number; output: string }> {
-  const child = Bun.spawn([process.execPath, factoryProgram, ...args], {
+function startFactory(args: readonly string[], cwd: string, environment: NodeJS.ProcessEnv) {
+  return Bun.spawn([process.execPath, factoryProgram, ...args], {
     cwd,
     env: environment,
     stdout: 'pipe',
     stderr: 'pipe',
   })
+}
+
+async function finishFactory(
+  child: ReturnType<typeof startFactory>,
+): Promise<{ code: number; output: string }> {
   const [code, stdout, stderr] = await Promise.all([
     child.exited,
     new Response(child.stdout).text(),
     new Response(child.stderr).text(),
   ])
   return { code, output: `${stdout}${stderr}` }
+}
+
+async function factory(
+  args: readonly string[],
+  cwd: string,
+  environment: NodeJS.ProcessEnv,
+): Promise<{ code: number; output: string }> {
+  return await finishFactory(startFactory(args, cwd, environment))
+}
+
+async function observationCount(root: string): Promise<number> {
+  return await Array.fromAsync(
+    new Bun.Glob('repository-observations/*.json').scan({ cwd: join(root, '.factory') }),
+  ).then(paths => paths.length)
 }
 
 async function main() {
@@ -64,7 +79,7 @@ async function main() {
     const authRoot = join(root, 'dedicated-auth')
     await mkdir(authRoot)
     const auth = join(authRoot, 'auth.json')
-    await writeFile(auth, 'factory-test-high-finding\n', { mode: 0o444 })
+    await writeFile(auth, 'factory-test-high-finding factory-test-delay\n', { mode: 0o444 })
     await chmod(auth, 0o444)
     const image = await command(
       ['docker', 'build', '-q', resolve(import.meta.dir, '../docker/reviewer-isolation')],
@@ -111,6 +126,67 @@ async function main() {
     )
       throw new Error(
         `factory review retry did not enforce its exact prior ledger: ${second.output}`,
+      )
+
+    const beforeWaiter = await observationCount(root)
+    const lockHolder = startFactory(['review', '--force'], root, environment)
+    const observationDeadline = Date.now() + 10_000
+    while ((await observationCount(root)) === beforeWaiter) {
+      if (Date.now() >= observationDeadline)
+        throw new Error('first review did not acquire the subject lock')
+      await Bun.sleep(25)
+    }
+    const waiter = startFactory(['review', '--force'], root, environment)
+    await Bun.sleep(100)
+    await writeFile(
+      join(root, '.factory', 'config.json'),
+      canonicalJson({
+        schemaVersion: 1,
+        reviewer: { provider: 'claude', model: 'claude-new', effort: 'high' },
+      }),
+    )
+    const [holderResult, waiterResult] = await Promise.all([
+      finishFactory(lockHolder),
+      finishFactory(waiter),
+    ])
+    const waiterReview = JSON.parse(waiterResult.output) as {
+      disposition: string
+      reviewer: { provider: string; model: string }
+    }
+    if (
+      holderResult.code !== 0 ||
+      waiterResult.code !== 1 ||
+      waiterReview.disposition !== 'failed' ||
+      waiterReview.reviewer.provider !== 'claude' ||
+      waiterReview.reviewer.model !== 'claude-new'
+    )
+      throw new Error(`subject-lock waiter used stale repository policy: ${waiterResult.output}`)
+
+    const claudeAuth = join(authRoot, 'claude.json')
+    await writeFile(claudeAuth, 'factory-test-prefix-nonzero\n', { mode: 0o444 })
+    const partialEnvironment = { ...environment, FACTORY_CLAUDE_AUTH_FILE: claudeAuth }
+    const partial = await factory(['review', '--force'], root, partialEnvironment)
+    const partialReview = JSON.parse(partial.output) as { reviewId: string; disposition: string }
+    if (partial.code !== 1 || partialReview.disposition !== 'partial')
+      throw new Error(
+        `factory review did not produce the partial acceptance fixture: ${partial.output}`,
+      )
+    const attempts = join(root, '.git', 'factory-runtime', 'review-attempts-v1')
+    await rename(attempts, `${attempts}-saved`)
+    const poison = join(root, 'unsafe-attempt-runtime')
+    await mkdir(poison)
+    await symlink(poison, attempts)
+    const acceptedPartial = await factory(
+      ['review', '--accept-partial', partialReview.reviewId],
+      root,
+      noImageEnvironment,
+    )
+    if (
+      acceptedPartial.code !== 0 ||
+      (JSON.parse(acceptedPartial.output) as { status?: string }).status !== 'accepted-partial'
+    )
+      throw new Error(
+        `portable partial acceptance depended on runtime recovery: ${acceptedPartial.output}`,
       )
     process.stdout.write(
       canonicalJson({ schemaVersion: 1, first: accepted.disposition, retry: 'already-reviewed' }),

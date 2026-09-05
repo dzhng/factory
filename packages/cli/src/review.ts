@@ -7,9 +7,8 @@ import { openRepositoryStore, withAdvisoryFileLock } from '@factory/repository'
 import {
   acceptPartialCoverageByReviewId,
   acceptReview,
-  committedReviewManifests,
-  reviewFindingsMeetThreshold,
-  reviewSubjectLineage,
+  loadStoredReviews,
+  storedReviewFindingsMeetThreshold,
   storedReviewResult,
   subjectPathLineage,
   validateReview,
@@ -174,26 +173,16 @@ export async function reviewCommand(
   output: ReviewOutput,
 ): Promise<number> {
   const options = parseReviewOptions(args)
-  const coordinator = await ReviewAttemptCoordinator.open({ repositoryRoot })
+  const store = await openRepositoryStore(repositoryRoot)
   if (options.acceptPartial !== undefined) {
-    const store = await openRepositoryStore(repositoryRoot)
     const path = await acceptPartialCoverageByReviewId(store, options.acceptPartial)
     output.stdout(canonicalJson({ schemaVersion: 1, status: 'accepted-partial', path }))
     return 0
   }
-  const store = await openRepositoryStore(repositoryRoot)
   const reviewerDefaults = requiredReviewDefaults(environment)
   reviewerAdapter({ provider: 'codex', ...reviewerDefaults.codex })
   reviewerAdapter({ provider: 'claude', ...reviewerDefaults.claude })
-  const repositorySettings = await store.readConfig()
-  if (repositorySettings.reviewer !== undefined && repositorySettings.reviewer !== 'auto') {
-    const configured = repositorySettings.reviewer
-    reviewerAdapter({
-      provider: configured.provider,
-      model: configured.model ?? reviewerDefaults[configured.provider].model,
-      effort: configured.effort ?? reviewerDefaults[configured.provider].effort,
-    })
-  }
+  const coordinator = await ReviewAttemptCoordinator.open({ repositoryRoot })
   const subjectLock = join(
     coordinator.runtimeRoot,
     `subject-${createHash('sha256')
@@ -206,6 +195,15 @@ export async function reviewCommand(
       .digest('hex')}.lock`,
   )
   return await withAdvisoryFileLock(subjectLock, 24 * 60 * 60 * 1_000, async () => {
+    const repositorySettings = await store.readConfig()
+    if (repositorySettings.reviewer !== undefined && repositorySettings.reviewer !== 'auto') {
+      const configured = repositorySettings.reviewer
+      reviewerAdapter({
+        provider: configured.provider,
+        model: configured.model ?? reviewerDefaults[configured.provider].model,
+        effort: configured.effort ?? reviewerDefaults[configured.provider].effort,
+      })
+    }
     const subjectPath = await observeReviewSubject(
       repositoryRoot,
       store,
@@ -213,19 +211,19 @@ export async function reviewCommand(
       environment,
     )
     const stored = await store.readRecords()
-    const committedReviews = committedReviewManifests(stored.records)
+    const committedReviews = loadStoredReviews(stored.records)
     const lineage = subjectPathLineage(subjectPath, stored.records)
     const retryGeneration = committedReviews
       .filter(
         review =>
-          reviewSubjectLineage(review, stored.records) === lineage &&
-          (review.disposition === 'failed' ||
-            review.limitations.some(item => item.code === 'invalid-review-output')),
+          review.lineage === lineage &&
+          (review.manifest.disposition === 'failed' ||
+            review.manifest.limitations.some(item => item.code === 'invalid-review-output')),
       )
-      .map(review => review.reviewId)
+      .map(review => review.manifest.reviewId)
       .sort()
       .at(-1)
-    await coordinator.reconcileAccepted(committedReviews)
+    await coordinator.reconcileAccepted(committedReviews.map(review => review.manifest))
     const reader = await openReviewRepositoryReader(store.factoryRoot)
     const history = await loadReviewHistory(reader)
     const evidence = await loadReviewInputs(reader, {
@@ -253,11 +251,12 @@ export async function reviewCommand(
     const plan = planReview(bindReviewPolicies(evidence, policies))
     if (plan.status !== 'ready') {
       if (plan.status === 'already-reviewed') {
-        const priorId = plan.priorLedger?.ledger.reviewId
-        const prior = committedReviews.find(review => review.reviewId === priorId)
+        const prior = committedReviews.find(
+          review => review.paths.ledger === plan.priorLedger?.path,
+        )
         if (prior !== undefined) {
           output.stdout(canonicalJson(storedReviewResult(prior, 'already-reviewed')))
-          return (await reviewFindingsMeetThreshold(store, prior.reviewId, options.failOn)) ? 1 : 0
+          return storedReviewFindingsMeetThreshold(prior, options.failOn) ? 1 : 0
         }
       }
       output.stdout(
@@ -299,20 +298,19 @@ export async function reviewCommand(
           break
         } catch (error) {
           if (!(error instanceof ReviewAttemptAlreadyFinalizedError)) throw error
-          const currentReviews = committedReviewManifests((await store.readRecords()).records)
-          if (!currentReviews.some(review => review.reviewId === error.reviewId)) {
+          const currentReviews = loadStoredReviews((await store.readRecords()).records)
+          const matches = currentReviews.filter(
+            review => review.manifest.reviewId === error.reviewId && review.lineage === lineage,
+          )
+          if (matches.length === 0) {
             executionGeneration = error.reviewId
             continue
           }
-          const enforced = await reviewFindingsMeetThreshold(store, error.reviewId, options.failOn)
-          output.stdout(
-            canonicalJson(
-              storedReviewResult(
-                currentReviews.find(review => review.reviewId === error.reviewId)!,
-                'already-reviewed',
-              ),
-            ),
-          )
+          if (matches.length !== 1)
+            throw new Error('finalized review identity is ambiguous in the current subject')
+          const current = matches[0]!
+          const enforced = storedReviewFindingsMeetThreshold(current, options.failOn)
+          output.stdout(canonicalJson(storedReviewResult(current, 'already-reviewed')))
           return error.outcome.executionFailed || enforced ? 1 : 0
         }
       }
@@ -324,12 +322,12 @@ export async function reviewCommand(
         accepted,
         executionGeneration,
       )
-      const enforced = await reviewFindingsMeetThreshold(store, accepted.reviewId, options.failOn)
-      const acceptedManifest = committedReviewManifests((await store.readRecords()).records).find(
-        review => review.reviewId === accepted.reviewId,
+      const acceptedReview = loadStoredReviews((await store.readRecords()).records).find(
+        review => review.manifest.reviewId === accepted.reviewId && review.lineage === lineage,
       )
-      if (acceptedManifest === undefined) throw new Error('accepted review manifest is absent')
-      output.stdout(canonicalJson(storedReviewResult(acceptedManifest)))
+      if (acceptedReview === undefined) throw new Error('accepted review manifest is absent')
+      const enforced = storedReviewFindingsMeetThreshold(acceptedReview, options.failOn)
+      output.stdout(canonicalJson(storedReviewResult(acceptedReview)))
       return accepted.executionFailed || enforced ? 1 : 0
     } finally {
       await rm(bundleParent, { recursive: true, force: true })

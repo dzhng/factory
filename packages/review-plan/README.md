@@ -18,9 +18,8 @@ descriptor-confined repository snapshot, while bundle verification rebuilds
 the same joins without consulting the live repository.
 
 Subject acquisition belongs here as the upstream edge of planning. Workspace
-subjects delegate exact Git observation to capture; PR subjects combine a fresh
-provider observation only with verified committed Session and association
-graphs.
+subjects persist an exact Git observation; PR subjects combine a fresh provider
+observation only with verified committed Session and association graphs.
 
 This package decides whether execution is necessary; it does not start Docker.
 The execution owner stops on every status except `ready`, then accepts only a
