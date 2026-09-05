@@ -1,6 +1,6 @@
 # Factory v1 specification
 
-Status: **in implementation; Slices 01–10 are complete**
+Status: **in implementation; Slices 01–11 are complete**
 
 ## Next Agent Prompt
 
@@ -21,10 +21,13 @@ Status: **in implementation; Slices 01–10 are complete**
 > workspace/PR bundles through `c934ba8`. Slice 09 implements isolated review
 > execution and immutable acceptance through `37d9a04`. Slice 10 implements
 > verified decision observations, deterministic canonical folding, and linear
-> append-only human actions through `d33b21e`.
-> Next, begin Slice 11 without widening the localhost or filesystem authority.
+> append-only human actions through `d33b21e`. Slice 11 implements the
+> short-lived loopback interface, shared verified historical projections,
+> typed append-only browser actions, and deterministic visual verification
+> through `77bbf11`.
+> Next, begin Slice 12 without widening host, repository, or provider authority.
 > Read `AGENTS.md`, `SECURITY.md`, this README, `choices.md`, `format.md`, and
-> Slices 10 and 11 in full.
+> Slices 11 and 12 in full.
 > Slice 06's packaged networkless Docker vertical passes both provider fixtures,
 > continuing/cross-repository Sessions, hook recovery, automatic initialization,
 > partial transcripts, Git sentinels, and rebuild after derived-index deletion.
@@ -49,7 +52,11 @@ Status: **in implementation; Slices 01–10 are complete**
 > manifest; the journal passes 32 Docker tests, repository storage 14, and Git
 > observation/reconstruction 36; the GitHub workspace passes 19 Docker tests
 > with 147 assertions; the combined workspace passes build, formatting, lint,
-> types, and all package tests. Global TODOs: rerun current-client
+> types, and all package tests; the localhost lab matches eight wide/narrow
+> screenshots across twelve scenarios, fresh unprimed critique found no
+> blocking visual defect, and the packaged CLI passes 21 Docker verticals with
+> 201 assertions, including real loopback actions that preserve prior evidence
+> bytes. Global TODOs: rerun current-client
 > authority when the registry is reachable; define verified code-state
 > continuity before enabling it; choose the release channel before Slice 12.
 > After every pass, update this prompt with the completed commit, exact next
