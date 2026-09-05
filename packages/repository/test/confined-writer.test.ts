@@ -25,6 +25,44 @@ afterEach(async () => {
 })
 
 describe('ConfinedWriter', () => {
+  test.each(['normal', 'zero-inode'])(
+    'does not confuse runtime errno changes with a native directory read failure %s',
+    async mode => {
+      const child = Bun.spawn(
+        [
+          process.execPath,
+          join(import.meta.dir, 'directory-boundary.fixture.ts'),
+          ...(mode === 'zero-inode' ? ['--zero-inode'] : []),
+        ],
+        { stdout: 'pipe', stderr: 'pipe' },
+      )
+      const [code, stdout, stderr] = await Promise.all([
+        child.exited,
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+      ])
+      expect(stderr).toBe('')
+      expect(code).toBe(0)
+      expect(JSON.parse(stdout)).toEqual([
+        { kind: 'directory', path: 'nested' },
+        { kind: 'file', path: 'nested/file' },
+      ])
+    },
+  )
+  test('refuses a real native directory read error instead of treating it as EOF', async () => {
+    const child = Bun.spawn(
+      [process.execPath, join(import.meta.dir, 'directory-boundary.fixture.ts'), '--fail-read'],
+      { stdout: 'pipe', stderr: 'pipe' },
+    )
+    const [code, stdout, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+    ])
+    expect(stderr).toBe('')
+    expect(code).toBe(0)
+    expect(JSON.parse(stdout)).toEqual({ refused: true })
+  })
   test('inventories an ordinary tree and enforces every bound', async () => {
     const root = await mkdtemp(join(tmpdir(), 'factory-confined-inventory-'))
     roots.push(root)
@@ -47,6 +85,22 @@ describe('ConfinedWriter', () => {
     await expect(inventoryConfinedTree(root, { ...bounds, maximumDepth: 1 })).rejects.toThrow(
       'depth',
     )
+  })
+
+  test('inventories long names across native directory batches', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'factory-directory-batches-'))
+    roots.push(root)
+    const names = Array.from(
+      { length: 260 },
+      (_, index) => `${String(index).padStart(3, '0')}-${'x'.repeat(251)}`,
+    )
+    for (const name of names) await writeFile(join(root, name), '')
+    const result = await inventoryConfinedTree(root, {
+      maximumEntries: names.length,
+      maximumFileBytes: 0,
+      maximumBytes: 0,
+    })
+    expect(result.map(entry => entry.path).sort()).toEqual(names)
   })
 
   test('filters root namespaces before charging inventory bounds', async () => {

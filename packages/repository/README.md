@@ -29,6 +29,11 @@ The same descriptor-rooted primitive inventories already materialized trees
 for bundle verification, so a pathname swap cannot hide an undeclared file or
 redirect a read outside the verified root.
 
+Native directory reads carry EOF and failure in their return value, not in
+libc's thread-local `errno`: unrelated runtime work between native and JavaScript
+execution can change that side channel. Bounded directory batches retain raw
+filename bytes and descriptor ownership without adding a C-compiler dependency.
+
 Capture publishes immutable record graphs through one repository-owned grouped
 operation. The trigger is the logical commit point: interrupted create-only
 prefixes are ignored by projections and converge byte-for-byte during recovery.

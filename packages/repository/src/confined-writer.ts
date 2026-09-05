@@ -25,40 +25,19 @@ async function createBackend() {
       fchmod: { args: ['i32', 'i32'], returns: 'i32' },
       symlinkat: { args: ['ptr', 'i32', 'ptr'], returns: 'i32' },
       readlinkat: { args: ['i32', 'ptr', 'ptr', 'usize'], returns: 'i64' },
-      fdopendir: { args: ['i32'], returns: 'ptr' },
-      readdir: { args: ['ptr'], returns: 'ptr' },
-      closedir: { args: ['ptr'], returns: 'i32' },
       close: { args: ['i32'], returns: 'i32' },
       flock: { args: ['i32', 'i32'], returns: 'i32' },
     },
   )
-  const errnoBuffer =
-    process.platform === 'darwin'
-      ? (() => {
-          const errnoLibrary = ffi.dlopen('/usr/lib/libSystem.B.dylib', {
-            __error: { args: [], returns: 'ptr' },
-          })
-          return () => {
-            const pointer = errnoLibrary.symbols.__error()
-            if (pointer === null) throw new Error('native errno pointer is unavailable')
-            return Buffer.from(ffi.toArrayBuffer(pointer, 0, 4))
-          }
-        })()
-      : (() => {
-          const errnoLibrary = ffi.dlopen('libc.so.6', {
-            __errno_location: { args: [], returns: 'ptr' },
-          })
-          return () => {
-            const pointer = errnoLibrary.symbols.__errno_location()
-            if (pointer === null) throw new Error('native errno pointer is unavailable')
-            return Buffer.from(ffi.toArrayBuffer(pointer, 0, 4))
-          }
-        })()
+  const directoryReadName = process.platform === 'darwin' ? '__getdirentries64' : 'getdirentries64'
+  const directoryLibrary = ffi.dlopen(
+    process.platform === 'darwin' ? '/usr/lib/libSystem.B.dylib' : 'libc.so.6',
+    { [directoryReadName]: { args: ['i32', 'ptr', 'usize', 'ptr'], returns: 'i64' } },
+  )
   return {
     library,
     ptr: ffi.ptr,
-    toArrayBuffer: ffi.toArrayBuffer,
-    errnoBuffer,
+    readDirectory: directoryLibrary.symbols[directoryReadName]!,
   }
 }
 
@@ -441,38 +420,46 @@ export class ConfinedWriter {
       0,
     )
     if (enumeration < 0) throw new Error('cannot open confined reconstruction inventory')
-    const directory = this.backend.library.symbols.fdopendir(enumeration)
-    if (directory === null) {
-      this.backend.library.symbols.close(enumeration)
-      throw new Error('cannot enumerate confined reconstruction directory')
-    }
     const entries: Buffer[] = []
     const nameOffset = process.platform === 'darwin' ? 21 : 19
-    const nameCapacity = process.platform === 'darwin' ? 1024 : 256
+    const buffer = Buffer.alloc(64 * 1024)
+    const position = Buffer.alloc(8)
     try {
       for (;;) {
-        const errno = this.backend.errnoBuffer()
-        errno.writeInt32LE(0)
-        const entry = this.backend.library.symbols.readdir(directory)
-        if (entry === null) {
-          if (errno.readInt32LE() !== 0) {
-            throw new Error('cannot read confined reconstruction directory')
-          }
-          break
-        }
-        const field = Buffer.from(this.backend.toArrayBuffer(entry, nameOffset, nameCapacity))
-        const end = field.indexOf(0)
-        if (end < 0) throw new Error('invalid native directory entry')
-        const name = Buffer.from(field.subarray(0, end))
-        if (name.equals(Buffer.from('.')) || name.equals(Buffer.from('..'))) continue
-        if (allowedNames !== undefined && !allowedNames.has(name.toString('utf8'))) continue
-        entries.push(name)
-        if (entries.length > maximumEntries) {
-          throw new Error('reconstruction inventory exceeds the expected tree')
+        // EOF and failure travel in the native return value. libc errno cannot
+        // safely carry that distinction across unrelated JavaScript/FFI work.
+        const bytes = Number(
+          this.backend.readDirectory(
+            enumeration,
+            this.backend.ptr(buffer),
+            buffer.byteLength,
+            this.backend.ptr(position),
+          ),
+        )
+        if (bytes < 0) throw new Error('cannot read confined reconstruction directory')
+        if (bytes === 0) break
+        if (bytes > buffer.byteLength) throw new Error('invalid native directory batch')
+        for (let offset = 0; offset < bytes; ) {
+          if (bytes - offset < nameOffset + 1) throw new Error('invalid native directory entry')
+          const recordBytes = buffer.readUInt16LE(offset + 16)
+          if (recordBytes < nameOffset + 1 || recordBytes > bytes - offset)
+            throw new Error('invalid native directory entry')
+          const field = buffer.subarray(offset + nameOffset, offset + recordBytes)
+          const end = field.indexOf(0)
+          if (end < 0) throw new Error('invalid native directory entry')
+          const name = Buffer.from(field.subarray(0, end))
+          // Darwin readdir skips vacant inode slots; glibc returns them.
+          const vacant = process.platform === 'darwin' && buffer.readBigUInt64LE(offset) === 0n
+          offset += recordBytes
+          if (vacant || name.equals(Buffer.from('.')) || name.equals(Buffer.from('..'))) continue
+          if (allowedNames !== undefined && !allowedNames.has(name.toString('utf8'))) continue
+          entries.push(name)
+          if (entries.length > maximumEntries)
+            throw new Error('reconstruction inventory exceeds the expected tree')
         }
       }
     } finally {
-      this.backend.library.symbols.closedir(directory)
+      this.backend.library.symbols.close(enumeration)
     }
     return entries.sort(Buffer.compare)
   }
