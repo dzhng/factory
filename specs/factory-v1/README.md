@@ -24,8 +24,12 @@ Status: **in implementation; Slices 01–11 are complete**
 > append-only human actions through `d33b21e`. Slice 11 implements the
 > short-lived loopback interface, shared verified historical projections,
 > typed append-only browser actions, and deterministic visual verification
-> through `77bbf11`.
-> Next, begin Slice 12 without widening host, repository, or provider authority.
+> through `77bbf11`. Slice 12 Passes 1–3 add verified release artifacts,
+> owner-supplied diagnostics, one tagged installation transaction, and
+> crash-safe executable upgrade through `5522f88`.
+> Next, implement Slice 12 Pass 4: certify the exact packed artifact through
+> clean install, capture, review, actions, UI, diagnostics, uninstall, and
+> upgrade without widening host, repository, or provider authority.
 > Read `AGENTS.md`, `SECURITY.md`, this README, `choices.md`, `format.md`, and
 > Slices 11 and 12 in full.
 > Slice 06's packaged networkless Docker vertical passes both provider fixtures,
@@ -54,11 +58,15 @@ Status: **in implementation; Slices 01–11 are complete**
 > with 147 assertions; the combined workspace passes build, formatting, lint,
 > types, and all package tests; the localhost lab matches eight wide/narrow
 > screenshots across twelve scenarios, fresh unprimed critique found no
-> blocking visual defect, and the packaged CLI passes 21 Docker verticals with
-> 201 assertions, including real loopback actions that preserve prior evidence
-> bytes. Global TODOs: rerun current-client
+> blocking visual defect, and the packaged CLI passes 25 Docker verticals with
+> 249 assertions, including real loopback actions that preserve prior evidence
+> bytes. A dedicated glibc Linux x64 lane passes eight executable-upgrade tests
+> with 79 assertions across every journal boundary, hostile state, contention,
+> and pre-promotion mutation; a musl x64 lane proves that unsupported libc does
+> not claim release authority. Global TODOs: rerun current-client
 > authority when the registry is reachable; define verified code-state
-> continuity before enabling it; choose the release channel before Slice 12.
+> continuity before enabling it; complete exact-artifact certification and the
+> native release matrix.
 > After every pass, update this prompt with the completed commit, exact next
 > pickup, blockers, and changed gates.
 
