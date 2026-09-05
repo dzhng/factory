@@ -114,7 +114,7 @@ export function unavailableReviewerExecutor(): ReviewerExecutor {
   }
 }
 
-/** Production Docker execution through the same observed isolation boundary as the Slice 02 oracle. */
+/** Execute only after Docker's observed container state satisfies the isolation policy. */
 export const dockerReviewerExecutor: ReviewerExecutor = {
   async run(bundle, choice, input) {
     const before = await readVerifiedReviewBundle(bundle)
