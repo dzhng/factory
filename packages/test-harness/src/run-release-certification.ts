@@ -20,6 +20,7 @@ import {
   verifyReleaseArtifact,
   type ReleaseTarget,
 } from '@factory/cli'
+import { reviewerImageIdentity } from '@factory/reviewer'
 
 type CommandResult = { code: number; stdout: string; stderr: string }
 type Journey = { name: string; status: 'passed'; detail: string }
@@ -278,6 +279,34 @@ if (expectedVersion === undefined) throw new Error('--expected-version is requir
 const expectedManifestSha256 = option('--manifest-sha256')
 if (expectedManifestSha256 === undefined) throw new Error('--manifest-sha256 is required')
 const reportRoot = resolve(option('--output') ?? join(tmpdir(), 'factory-release-certification'))
+const requestedReviewerImage = option('--reviewer-image')
+const requestedCodexAuth = option('--codex-auth')
+const requestedClaudeAuth = option('--claude-auth')
+const authenticatedOptions = [requestedReviewerImage, requestedCodexAuth, requestedClaudeAuth].some(
+  value => value !== undefined,
+)
+if (
+  authenticatedOptions &&
+  (requestedReviewerImage === undefined ||
+    requestedCodexAuth === undefined ||
+    requestedClaudeAuth === undefined)
+)
+  throw new Error('--reviewer-image, --codex-auth, and --claude-auth are required together')
+const productionReviewer =
+  requestedReviewerImage === undefined
+    ? undefined
+    : {
+        image: requestedReviewerImage,
+        imageDigest: reviewerImageIdentity(requestedReviewerImage).digest,
+        codexAuth: resolve(requestedCodexAuth!),
+        claudeAuth: resolve(requestedClaudeAuth!),
+      }
+if (productionReviewer !== undefined) {
+  await Promise.all([
+    readBoundedOrdinaryFile(productionReviewer.codexAuth, 1024 * 1024),
+    readBoundedOrdinaryFile(productionReviewer.claudeAuth, 1024 * 1024),
+  ])
+}
 const archive = await readBoundedOrdinaryFile(archivePath, RELEASE_ARCHIVE_MAXIMUM_BYTES)
 const adjacentManifest = await readBoundedOrdinaryFile(manifestPath, RELEASE_METADATA_MAXIMUM_BYTES)
 const adjacent = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(adjacentManifest)) as {
@@ -389,8 +418,41 @@ try {
     detail: 'loopback projection confirmed a decision',
   })
 
+  let operationalEnvironment: NodeJS.ProcessEnv = reviewEnvironment
+  if (productionReviewer !== undefined) {
+    const authenticatedEnvironment = {
+      ...environment,
+      FACTORY_REVIEWER_IMAGE: productionReviewer.image,
+      FACTORY_CODEX_AUTH_FILE: productionReviewer.codexAuth,
+      FACTORY_CLAUDE_AUTH_FILE: productionReviewer.claudeAuth,
+    }
+    for (const provider of ['codex', 'claude'] as const) {
+      await succeed(
+        executable,
+        ['configure', '--repo', '--reviewer', provider],
+        repository,
+        authenticatedEnvironment,
+      )
+      const authenticatedReview = await succeed(
+        executable,
+        ['review', '--force'],
+        repository,
+        authenticatedEnvironment,
+      )
+      const result = JSON.parse(authenticatedReview.stdout) as { disposition: string }
+      if (result.disposition !== 'complete')
+        throw new Error(`${provider} authenticated review was not complete`)
+      journeys.push({
+        name: `review-${provider}`,
+        status: 'passed',
+        detail: 'dedicated credentials executed through the production image',
+      })
+    }
+    operationalEnvironment = authenticatedEnvironment
+  }
+
   const doctor = JSON.parse(
-    (await succeed(executable, ['doctor'], repository, reviewEnvironment)).stdout,
+    (await succeed(executable, ['doctor'], repository, operationalEnvironment)).stdout,
   ) as {
     repository: string
     installation: { transaction: string }
@@ -425,7 +487,7 @@ try {
       expectedManifestSha256,
     ],
     repository,
-    reviewEnvironment,
+    operationalEnvironment,
   )
   journeys.push({
     name: 'upgrade',
@@ -433,7 +495,7 @@ try {
     detail: 'exact artifact atomically reinstalled',
   })
 
-  await succeed(executable, ['uninstall'], repository, reviewEnvironment)
+  await succeed(executable, ['uninstall'], repository, operationalEnvironment)
   const providerBytes = await Promise.all([
     readFile(join(home, '.codex', 'hooks.json'), 'utf8'),
     readFile(join(home, '.claude', 'settings.json'), 'utf8'),
@@ -464,8 +526,13 @@ try {
     },
     providers: doctor.providers,
     authorities: {
-      providerExecution: 'deterministic-isolation-fixture',
-      realProviderCredentials: 'unavailable',
+      providerExecution:
+        productionReviewer === undefined
+          ? 'deterministic-isolation-fixture'
+          : 'authenticated-production-image',
+      realProviderCredentials:
+        productionReviewer === undefined ? 'unavailable' : 'caller-supplied-dedicated-files',
+      reviewerImageDigest: productionReviewer?.imageDigest ?? 'local-fixture',
       githubReleaseAttestation: 'unavailable',
     },
     journeys,

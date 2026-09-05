@@ -466,11 +466,23 @@ describe('installed capture vertical', () => {
     expect(
       await command(
         value.factory,
-        ['configure', '--repo', '--canonical-branch', 'release'],
+        ['configure', '--repo', '--canonical-branch', 'release', '--reviewer', 'claude'],
         value.repository,
         value.env,
       ),
     ).toMatchObject({ code: 0 })
+    expect((await openRepositoryStore(value.repository)).readConfig()).resolves.toMatchObject({
+      canonicalBranch: 'release',
+      reviewer: { provider: 'claude' },
+    })
+    expect(
+      await command(
+        value.factory,
+        ['configure', '--repo', '--reviewer', 'unknown'],
+        value.repository,
+        value.env,
+      ),
+    ).toMatchObject({ code: 1, stderr: expect.stringContaining('auto, codex, or claude') })
     expect(
       await command(
         value.factory,

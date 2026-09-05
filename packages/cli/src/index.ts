@@ -728,6 +728,16 @@ export async function runFactoryCli(
         canonicalBranch,
         automaticReview: boolOption(readOption(args, '--automatic-review')),
       }
+      const reviewer = readOption(args, '--reviewer')
+      if (
+        reviewer !== undefined &&
+        reviewer !== 'auto' &&
+        reviewer !== 'codex' &&
+        reviewer !== 'claude'
+      )
+        throw new TypeError('--reviewer must be auto, codex, or claude')
+      if (reviewer !== undefined)
+        change.reviewer = reviewer === 'auto' ? 'auto' : { provider: reviewer }
       const initialization = readOption(args, '--repository-initialization')
       if (initialization !== undefined) {
         if (target === 'repo') {
@@ -762,6 +772,7 @@ export async function runFactoryCli(
             : await canonicalSuggestion(root, environment, change.canonicalBranch)
         await store.updateConfig({
           ...(branch === undefined ? {} : { canonicalBranch: branch.branch }),
+          ...(change.reviewer === undefined ? {} : { reviewer: change.reviewer }),
           ...(change.automaticReview === undefined
             ? {}
             : { automaticReview: change.automaticReview }),

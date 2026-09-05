@@ -148,6 +148,7 @@ ${rows.map(([name, result]) => `<tr><td>${escapeHtml(name ?? '')}</td><td>${esca
 
 async function probe(
   provider: ReviewerProvider,
+  imageReference: string,
   imageDigest: string,
   root: string,
   scenario: 'success' | 'hang' | 'descendant',
@@ -174,7 +175,7 @@ async function probe(
     const controller = new AbortController()
     setTimeout(() => controller.abort(), 3_000)
     return await runIsolationProbe(plan.plan, {
-      imageReference: imageDigest,
+      imageReference,
       imageDigest,
       scenario,
       signal: controller.signal,
@@ -182,7 +183,7 @@ async function probe(
     })
   }
   return await runIsolationProbe(plan.plan, {
-    imageReference: imageDigest,
+    imageReference,
     imageDigest,
     scenario,
     ...(termination === 'timed-out' ? { timeoutMs: 3_000 } : {}),
@@ -199,6 +200,7 @@ async function main(): Promise<void> {
   )
   const root = await mkdtemp(join(tmpdir(), 'factory-reviewer-isolation-'))
   const secret = `fixture-credential-${crypto.randomUUID()}`
+  const imageFlag = process.argv.indexOf('--reviewer-image')
 
   try {
     await mkdir(join(root, 'bundle'))
@@ -208,14 +210,21 @@ async function main(): Promise<void> {
     await chmod(join(root, 'auth', 'credentials.json'), 0o444)
 
     const dockerfile = resolve(import.meta.dir, '../docker/reviewer-isolation/Dockerfile')
-    const imageDigest = await command([
-      'docker',
-      'build',
-      '--quiet',
-      '--file',
-      dockerfile,
-      resolve(import.meta.dir, '../../..'),
-    ])
+    const imageReference =
+      imageFlag === -1
+        ? await command([
+            'docker',
+            'build',
+            '--quiet',
+            '--file',
+            dockerfile,
+            resolve(import.meta.dir, '../../..'),
+          ])
+        : process.argv[imageFlag + 1]
+    const imageDigest = imageReference?.match(/(?:^|@)(sha256:[0-9a-f]{64})$/)?.[1]
+    if (imageReference === undefined || imageDigest === undefined)
+      throw new Error('--reviewer-image must be a digest-qualified immutable reference')
+    if (imageReference !== imageDigest) await command(['docker', 'pull', imageReference])
 
     const collisionOutput = join(root, 'output-foreign-collision')
     await mkdir(collisionOutput)
@@ -239,7 +248,7 @@ async function main(): Promise<void> {
     ])
     try {
       await runIsolationProbe(collisionPlan.plan, {
-        imageReference: imageDigest,
+        imageReference,
         imageDigest,
         containerIdentity: { name: collisionName, label: 'factory-owner' },
       })
@@ -259,7 +268,15 @@ async function main(): Promise<void> {
       throw new Error('Factory removed or replaced a foreign collision container')
     await command(['docker', 'rm', '--force', collisionName])
 
-    const success = await probe('fake', imageDigest, root, 'success', 'completed', secret)
+    const success = await probe(
+      'fake',
+      imageReference,
+      imageDigest,
+      root,
+      'success',
+      'completed',
+      secret,
+    )
     assertSuccessful(success)
     if ((process.getuid?.() ?? 0) > 0) {
       const privateAuth = join(root, 'auth', 'private-credentials.json')
@@ -280,7 +297,7 @@ async function main(): Promise<void> {
       })
       if (!privatePlan.ok) throw new Error(privatePlan.detail)
       const privateReport = await runIsolationProbe(privatePlan.plan, {
-        imageReference: imageDigest,
+        imageReference,
         imageDigest,
         sensitiveValues: [secret],
       })
@@ -290,10 +307,27 @@ async function main(): Promise<void> {
       )
         throw new Error('private auth did not retain its validated non-root owner identity')
     }
-    const timeout = await probe('fake', imageDigest, root, 'hang', 'timed-out', secret)
-    const cancellation = await probe('fake', imageDigest, root, 'hang', 'cancelled', secret)
+    const timeout = await probe(
+      'fake',
+      imageReference,
+      imageDigest,
+      root,
+      'hang',
+      'timed-out',
+      secret,
+    )
+    const cancellation = await probe(
+      'fake',
+      imageReference,
+      imageDigest,
+      root,
+      'hang',
+      'cancelled',
+      secret,
+    )
     const descendantCleanup = await probe(
       'fake',
+      imageReference,
       imageDigest,
       root,
       'descendant',
@@ -320,7 +354,7 @@ async function main(): Promise<void> {
     })
     if (!aliased.ok) throw new Error('symlink regression did not reach filesystem validation')
     try {
-      await runIsolationProbe(aliased.plan, { imageReference: imageDigest, imageDigest })
+      await runIsolationProbe(aliased.plan, { imageReference, imageDigest })
       throw new Error('writable output symlink alias was accepted')
     } catch (error) {
       if (!(error instanceof Error) || !error.message.includes('host-path-overlap')) throw error
@@ -333,7 +367,7 @@ async function main(): Promise<void> {
         throw error
     }
 
-    const imageHistory = await command(['docker', 'image', 'history', '--no-trunc', imageDigest])
+    const imageHistory = await command(['docker', 'image', 'history', '--no-trunc', imageReference])
     const scanned = [
       imageHistory,
       await readFile(dockerfile, 'utf8'),

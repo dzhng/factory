@@ -77,6 +77,11 @@ const archive = join(buildRoot, `${stem}.tar.gz`)
 const manifest = join(buildRoot, `${stem}.json`)
 const manifestSha256 = await boundedManifestDigest(manifest)
 const output = resolve(option('--output') ?? join(buildRoot, 'certification'))
+const authenticatedReviewArguments = [
+  ['--reviewer-image', option('--reviewer-image')],
+  ['--codex-auth', option('--codex-auth')],
+  ['--claude-auth', option('--claude-auth')],
+].flatMap(([name, value]) => (value === undefined ? [] : [name!, value]))
 await run([
   process.execPath,
   join(repositoryRoot, 'packages', 'test-harness', 'src', 'run-release-certification.ts'),
@@ -90,4 +95,5 @@ await run([
   version,
   '--output',
   output,
+  ...authenticatedReviewArguments,
 ])

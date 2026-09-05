@@ -1737,3 +1737,22 @@ second normative schema; the master specification and format own mechanics.
   immutable review-attempt model.
 - **Confidence:** High in the boundary; public publication remains pending its
   first successful workflow run.
+
+### Make authenticated certification explicit and two-provider complete
+
+- **When:** Release-authority completion milestone.
+- **The choice:** The release verifier enters authenticated mode only when an
+  immutable reviewer reference and separate dedicated Codex and Claude
+  credential files are supplied together. It retains the deterministic journey
+  for UI and lifecycle evidence, then forces one packaged production-path
+  review with each provider and reports that authority separately.
+- **The gap:** Ambient credential discovery could borrow a developer login, and
+  certifying only the automatically selected provider would leave the other
+  production adapter unproved.
+- **The reach:** Ordinary CI stays credential-free and truthful. A protected
+  lane or operator can provide the missing authority without creating a second
+  harness or weakening the image, credential, or exact-artifact boundaries.
+- **Verdict:** Sound. Explicit all-or-nothing inputs make the stronger claim
+  auditable and prevent partial provider coverage from looking complete.
+- **Confidence:** High in the seam; execution remains unavailable until
+  dedicated credentials are supplied.

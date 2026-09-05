@@ -26,6 +26,20 @@ uninstallation. Its report distinguishes deterministic fixture authority from
 unavailable real-provider credentials and GitHub release attestation; neither
 is converted into a simulated pass.
 
+An authenticated certification is opt-in and all-or-nothing:
+
+```sh
+bun run release:verify -- --version <version> \
+  --reviewer-image ghcr.io/dzhng/factory-reviewer@sha256:<digest> \
+  --codex-auth /path/to/dedicated-codex-auth.json \
+  --claude-auth /path/to/dedicated-claude-credentials.json
+```
+
+The harness refuses partial inputs. It validates the two caller-owned ordinary
+files without copying them, then forces one packaged production-path review per
+provider through the same immutable image. Environment overrides may select
+certification models and efforts; the product defaults apply otherwise.
+
 The governing capture contract and reslicing triggers live in the
 [Factory v1 specification](../../specs/factory-v1/README.md). Credential and
 container boundaries are owned by [`SECURITY.md`](../../SECURITY.md).

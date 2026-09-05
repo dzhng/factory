@@ -118,3 +118,12 @@ path, and a macOS arm64 environment with Docker completes that same path.
 Automated publication must not turn package-only macOS evidence into a release
 claim. The local HTML report screenshot is also an outstanding human
 presentation checkpoint, not a substitute for missing execution authority.
+
+Milestone `6fc6c64` adds the pinned multi-architecture production image,
+digest-only runtime acquisition, and the GHCR publication/provenance workflow.
+The release harness now accepts an immutable reviewer reference only when both
+dedicated provider credential files are explicitly supplied, then forces one
+packaged-path review through Codex and one through Claude. The ordinary CI path
+continues to report those credentials unavailable; this explicit mode does not
+borrow a developer login or turn deterministic fixtures into authenticated
+authority.
