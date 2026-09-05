@@ -276,4 +276,94 @@ describe('immutable review acceptance', () => {
     expect(publishedResponse!.byteLength).toBeLessThanOrEqual(1024 * 1024)
     expect(accepted).toMatchObject({ disposition: 'partial', executionFailed: true })
   })
+
+  test('persists closed sanitized failures when no semantic entry is valid', async () => {
+    const { bundle, manifest: bundleManifest, sha256 } = await fixture()
+    const invalidCitation = `${JSON.stringify({
+      kind: 'summary',
+      summary: 'Unsupported result',
+      evidence: [
+        {
+          object: {
+            ...(bundleManifest.inventory[0] as Record<string, unknown>),
+            role: 'forged-role',
+          },
+        },
+      ],
+    })}\n`
+    for (const scenario of [
+      { termination: 'authentication-unavailable' as const, response: '' },
+      { termination: 'docker-unavailable' as const, response: '' },
+      { termination: 'crashed' as const, response: '' },
+      { termination: 'completed' as const, response: '{malformed' },
+      { termination: 'completed' as const, response: invalidCitation },
+    ]) {
+      const validated = await validateReview(
+        bundle,
+        sealReviewerRawAttempt({
+          reviewId,
+          bundleSha256: sha256,
+          response: new TextEncoder().encode(scenario.response),
+          termination: scenario.termination,
+          exitCode: scenario.termination === 'completed' ? 0 : null,
+          outputTruncated: false,
+          reviewer: { settings: bundleManifest.plan.policies.reviewer },
+          imageDigest: `sha256:${'b'.repeat(64)}`,
+          providerCliVersion: scenario.termination === 'completed' ? 'fake-1' : null,
+          hostPlatform: 'linux/arm64',
+          startedAt: at,
+          completedAt: at,
+        }),
+      )
+      let paths: string[] = []
+      let manifest: ReviewManifest | undefined
+      const store = await authorizedStore(bundle, {
+        async publishImmutableGroup(records: readonly { path: string; bytes: Uint8Array }[]) {
+          paths = records.map(record => record.path)
+          const record = records.find(item => item.path.endsWith('manifest.json'))!
+          manifest = JSON.parse(new TextDecoder().decode(record.bytes)) as ReviewManifest
+          return { path: record.path, sha256: '', bytes: 0 }
+        },
+      })
+      const accepted = await acceptReview(validated, store)
+      expect(accepted).toMatchObject({ disposition: 'failed', executionFailed: true })
+      expect(paths.some(path => path.endsWith('ledger.json'))).toBe(false)
+      expect(manifest!.failureReason).toMatch(
+        /^(authentication-unavailable|docker-unavailable|reviewer-crashed|invalid-review-output)$/,
+      )
+    }
+  })
+
+  test('salvages a cited cancellation prefix as execution-partial', async () => {
+    const { bundle, manifest: bundleManifest, sha256 } = await fixture()
+    const validated = await validateReview(
+      bundle,
+      sealReviewerRawAttempt({
+        reviewId,
+        bundleSha256: sha256,
+        response: new TextEncoder().encode(
+          `${JSON.stringify({ kind: 'summary', summary: 'Useful before cancellation', evidence: [{ object: bundleManifest.inventory[0] }] })}\n`,
+        ),
+        termination: 'cancelled',
+        exitCode: null,
+        outputTruncated: false,
+        reviewer: { settings: bundleManifest.plan.policies.reviewer },
+        imageDigest: `sha256:${'b'.repeat(64)}`,
+        providerCliVersion: 'fake-1',
+        hostPlatform: 'linux/arm64',
+        startedAt: at,
+        completedAt: at,
+      }),
+    )
+    const store = await authorizedStore(bundle, {
+      async publishImmutableGroup(records: readonly { path: string; bytes: Uint8Array }[]) {
+        const record = records.find(item => item.path.endsWith('manifest.json'))!
+        return { path: record.path, sha256: '', bytes: 0 }
+      },
+    })
+    await expect(acceptReview(validated, store)).resolves.toMatchObject({
+      disposition: 'partial',
+      executionFailed: true,
+    })
+  })
 })

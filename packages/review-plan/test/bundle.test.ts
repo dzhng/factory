@@ -611,7 +611,11 @@ describe('verified review bundles', () => {
       join(parent, 'bundle'),
       'repo_test',
     )
-    expect((await verifyBundle(built.path, built.sha256)).valid).toBe(true)
+    const verification = await verifyBundle(built.path, built.sha256)
+    expect(verification.valid).toBe(true)
+    if (!verification.valid || plan.priorLedger === undefined)
+      throw new Error('expected verified incremental prior ledger')
+    expect(verification.authority.inventory).not.toContainEqual(plan.priorLedger.object)
     const overlappingPlan = planLoadedReview(
       await loadReviewInputsForTesting(historicalReader, {
         mode: 'force',
