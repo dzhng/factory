@@ -280,7 +280,7 @@ if (expectedManifestSha256 === undefined) throw new Error('--manifest-sha256 is 
 const reportRoot = resolve(option('--output') ?? join(tmpdir(), 'factory-release-certification'))
 const archive = await readBoundedOrdinaryFile(archivePath, RELEASE_ARCHIVE_MAXIMUM_BYTES)
 const adjacentManifest = await readBoundedOrdinaryFile(manifestPath, RELEASE_METADATA_MAXIMUM_BYTES)
-const adjacent = JSON.parse(adjacentManifest.toString()) as {
+const adjacent = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(adjacentManifest)) as {
   release: { target: ReleaseTarget }
 }
 const release = await verifyReleaseArtifact({
