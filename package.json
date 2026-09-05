@@ -26,6 +26,7 @@
     "check:localhost-ui": "bun run --cwd packages/test-harness check:localhost-ui",
     "lint": "turbo lint",
     "release:build": "bun run scripts/build-release.ts",
+    "release:verify": "bun run scripts/verify-release.ts",
     "lab:reviewer-isolation": "bun run --cwd packages/test-harness lab:reviewer-isolation",
     "test": "turbo test --continue && bun test scripts/*.test.ts"
   },

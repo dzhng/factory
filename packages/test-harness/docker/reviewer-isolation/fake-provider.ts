@@ -16,18 +16,28 @@ const authPath = provider === 'codex' ? '/auth/codex/auth.json' : '/auth/claude/
 const behavior = await Bun.file(authPath).text()
 if (behavior.includes('factory-test-delay')) await Bun.sleep(1_500)
 const response = `${JSON.stringify(
-  behavior.includes('factory-test-high-finding')
+  behavior.includes('factory-test-decision')
     ? {
-        kind: 'finding',
-        severity: 'high',
-        summary: 'Deterministic fake finding',
+        kind: 'decision',
+        decisionKey: 'release.certification',
+        effect: 'assert',
+        assertion: { artifact: 'verified' },
+        confidence: 'high',
+        summary: 'Certify the exact verified release artifact',
         evidence: [{ object: bundle.inventory[0] }],
       }
-    : {
-        kind: 'summary',
-        summary: 'Deterministic fake review completed',
-        evidence: [{ object: bundle.inventory[0] }],
-      },
+    : behavior.includes('factory-test-high-finding')
+      ? {
+          kind: 'finding',
+          severity: 'high',
+          summary: 'Deterministic fake finding',
+          evidence: [{ object: bundle.inventory[0] }],
+        }
+      : {
+          kind: 'summary',
+          summary: 'Deterministic fake review completed',
+          evidence: [{ object: bundle.inventory[0] }],
+        },
 )}\n`
 if (provider === 'codex') {
   const outputIndex = process.argv.indexOf('--output-last-message')

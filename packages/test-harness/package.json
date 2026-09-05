@@ -21,6 +21,7 @@
     "lab:reviewer-isolation": "bun run src/reviewer-isolation.ts",
     "lab:decision-replay": "bun run src/run-decision-replay.ts",
     "lab:localhost-ui": "bun run src/run-local-ui.ts",
+    "lab:release-certification": "bun run src/run-release-certification.ts",
     "check:localhost-ui": "bun run src/run-local-ui.ts --check",
     "lint": "oxlint src test docker",
     "test": "bun test"
