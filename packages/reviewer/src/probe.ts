@@ -217,6 +217,35 @@ function dockerMount(hostPath: string, containerPath: string, readonly: boolean)
   return `type=bind,src=${hostPath},dst=${containerPath}${readonly ? ',readonly' : ''}`
 }
 
+async function boundedFileSha256(path: string): Promise<string> {
+  const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
+  try {
+    const before = await handle.stat()
+    if (!before.isFile() || before.size > 1024 * 1024)
+      throw new Error('reviewer authentication is not a bounded ordinary file')
+    const hash = createHash('sha256')
+    const chunk = Buffer.alloc(Math.min(64 * 1024, Math.max(1, before.size)))
+    let offset = 0
+    while (offset < before.size) {
+      const read = await handle.read(chunk, 0, Math.min(chunk.length, before.size - offset), offset)
+      if (read.bytesRead === 0) break
+      hash.update(chunk.subarray(0, read.bytesRead))
+      offset += read.bytesRead
+    }
+    const after = await handle.stat()
+    if (
+      offset !== before.size ||
+      after.dev !== before.dev ||
+      after.ino !== before.ino ||
+      after.size !== before.size
+    )
+      throw new Error('reviewer authentication changed while it was read')
+    return hash.digest('hex')
+  } finally {
+    await handle.close()
+  }
+}
+
 export async function runIsolationProbe(
   plan: MountPlan,
   options: IsolationProbeOptions,
@@ -278,6 +307,10 @@ export async function runIsolationProbe(
   }
   const containerName = containerIdentity.name
   const reviewMode = options.scenario === 'review'
+  const authSha256 =
+    reviewMode && plan.auth[0] !== undefined
+      ? await boundedFileSha256(plan.auth[0].hostPath)
+      : undefined
   const bundleTarget = reviewMode ? '/review-input' : plan.bundle.containerPath
   const observedImage = await runCommand(
     'docker',
@@ -327,6 +360,7 @@ export async function runIsolationProbe(
           options.expectedBundleSha256 ?? '',
           Buffer.from(JSON.stringify(options.invocation ?? null)).toString('base64'),
           String(options.providerTimeoutMs ?? Math.max(1, deadline - Date.now())),
+          authSha256 ?? '',
         ]),
   )
 
@@ -386,6 +420,11 @@ export async function runIsolationProbe(
       })
     )
       throw new Error('Reviewer authentication changed after container creation')
+    if (
+      authSha256 !== undefined &&
+      (await boundedFileSha256(plan.auth[0]!.hostPath)) !== authSha256
+    )
+      throw new Error('Reviewer authentication contents changed after container creation')
     const inspected = await runCommand('docker', ['inspect', containerName], commandOptions())
     if (inspected.exitCode !== 0) {
       throw new Error('Docker could not inspect the reviewer container')

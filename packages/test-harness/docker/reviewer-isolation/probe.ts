@@ -15,6 +15,33 @@ let providerVersion = 'fake-provider/1'
 const MAX_PROVIDER_OUTPUT_BYTES = 1024 * 1024
 const MAX_PROVIDER_VERSION_BYTES = 64 * 1024
 
+async function boundedFileSha256(path: string): Promise<string> {
+  const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
+  try {
+    const info = await handle.stat()
+    if (!info.isFile() || info.size > 1024 * 1024)
+      throw new Error('reviewer authentication is not a bounded ordinary file')
+    const bytes = Buffer.alloc(info.size)
+    let offset = 0
+    while (offset < bytes.length) {
+      const read = await handle.read(bytes, offset, bytes.length - offset, offset)
+      if (read.bytesRead === 0) break
+      offset += read.bytesRead
+    }
+    const after = await handle.stat()
+    if (
+      offset !== bytes.length ||
+      after.dev !== info.dev ||
+      after.ino !== info.ino ||
+      after.size !== info.size
+    )
+      throw new Error('reviewer authentication changed while it was read')
+    return createHash('sha256').update(bytes).digest('hex')
+  } finally {
+    await handle.close()
+  }
+}
+
 if (scenario === 'hang') {
   await new Promise(() => undefined)
 }
@@ -151,13 +178,16 @@ if (scenario === 'review') {
     versionArgv: string[]
   }
   const providerTimeoutMs = Number.parseInt(process.argv[9] ?? '', 10)
+  const expectedAuthSha256 = process.argv[10] ?? ''
   if (
     invocation.executable !== provider ||
     invocation.cwd !== '/review-input' ||
     invocation.prompt.length === 0 ||
     (invocation.response.kind === 'file' && invocation.response.path !== '/out/response.txt') ||
     !Number.isSafeInteger(providerTimeoutMs) ||
-    providerTimeoutMs <= 0
+    providerTimeoutMs <= 0 ||
+    !/^[0-9a-f]{64}$/.test(expectedAuthSha256) ||
+    (await boundedFileSha256(authPath)) !== expectedAuthSha256
   )
     throw new Error('review adapter invocation is outside the container runner contract')
   const versionProcess = Bun.spawn([invocation.executable, ...invocation.versionArgv], {

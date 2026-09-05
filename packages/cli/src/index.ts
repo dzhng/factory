@@ -45,7 +45,6 @@ import {
   type AvailablePullRequestObservation,
   type RepositoryConfig,
   type RepositoryId,
-  type RepositoryObservation,
   type RecordId,
   type OwnedPath,
   type ReviewLedger,
