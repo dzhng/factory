@@ -141,6 +141,21 @@ function inputs(): ReviewInputs {
 }
 
 describe('review planning', () => {
+  test('accepts a complete Session Turn spanning other Sessions in the global journal', () => {
+    const input = inputs()
+    const value = candidate(3)
+    input.subject = { kind: 'workspace', observation: observation(3) }
+    value.turn.eventRange.first = 1
+    value.events = [{ ...value.events[0]!, sequence: 1 }, value.events[0]!]
+    value.turn.rawObjects = value.events.map(event => event.raw)
+    input.candidates = [value]
+    const plan = planReview(input)
+    expect(plan.status).toBe('ready')
+    expect(plan.sessions).toEqual([
+      expect.objectContaining({ sessionKey: 'session-a', toInclusive: 3 }),
+    ])
+  })
+
   test('selects only the continuing Session range after complete coverage', () => {
     const input = inputs()
     const priorSubject = { kind: 'workspace' as const, observation: observation(1) }

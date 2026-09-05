@@ -471,6 +471,21 @@ export type TurnEvidenceGraph = {
   transcript: readonly EvidenceEnvelope[]
 }
 
+export function verifyTurnEventInventory(
+  turn: Pick<TurnManifest, 'eventRange' | 'rawObjects'>,
+  events: readonly EvidenceEnvelope[],
+): void {
+  // Global journal positions between these endpoints can belong to other Sessions.
+  if (
+    events[0]?.sequence !== turn.eventRange.first ||
+    events.at(-1)?.sequence !== turn.eventRange.last ||
+    events.some((event, index) => index > 0 && event.sequence <= events[index - 1]!.sequence) ||
+    canonicalJson(events.map(event => event.raw)) !== canonicalJson(turn.rawObjects)
+  ) {
+    throw new Error('Turn envelope order and raw-object arrays must match exactly')
+  }
+}
+
 /**
  * Verify the exact portable evidence closure for one Turn. This is the shared
  * semantic owner used both while recovering capture materialization and while
@@ -516,13 +531,8 @@ export async function verifyTurnEvidenceGraph(
   ) {
     throw new Error('Turn repository observation does not join its Session or code state')
   }
-  const expectedEventSequences = Array.from(
-    { length: turn.eventRange.last - turn.eventRange.first + 1 },
-    (_, index) => turn.eventRange.first + index,
-  )
+  verifyTurnEventInventory(turn, events)
   if (
-    canonicalJson(events.map(event => event.sequence)) !== canonicalJson(expectedEventSequences) ||
-    canonicalJson(events.map(event => event.raw)) !== canonicalJson(turn.rawObjects) ||
     canonicalJson(transcript.map(event => event.sequence)) !==
       canonicalJson(transcript.map((_, index) => index)) ||
     canonicalJson(transcript.map(event => event.raw)) !== canonicalJson(turn.transcriptObservations)
@@ -581,7 +591,7 @@ export function planTurn(input: StopMaterializationInput): TurnWritePlan | PlanR
       item.event.provider !== input.claim.stop.provider ||
       item.event.sessionId !== input.claim.stop.sessionId ||
       item.event.generation !== input.claim.stop.generation ||
-      item.event.sequence !== input.events[0]!.event.sequence + index ||
+      (index > 0 && item.event.sequence <= input.events[index - 1]!.event.sequence) ||
       item.raw.sha256 !== item.event.rawSha256 ||
       item.raw.bytes !== item.event.byteLength
     ) {

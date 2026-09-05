@@ -86,6 +86,14 @@ const graph = (): TurnEvidenceGraph =>
   })
 
 describe('portable Turn evidence graph', () => {
+  test('preserves ordered global journal gaps occupied by other Sessions', async () => {
+    const value = graph()
+    value.events = [value.events[0]!, { ...value.events[1]!, sequence: 4 }]
+    value.turn.eventRange.last = 4
+    value.trigger.evidenceWatermark = 4
+    await expect(verifyTurnEvidenceGraph(value, async () => bytes)).resolves.toBeUndefined()
+  })
+
   test('accepts one exact ordered transitive closure', async () => {
     await expect(
       verifyTurnEvidenceGraph(graph(), async reference => {

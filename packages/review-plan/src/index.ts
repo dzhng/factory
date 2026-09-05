@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 
+import { verifyTurnEventInventory } from '@factory/capture'
 import {
   assertOwnedRecordPath,
   canonicalJson,
@@ -948,16 +949,8 @@ function assertVerifiedInputs(input: ReviewInputs): void {
     ) {
       throw new TypeError('review candidate record identities do not join')
     }
-    const eventSequences = candidate.events.map(event => event.sequence)
-    const expectedSequences = Array.from(
-      { length: candidate.turn.eventRange.last - candidate.turn.eventRange.first + 1 },
-      (_, index) => candidate.turn.eventRange.first + index,
-    )
-    if (
-      candidate.trigger.materialization === 'complete' &&
-      canonicalJson(eventSequences) !== canonicalJson(expectedSequences)
-    ) {
-      throw new TypeError('complete review candidate does not contain its exact event range')
+    if (candidate.trigger.materialization === 'complete') {
+      verifyTurnEventInventory(candidate.turn, candidate.events)
     }
     if (candidate.trigger.evidenceWatermark !== candidate.turn.eventRange.last) {
       throw new TypeError('review trigger watermark does not match its Turn range')

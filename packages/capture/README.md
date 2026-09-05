@@ -9,6 +9,12 @@ plan, with the trigger as its logical commit point. A crash may leave an
 unreferenced physical prefix, but readers expose only complete trigger-linked
 graphs and later repair converges the same deterministic bytes.
 
+Event positions belong to the shared repository journal. One Session's ordered
+events may therefore have gaps occupied by another Session. The frozen claim
+owns exact event membership during capture; the portable Turn preserves those
+positions, range endpoints, and its ordered raw-object inventory for every
+later reader. A gap in global positions alone never means evidence was lost.
+
 Provider adapters own classification, fail-open responses, and hook patch
 plans. They do not write provider configuration or `.factory`; the CLI applies
 provider patches and the repository remains the sole `.factory` writer.

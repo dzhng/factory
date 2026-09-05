@@ -81,6 +81,25 @@ describe('Stop materialization', () => {
     expect(first).toEqual(second)
     if ('reason' in first) throw new Error(first.reason)
 
+    // The journal is repository-wide: another native Session can occupy sequence 1.
+    const interleaved = planTurn({
+      ...input,
+      claim: { ...claim, throughSequence: 2 },
+      events: input.events.map((item, index) => ({
+        ...item,
+        event: { ...item.event, sequence: index * 2 },
+      })),
+    })
+    if ('reason' in interleaved) throw new Error(`interleaved Session: ${interleaved.reason}`)
+    const eventFile = interleaved.records.find(record => record.path.endsWith('/events.jsonl'))!
+    expect(
+      new TextDecoder()
+        .decode(eventFile.bytes)
+        .trimEnd()
+        .split('\n')
+        .map(line => JSON.parse(line).sequence),
+    ).toEqual([0, 2])
+
     const calls: string[][] = []
     const turn = await executeTurn(first, {
       publishImmutableGroup(records, commitPath) {
