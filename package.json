@@ -19,6 +19,8 @@
     "lab:review-plan": "bun run --cwd packages/test-harness lab:review-plan",
     "lab:review-execution": "bun run --cwd packages/test-harness lab:review-execution",
     "lab:review-cli": "bun run --cwd packages/test-harness lab:review-cli",
+    "lab:review-pr-cli": "bun run --cwd packages/test-harness lab:review-pr-cli",
+    "lab:review-release": "bun run lab:review-cli && bun run lab:review-pr-cli",
     "lint": "turbo lint",
     "lab:reviewer-isolation": "bun run --cwd packages/test-harness lab:reviewer-isolation",
     "test": "turbo test --continue"
