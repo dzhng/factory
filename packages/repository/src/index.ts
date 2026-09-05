@@ -1100,6 +1100,14 @@ export class RepositoryStore {
         })
       } else if (kind === 'directory') {
         await inspectTree(root, area)
+      } else if (kind !== 'missing') {
+        const entry = await lstat(root)
+        if (entry.isFile()) addOwnedStorage(entry.size)
+        issues.push({
+          code: 'invalid-structured-record',
+          path: area,
+          detail: 'owned Factory roots must be ordinary directories',
+        })
       }
     }
 

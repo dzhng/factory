@@ -344,6 +344,38 @@ describe('sole repository writer', () => {
     await expect(store.readRecords()).rejects.toThrow('owned record root')
   })
 
+  test('verification reports an ordinary file replacing an owned root without counting foreign files', async () => {
+    const root = await fixtureRoot()
+    const store = await initializeRepositoryStore(root, manifest, {})
+    const baseline = (await store.verify()).ownedStorageBytes
+    const content = 'corrupt owned root'
+    await writeFile(join(root, '.factory', 'sessions'), content)
+    await writeFile(join(root, '.factory', 'foreign-notes'), 'preserve me')
+    const result = await store.verify()
+    expect(result.issues).toEqual([
+      expect.objectContaining({ code: 'invalid-structured-record', path: 'sessions' }),
+    ])
+    expect(result.ownedStorageBytes).toBe(baseline + Buffer.byteLength(content))
+    expect(await readFile(join(root, '.factory', 'foreign-notes'), 'utf8')).toBe('preserve me')
+  })
+
+  test('verification reports special owned roots without opening them or foreign special files', async () => {
+    const root = await fixtureRoot()
+    const store = await initializeRepositoryStore(root, manifest, {})
+    const baseline = (await store.verify()).ownedStorageBytes
+    const owned = join(root, '.factory', 'decisions')
+    const foreign = join(root, '.factory', 'foreign-pipe')
+    const child = Bun.spawn(['mkfifo', owned, foreign], { stdout: 'pipe', stderr: 'pipe' })
+    expect(await child.exited).toBe(0)
+    await expect(store.readRecords()).rejects.toThrow('owned record root')
+    const result = await store.verify()
+    expect(result.issues).toEqual([
+      expect.objectContaining({ code: 'invalid-structured-record', path: 'decisions' }),
+    ])
+    expect(result.ownedStorageBytes).toBe(baseline)
+    expect((await lstat(foreign)).isFIFO()).toBe(true)
+  })
+
   test('refuses symlinked owned areas, corrupt objects, and oversized input', async () => {
     const root = await fixtureRoot()
     const outside = join(root, 'outside')
