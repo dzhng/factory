@@ -1,7 +1,7 @@
 # 09 — Isolated review execution and immutable acceptance
 
-Status: **implemented; production image authority passes and automatic local
-provider authentication is ready for exact certification**
+Status: **implemented; production image and automatic local-provider authority
+passed exact packaged certification**
 
 ## Contract
 
@@ -83,6 +83,9 @@ passed the complete isolation oracle from its remote digest. Factory now reuses
 existing CLI authentication automatically: provider-owned files remain
 identity-bound and read-only, while macOS Claude Keychain authentication is
 reduced to `claudeAiOauth` in private attempt state and removed after execution.
+The exact packed macOS arm64 artifact at revision `56ebf01` completed one real
+Codex review and one real Claude review through this image without credential
+flags or user setup.
 
 Durable ownership is documented by the [capture](../../../packages/capture/README.md),
 [review planning](../../../packages/review-plan/README.md),

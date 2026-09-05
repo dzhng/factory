@@ -2,11 +2,11 @@
   "schemaVersion": 1,
   "artifact": {
     "version": "0.1.0-dev",
-    "revision": "b3faed984ea0af33d4d9b7311b5210fbf4fe18fd",
+    "revision": "56ebf01e0eb81fa9aeb5bd1fbe8cc5e17aac",
     "target": "bun-darwin-arm64",
-    "manifestSha256": "4b0905f6fabe7ae545b15d8e76852d7291706b63ad7f4fc2344a192f14f52eb2",
-    "archiveSha256": "aff172f94397a84b9ad5bc2ecf569d590e59c14c0ebbe598d314be252c61f518",
-    "executableSha256": "abb0dfaad0cdc685ed094a5e6d9a00b16591dfc225b6710904b7b884f4082073"
+    "manifestSha256": "0757fb4b393695a71fabc75b3f71e625dbb8624ed8e44342d66291b735a301be",
+    "archiveSha256": "64c9eda0c4fa6949baa87c4764b7fd190e1985f794dcc0285997aeb2d1e5b45f",
+    "executableSha256": "ab00f7fcf567472b5c3ec4051e1d34b9d582164bda35648e9a1780ea03779f1e"
   },
   "platform": {
     "os": "darwin",
@@ -17,56 +17,36 @@
     "docker": "Docker version 29.4.1, build 055a478"
   },
   "providers": {
-    "claude": {
-      "availability": "unavailable",
-      "reason": "missing"
-    },
-    "codex": {
-      "availability": "unavailable",
-      "reason": "missing"
-    }
+    "claude": { "availability": "unavailable", "reason": "missing" },
+    "codex": { "availability": "unavailable", "reason": "missing" }
   },
   "authorities": {
-    "providerExecution": "deterministic-isolation-fixture",
-    "realProviderCredentials": "unavailable",
-    "reviewerImageDigest": "local-fixture",
+    "providerExecution": "authenticated-production-image",
+    "realProviderCredentials": "authenticated-local-clis",
+    "reviewerImageDigest": "sha256:8b4d1bb63f727a791c5c20084a840cc75963becaa9225612acf6f42858eb561c",
     "githubReleaseAttestation": "unavailable"
   },
   "journeys": [
-    {
-      "name": "install",
-      "status": "passed",
-      "detail": "both provider hooks reconciled"
-    },
-    {
-      "name": "capture",
-      "status": "passed",
-      "detail": "both native provider fixtures stored"
-    },
-    {
-      "name": "review",
-      "status": "passed",
-      "detail": "isolated deterministic review accepted"
-    },
+    { "name": "install", "status": "passed", "detail": "both provider hooks reconciled" },
+    { "name": "capture", "status": "passed", "detail": "both native provider fixtures stored" },
+    { "name": "review", "status": "passed", "detail": "isolated deterministic review accepted" },
     {
       "name": "ui-action",
       "status": "passed",
       "detail": "loopback projection confirmed a decision"
     },
     {
-      "name": "diagnostics",
+      "name": "review-codex",
       "status": "passed",
-      "detail": "repository and installation healthy"
+      "detail": "existing CLI login executed through the production image"
     },
     {
-      "name": "upgrade",
+      "name": "review-claude",
       "status": "passed",
-      "detail": "exact artifact atomically reinstalled"
+      "detail": "existing CLI login executed through the production image"
     },
-    {
-      "name": "uninstall",
-      "status": "passed",
-      "detail": "owned hooks removed exactly"
-    }
+    { "name": "diagnostics", "status": "passed", "detail": "repository and installation healthy" },
+    { "name": "upgrade", "status": "passed", "detail": "exact artifact atomically reinstalled" },
+    { "name": "uninstall", "status": "passed", "detail": "owned hooks removed exactly" }
   ]
 }

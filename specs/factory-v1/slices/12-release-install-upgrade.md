@@ -1,6 +1,6 @@
 # 12 — Installation, diagnostics, upgrade, and release proof
 
-Status: **implementation complete; exact authenticated release certification pending**
+Status: **implementation complete; exact authenticated certification passed; publication pending**
 
 ## Resolved release scope
 
@@ -102,11 +102,11 @@ Repository growth, association accuracy, partial-review usefulness, and reviewer
 quality become measured post-v1 improvement inputs, never permission for silent
 pruning or heuristic grouping.
 
-The exact `b3faed9` macOS arm64 deterministic report and screenshot are retained
+The exact `56ebf01` macOS arm64 authenticated report and screenshot are retained
 under `assets/release-certification/`. After earlier layouts overemphasized green
 journeys, the accepted report leads with an explicit not-certified verdict and
-its unavailable authorities. A final fresh, unprimed critique accepted the full
-capture with high confidence and found no blocking visual defect.
+its one unavailable authority. Both real provider journeys are visible beside
+the deterministic product journey.
 
 ## Release acceptance
 
@@ -121,13 +121,13 @@ channel and an authenticated certification mode. Both seams now exist. The
 public, attested amd64/arm64 image
 `ghcr.io/dzhng/factory-reviewer@sha256:8b4d1bb63f727a791c5c20084a840cc75963becaa9225612acf6f42858eb561c`
 passed the isolation oracle, and a
-local macOS arm64 host with Docker passed the exact-artifact deterministic
-journey. Factory now discovers existing Codex and Claude CLI authentication
-without separate setup; the next release gate is executing that exact journey
-through both real providers. Automated publication must not turn
-credential-free or package-only evidence into that claim. The local HTML report
-screenshot passed its fresh-eyes presentation checkpoint; that evidence is not
-a substitute for missing execution authority.
+local macOS arm64 host with Docker passed the exact-artifact deterministic and
+authenticated journeys at revision `56ebf01`. Factory discovered the existing
+Codex and Claude CLI logins without flags or separate setup, and each provider
+completed one packaged production-image review. Automated publication must not
+turn credential-free or package-only evidence into that claim. GitHub Release
+publication and the resulting artifact attestation remain unavailable until the
+release is actually published.
 
 Milestone `6fc6c64` adds the pinned multi-architecture production image,
 digest-only runtime acquisition, and the GHCR publication/provenance workflow.

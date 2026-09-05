@@ -1,6 +1,6 @@
 # Factory v1 specification
 
-Status: **implementation complete; release certification blocked on dedicated provider credentials**
+Status: **implementation complete; authenticated exact-artifact certification passed; GitHub Release publication pending**
 
 ## Next Agent Prompt
 
@@ -38,9 +38,12 @@ Status: **implementation complete; release certification blocked on dedicated pr
 > production reviewer image is public and attested, authenticated certification
 > has an automatic two-provider mode, the exact Node floor passes, and the local
 > macOS arm64 deterministic journey plus report visual gate pass. Exact release
-> evidence is retained at `73e6520`. Do not publish or mark v1 shipped until the
-> authenticated local Codex and Claude CLIs execute that packaged production
-> path.
+> evidence is retained at `73e6520`. The remaining authenticated gate passed at
+> `56ebf01`: the exact packed macOS arm64 artifact reused both existing CLI
+> logins automatically and completed one production-image review through Codex
+> and one through Claude. The sanitized report is retained under
+> `assets/release-certification/`. GitHub Release publication and its artifact
+> attestation remain the only unavailable release authority.
 > Read `AGENTS.md`, `SECURITY.md`, this README, `choices.md`, `format.md`, and
 > Slices 11 and 12 in full.
 > Slice 06's packaged networkless Docker vertical passes both provider fixtures,
@@ -58,7 +61,7 @@ Status: **implementation complete; release certification blocked on dedicated pr
 > exact macOS arm64 deterministic release journey. Factory now automatically
 > reuses each provider CLI's existing login, including Claude's macOS Keychain
 > identity, without separate credential setup. Real Codex and Claude execution
-> must still pass through the packaged production path before release. Earlier non-blocking evidence
+> passed through the packaged production path at `56ebf01`. Earlier non-blocking evidence
 > gaps remain recorded: deterministic libc
 > `readdir` error injection was unavailable. The earlier Slice 03/local-file
 > browser limitation was superseded by the executable repository report and its
@@ -81,8 +84,9 @@ Status: **implementation complete; release certification blocked on dedicated pr
 > a false-positive-heavy corpus can define verified code-state continuity before
 > enabling it. The journal package
 > now passes an exact pinned Node 22.13.1 SQLite smoke. The local macOS arm64
-> exact-artifact journey passes all seven deterministic stages; its authenticated
-> Codex/Claude extension now discovers both logged-in local CLIs automatically.
+> exact-artifact journey passes all deterministic stages; its authenticated
+> Codex/Claude extension discovered both logged-in local CLIs automatically and
+> passed both provider journeys.
 > The hosted macOS lane remains package-only because it lacks Docker. The final
 > sanitized report and screenshot are retained under
 > `assets/release-certification/` and passed fresh-eyes critique.
@@ -439,8 +443,9 @@ The test harness owns:
 - Git branches, worktrees, force-pushes, merge conflicts, and path edge cases;
 - partial/corrupt bundle verification;
 - deterministic fake analyzer and provider boundaries;
-- authenticated real Codex and Claude journeys when credentials are explicitly
-  mounted read-only; and
+- authenticated real Codex and Claude journeys when their existing CLI logins
+  are discovered automatically and exposed through bounded read-only mounts;
+  and
 - host sentinels proving real provider configuration and the live checkout were
   not changed.
 
