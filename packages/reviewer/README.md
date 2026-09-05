@@ -28,20 +28,23 @@ back into portable history. Logs and crash coordination remain in the Git-common
 private runtime area.
 
 The production image is built from `docker/Dockerfile` and published for Linux
-amd64 and arm64 at `ghcr.io/dzhng/factory-reviewer`. Tags are discovery aids,
-not executable identities. `FACTORY_REVIEWER_IMAGE` must contain either the
-locally verified image ID used by a test fixture or a complete immutable
-`repository@sha256:…` reference. Factory pulls a qualified reference, verifies
-the repository digest Docker observed, and records the bare digest in the
-immutable review attempt.
+amd64 and arm64 at `ghcr.io/dzhng/factory-reviewer`. Factory ships an exact
+digest-qualified default. Tags are discovery aids, not executable identities.
+The `FACTORY_REVIEWER_IMAGE` test override must contain either a locally verified
+image ID or a complete immutable `repository@sha256:…` reference. Factory pulls
+a qualified reference, verifies the repository digest Docker observed, and
+records the bare digest in the immutable review attempt.
 
-Credentials remain host-owned read-only files. Factory does not copy them,
-change their permissions, borrow token environment variables, or translate a
-host keyring into the container. A provider whose dedicated file cannot be read
-by its validated non-root owner identity is unavailable; changing that boundary
-requires an explicit security decision. File identity and a bounded content
-digest are checked before creation, after creation, and by the container runner
-before provider startup.
+Factory automatically reuses the selected provider CLI's existing login. Native
+credential files remain host-owned and are mounted read-only after their owner
+and identity are validated. On macOS, where Claude Code owns its login in the
+system Keychain, Factory extracts only the `claudeAiOauth` inference identity
+into a private `0600` attempt file, mounts it read-only, and deletes it during
+normal or crash cleanup. It never exposes unrelated Keychain values such as MCP
+OAuth credentials. Factory does not change provider-file permissions, borrow
+token environment variables, or persist credentials in portable history. File
+identity and a bounded content digest are checked before creation, after
+creation, and by the container runner before provider startup.
 
 Reviewer prerequisites are observations, not ambient assumptions. This package
 also owns bounded Docker-daemon inspection and exact credential-file readiness.

@@ -9,13 +9,16 @@ Provider fixtures preserve raw bytes and provider-native vocabulary. They are
 observations, not a shared provider schema. Empirical oracle evidence informs
 Factory without becoming production behavior.
 
-Provider credentials are never implicit. Authenticated journeys require
-dedicated test inputs and must report unavailable authority rather than reuse a
-developer's live provider home. Generated scratch reports stay outside the
-repository unless a spec deliberately promotes them into its `assets/`; the
-default lab output is written under the operating system's temporary directory.
-The provider oracle is deliberately promoted into the Factory v1 spec because
-it records the evidence used to shape the capture contract.
+Release certification uses the same provider-owned CLI logins that production
+automatically discovers. The disposable journey exposes only the selected
+credential to each packaged review; it does not copy a developer's provider home
+into the fixture. If both CLIs are not already authenticated, the report records
+real-provider authority as unavailable instead of simulating a pass. Generated
+scratch reports stay outside the repository unless a spec deliberately promotes
+them into its `assets/`; the default lab output is written under the operating
+system's temporary directory. The provider oracle is deliberately promoted into
+the Factory v1 spec because it records the evidence used to shape the capture
+contract.
 
 `bun run release:verify -- --version <version>` builds from a clean committed
 checkout, verifies the resulting archive through the public release boundary,
@@ -26,19 +29,17 @@ uninstallation. Its report distinguishes deterministic fixture authority from
 unavailable real-provider credentials and GitHub release attestation; neither
 is converted into a simulated pass.
 
-An authenticated certification is opt-in and all-or-nothing:
+When both local CLIs are logged in, the same command automatically adds one
+production-image review from each provider:
 
 ```sh
-bun run release:verify -- --version <version> \
-  --reviewer-image ghcr.io/dzhng/factory-reviewer@sha256:<digest> \
-  --codex-auth /path/to/dedicated-codex-auth.json \
-  --claude-auth /path/to/dedicated-claude-credentials.json
+bun run release:verify -- --version <version>
 ```
 
-The harness refuses partial inputs. It validates the two caller-owned ordinary
-files without copying them, then forces one packaged production-path review per
-provider through the same immutable image. Environment overrides may select
-certification models and efforts; the product defaults apply otherwise.
+Certification is all-or-nothing: it forces both packaged production-path reviews
+when both logins are available, otherwise it runs the deterministic journey and
+reports the missing authority. An immutable image may be supplied as a controlled
+test override; the shipped digest and product model defaults apply otherwise.
 
 The governing capture contract and reslicing triggers live in the
 [Factory v1 specification](../../specs/factory-v1/README.md). Credential and

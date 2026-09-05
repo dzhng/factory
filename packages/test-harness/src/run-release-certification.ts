@@ -20,7 +20,12 @@ import {
   verifyReleaseArtifact,
   type ReleaseTarget,
 } from '@factory/cli'
-import { reviewerImageIdentity } from '@factory/reviewer'
+import {
+  DEFAULT_REVIEWER_IMAGE_REFERENCE,
+  resolveReviewerAuthentication,
+  reviewerImageIdentity,
+  type ReviewerCredentialSource,
+} from '@factory/reviewer'
 
 type CommandResult = { code: number; stdout: string; stderr: string }
 type Journey = { name: string; status: 'passed'; detail: string }
@@ -279,34 +284,19 @@ if (expectedVersion === undefined) throw new Error('--expected-version is requir
 const expectedManifestSha256 = option('--manifest-sha256')
 if (expectedManifestSha256 === undefined) throw new Error('--manifest-sha256 is required')
 const reportRoot = resolve(option('--output') ?? join(tmpdir(), 'factory-release-certification'))
-const requestedReviewerImage = option('--reviewer-image')
-const requestedCodexAuth = option('--codex-auth')
-const requestedClaudeAuth = option('--claude-auth')
-const authenticatedOptions = [requestedReviewerImage, requestedCodexAuth, requestedClaudeAuth].some(
-  value => value !== undefined,
-)
-if (
-  authenticatedOptions &&
-  (requestedReviewerImage === undefined ||
-    requestedCodexAuth === undefined ||
-    requestedClaudeAuth === undefined)
-)
-  throw new Error('--reviewer-image, --codex-auth, and --claude-auth are required together')
+const hostAuthentication = await resolveReviewerAuthentication(process.env)
+const codexCredential = hostAuthentication.sources.codex
+const claudeCredential = hostAuthentication.sources.claude
+const reviewerImage = option('--reviewer-image') ?? DEFAULT_REVIEWER_IMAGE_REFERENCE
 const productionReviewer =
-  requestedReviewerImage === undefined
+  codexCredential === undefined || claudeCredential === undefined
     ? undefined
     : {
-        image: requestedReviewerImage,
-        imageDigest: reviewerImageIdentity(requestedReviewerImage).digest,
-        codexAuth: resolve(requestedCodexAuth!),
-        claudeAuth: resolve(requestedClaudeAuth!),
+        image: reviewerImage,
+        imageDigest: reviewerImageIdentity(reviewerImage).digest,
+        codexCredential,
+        claudeCredential,
       }
-if (productionReviewer !== undefined) {
-  await Promise.all([
-    readBoundedOrdinaryFile(productionReviewer.codexAuth, 1024 * 1024),
-    readBoundedOrdinaryFile(productionReviewer.claudeAuth, 1024 * 1024),
-  ])
-}
 const archive = await readBoundedOrdinaryFile(archivePath, RELEASE_ARCHIVE_MAXIMUM_BYTES)
 const adjacentManifest = await readBoundedOrdinaryFile(manifestPath, RELEASE_METADATA_MAXIMUM_BYTES)
 const adjacent = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(adjacentManifest)) as {
@@ -420,12 +410,18 @@ try {
 
   let operationalEnvironment: NodeJS.ProcessEnv = reviewEnvironment
   if (productionReviewer !== undefined) {
-    const authenticatedEnvironment = {
+    const authenticatedEnvironment: NodeJS.ProcessEnv = {
       ...environment,
       FACTORY_REVIEWER_IMAGE: productionReviewer.image,
-      FACTORY_CODEX_AUTH_FILE: productionReviewer.codexAuth,
-      FACTORY_CLAUDE_AUTH_FILE: productionReviewer.claudeAuth,
     }
+    const exposeFileCredential = (
+      name: 'FACTORY_CODEX_AUTH_FILE' | 'FACTORY_CLAUDE_AUTH_FILE',
+      source: ReviewerCredentialSource,
+    ) => {
+      if (source.kind === 'file') authenticatedEnvironment[name] = source.mount.hostPath
+    }
+    exposeFileCredential('FACTORY_CODEX_AUTH_FILE', productionReviewer.codexCredential)
+    exposeFileCredential('FACTORY_CLAUDE_AUTH_FILE', productionReviewer.claudeCredential)
     for (const provider of ['codex', 'claude'] as const) {
       await succeed(
         executable,
@@ -445,7 +441,7 @@ try {
       journeys.push({
         name: `review-${provider}`,
         status: 'passed',
-        detail: 'dedicated credentials executed through the production image',
+        detail: 'existing CLI login executed through the production image',
       })
     }
     operationalEnvironment = authenticatedEnvironment
@@ -531,7 +527,7 @@ try {
           ? 'deterministic-isolation-fixture'
           : 'authenticated-production-image',
       realProviderCredentials:
-        productionReviewer === undefined ? 'unavailable' : 'caller-supplied-dedicated-files',
+        productionReviewer === undefined ? 'unavailable' : 'authenticated-local-clis',
       reviewerImageDigest: productionReviewer?.imageDigest ?? 'local-fixture',
       githubReleaseAttestation: 'unavailable',
     },

@@ -61,7 +61,10 @@ async function main() {
         imageReference: imageDigest,
         imageDigest,
         runtimeRoot: root,
-        auth: [{ hostPath: auth, containerPath: '/auth/codex/auth.json' }],
+        credential: {
+          kind: 'file',
+          mount: { hostPath: auth, containerPath: '/auth/codex/auth.json' },
+        },
         timeoutMs: 5_000,
         containerIdentity: {
           name: `factory-review-execution-${randomUUID()}`,

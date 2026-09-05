@@ -28,12 +28,14 @@ export {
   type ReviewerAdapterInvocation,
 } from './adapter.js'
 export {
-  inspectReviewerEnvironment,
+  materializeReviewerCredential,
   resolveReviewerAuthentication,
   type ReviewerAuthentication,
-  type ReviewerCommandResult,
-  type ReviewerEnvironmentInspection,
-} from './environment.js'
+  type ReviewerAuthenticationOptions,
+  type ReviewerCredentialSource,
+} from './authentication.js'
+export { inspectReviewerEnvironment, type ReviewerEnvironmentInspection } from './environment.js'
+export type { ReviewerCommandResult } from './command.js'
 export {
   planReviewerIsolation,
   resolveReviewerIsolation,
@@ -45,4 +47,4 @@ export {
   type ReadonlyAuthMount,
   type ReviewerProvider,
 } from './isolation.js'
-export { reviewerImageIdentity } from './probe.js'
+export { DEFAULT_REVIEWER_IMAGE_REFERENCE, reviewerImageIdentity } from './probe.js'

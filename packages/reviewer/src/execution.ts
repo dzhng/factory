@@ -8,13 +8,14 @@ import { canonicalJson } from '@factory/contract'
 
 import { reviewerAdapter } from './adapter'
 import { sealReviewerRawAttempt, type ReviewerRawAttempt } from './attempt'
+import { materializeReviewerCredential, type ReviewerCredentialSource } from './authentication'
 import {
   openVerifiedReviewBundle,
   readVerifiedReviewBundle,
   type ReviewerChoice,
   type VerifiedReviewBundle,
 } from './bundle'
-import { planReviewerIsolation, type ReadonlyAuthMount } from './isolation'
+import { planReviewerIsolation } from './isolation'
 import { ReviewerCleanupUnprovenError, ReviewerDockerUnavailableError } from './probe'
 import { runReviewerContainer } from './runner'
 
@@ -25,7 +26,7 @@ export type ReviewerExecutionInput = {
   imageDigest: string
   /** Git-common private runtime root selected by the coordinator. */
   runtimeRoot: string
-  auth: readonly Omit<ReadonlyAuthMount, 'mode'>[]
+  credential?: ReviewerCredentialSource
   timeoutMs: number
   signal?: AbortSignal
   now?: () => Date
@@ -138,16 +139,22 @@ export const dockerReviewerExecutor: ReviewerExecutor = {
     const remaining = () => Math.max(1, deadline - Date.now())
     let outputHostPath: string | undefined
     let snapshotRoot: string | undefined
+    let credentialRoot: string | undefined
     try {
       outputHostPath = await mkdtemp(`${input.runtimeRoot}/review-output-`)
       await chmod(outputHostPath, 0o777)
       const snapshot = await immutableBundleSnapshot(bundle, input.runtimeRoot)
       snapshotRoot = snapshot.root
+      const credential =
+        input.credential === undefined
+          ? undefined
+          : await materializeReviewerCredential(input.credential, input.runtimeRoot)
+      credentialRoot = credential?.root
       const plan = planReviewerIsolation({
         provider: choice.settings.provider,
         bundleHostPath: snapshot.root,
         outputHostPath,
-        auth: input.auth,
+        auth: credential === undefined ? [] : [credential.mount],
       })
       if (!plan.ok) throw new Error(`reviewer isolation refused: ${plan.reason}`)
       const report = await runReviewerContainer(plan.plan, {
@@ -208,6 +215,7 @@ export const dockerReviewerExecutor: ReviewerExecutor = {
     } finally {
       if (outputHostPath !== undefined) await rm(outputHostPath, { recursive: true, force: true })
       if (snapshotRoot !== undefined) await rm(snapshotRoot, { recursive: true, force: true })
+      if (credentialRoot !== undefined) await rm(credentialRoot, { recursive: true, force: true })
     }
   },
 }

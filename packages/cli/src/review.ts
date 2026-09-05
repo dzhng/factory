@@ -31,6 +31,7 @@ import {
 } from '@factory/review-plan'
 import {
   REVIEW_PROMPT_VERSION,
+  DEFAULT_REVIEWER_IMAGE_REFERENCE,
   ReviewAttemptCoordinator,
   dockerReviewerExecutor,
   openVerifiedReviewBundle,
@@ -291,9 +292,7 @@ export async function reviewCommand(
       )
       return plan.status === 'unavailable' ? 1 : 0
     }
-    const imageReference = environment.FACTORY_REVIEWER_IMAGE
-    if (!imageReference)
-      throw new Error('FACTORY_REVIEWER_IMAGE must pin an immutable reviewer image')
+    const imageReference = environment.FACTORY_REVIEWER_IMAGE ?? DEFAULT_REVIEWER_IMAGE_REFERENCE
     const imageDigest = reviewerImageIdentity(imageReference).digest
     const bundleParent = await mkdtemp(join(coordinator.runtimeRoot, 'review-bundle-'))
     try {
@@ -304,7 +303,7 @@ export async function reviewCommand(
         store.manifest.repositoryId,
       )
       const bundle = await openVerifiedReviewBundle(built.path, built.sha256)
-      const mount = auth.mounts[selected.choice.settings.provider]
+      const credential = auth.sources[selected.choice.settings.provider]
       const raw = await coordinator.run(
         bundle,
         selected.choice,
@@ -312,7 +311,7 @@ export async function reviewCommand(
         {
           imageReference,
           imageDigest,
-          auth: mount === undefined ? [] : [mount],
+          ...(credential === undefined ? {} : { credential }),
           timeoutMs: 10 * 60 * 1000,
           ...(retryGeneration === undefined ? {} : { retryGeneration }),
         },

@@ -1,7 +1,7 @@
 # 09 — Isolated review execution and immutable acceptance
 
-Status: **implemented; production image authority passes and authenticated
-provider certification remains unavailable**
+Status: **implemented; production image authority passes and automatic local
+provider authentication is ready for exact certification**
 
 ## Contract
 
@@ -79,9 +79,10 @@ actions.
 
 The public, attested multi-architecture production image at
 `ghcr.io/dzhng/factory-reviewer@sha256:73edb8116985083ee5f23efac6b7a093591196799b04124cb07df98898bc767d`
-passed the complete isolation oracle from its remote digest. Dedicated provider
-credentials remain unavailable, so authenticated Codex and Claude execution is
-not inferred from developer state.
+passed the complete isolation oracle from its remote digest. Factory now reuses
+existing CLI authentication automatically: provider-owned files remain
+identity-bound and read-only, while macOS Claude Keychain authentication is
+reduced to `claudeAiOauth` in private attempt state and removed after execution.
 
 Durable ownership is documented by the [capture](../../../packages/capture/README.md),
 [review planning](../../../packages/review-plan/README.md),

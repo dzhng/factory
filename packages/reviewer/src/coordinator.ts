@@ -112,7 +112,7 @@ async function cleanupStartedArtifacts(
 ): Promise<void> {
   await cleanupOwnedReviewerContainer(containerIdentity, timeoutMs)
   for (const entry of await readdir(attemptRoot, { withFileTypes: true })) {
-    if (!/^review-(?:output|input)-[A-Za-z0-9_-]+$/.test(entry.name)) continue
+    if (!/^review-(?:output|input|auth)-[A-Za-z0-9_-]+$/.test(entry.name)) continue
     const path = join(attemptRoot, entry.name)
     const info = await lstat(path)
     if (info.isSymbolicLink() || !info.isDirectory())

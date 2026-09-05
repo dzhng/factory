@@ -50,8 +50,17 @@ authentication location; explicit paths exist only for nonstandard installations
 and controlled tests. Factory does not persist provider API keys in its
 configuration.
 
+On macOS, Claude Code stores its login in the system Keychain instead of its
+configuration directory. Factory asks macOS for Claude Code's provider-owned
+credential at review time, extracts only the `claudeAiOauth` inference identity,
+and writes that minimal value to a private `0600` file under the review attempt's
+runtime directory. Unrelated values in the Keychain record, including MCP OAuth
+credentials, do not cross the reviewer boundary. The staged file is deleted with
+the attempt during normal completion or crash recovery; it never enters
+`.factory`, a review bundle, an image, or a log.
+
 When a reviewer runs, Factory mounts only the selected provider's required
-authentication files into the ephemeral container. These mounts are read-only.
+authentication file into the ephemeral container. The mount is read-only.
 Credentials must never be copied into a container image, review bundle, trace,
 generated artifact, log, or committed file.
 

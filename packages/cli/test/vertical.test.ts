@@ -383,9 +383,11 @@ describe('installed capture vertical', () => {
       value.repository,
       environment,
     )
-    expect(review).toMatchObject({
-      code: 1,
-      stderr: expect.stringContaining('FACTORY_REVIEWER_IMAGE'),
+    expect(review.code).toBe(1)
+    expect(review.stderr).toBe('')
+    expect(JSON.parse(review.stdout)).toMatchObject({
+      disposition: 'failed',
+      executionFailed: true,
     })
     paths = await Array.fromAsync(
       new Bun.Glob('pull-requests/**/associations/**/*.json').scan({

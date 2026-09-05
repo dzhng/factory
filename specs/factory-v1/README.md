@@ -36,11 +36,11 @@ Status: **implementation complete; release certification blocked on dedicated pr
 > manual Session-to-PR workflow and carries assertions into later exact PR
 > observations. The completion-audit implementation gaps are now closed: the
 > production reviewer image is public and attested, authenticated certification
-> has an explicit two-provider mode, the exact Node floor passes, and the local
+> has an automatic two-provider mode, the exact Node floor passes, and the local
 > macOS arm64 deterministic journey plus report visual gate pass. Exact release
-> evidence is retained at `73e6520`. Do not publish
-> or mark v1 shipped until dedicated Codex and Claude test credentials execute
-> that packaged production path.
+> evidence is retained at `73e6520`. Do not publish or mark v1 shipped until the
+> authenticated local Codex and Claude CLIs execute that packaged production
+> path.
 > Read `AGENTS.md`, `SECURITY.md`, this README, `choices.md`, `format.md`, and
 > Slices 11 and 12 in full.
 > Slice 06's packaged networkless Docker vertical passes both provider fixtures,
@@ -54,11 +54,11 @@ Status: **implementation complete; release certification blocked on dedicated pr
 > image and proved
 > `ghcr.io/dzhng/factory-reviewer@sha256:73edb8116985083ee5f23efac6b7a093591196799b04124cb07df98898bc767d`
 > through the isolation oracle. Milestone
-> `babb8e0` added an explicit two-provider authenticated certification mode and
-> passed the exact macOS arm64 deterministic release journey. The remaining
-> release blocker is external authority: no dedicated provider test credentials
-> are configured. Real Codex and Claude execution must run through the packaged
-> production path; never borrow a developer login. Earlier non-blocking evidence
+> `babb8e0` added a two-provider authenticated certification mode and passed the
+> exact macOS arm64 deterministic release journey. Factory now automatically
+> reuses each provider CLI's existing login, including Claude's macOS Keychain
+> identity, without separate credential setup. Real Codex and Claude execution
+> must still pass through the packaged production path before release. Earlier non-blocking evidence
 > gaps remain recorded: deterministic libc
 > `readdir` error injection was unavailable. The earlier Slice 03/local-file
 > browser limitation was superseded by the executable repository report and its
@@ -82,7 +82,7 @@ Status: **implementation complete; release certification blocked on dedicated pr
 > enabling it. The journal package
 > now passes an exact pinned Node 22.13.1 SQLite smoke. The local macOS arm64
 > exact-artifact journey passes all seven deterministic stages; its authenticated
-> Codex/Claude extension is ready but cannot run without dedicated credentials.
+> Codex/Claude extension now discovers both logged-in local CLIs automatically.
 > The hosted macOS lane remains package-only because it lacks Docker. The final
 > sanitized report and screenshot are retained under
 > `assets/release-certification/` and passed fresh-eyes critique.

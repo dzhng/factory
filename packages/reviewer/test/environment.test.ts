@@ -12,12 +12,16 @@ type DockerUnavailableReason =
 
 describe('reviewer environment inspection', () => {
   test('reports the bounded Docker server version and unconfigured authentication', async () => {
-    const inspection = await inspectReviewerEnvironment({}, async () => ({
-      kind: 'completed',
-      exitCode: 0,
-      stdout: bytes('27.5.1\n'),
-      stderr: bytes(''),
-    }))
+    const inspection = await inspectReviewerEnvironment(
+      {},
+      async () => ({
+        kind: 'completed',
+        exitCode: 0,
+        stdout: bytes('27.5.1\n'),
+        stderr: bytes(''),
+      }),
+      { platform: 'linux' },
+    )
     expect(inspection).toEqual({
       docker: { availability: 'available', version: '27.5.1' },
       credentials: { codex: { state: 'unconfigured' }, claude: { state: 'unconfigured' } },

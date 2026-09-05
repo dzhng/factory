@@ -1,10 +1,11 @@
 import { describe, expect, test } from 'bun:test'
-import { chmod, mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import {
   inspectReviewerEnvironment,
+  materializeReviewerCredential,
   resolveReviewerAuthentication,
   type ReviewerCommandResult,
 } from '../src/index'
@@ -43,8 +44,68 @@ dockerDescribe('reviewer credential discovery', () => {
       claude: { state: 'available' },
     })
     expect(resolved.availability).toEqual({ codex: true, claude: true })
-    expect(resolved.mounts.codex?.hostPath).toBe(codex)
-    expect(resolved.mounts.claude?.hostPath).toBe(claude)
+    expect(resolved.sources.codex).toMatchObject({ kind: 'file', mount: { hostPath: codex } })
+    expect(resolved.sources.claude).toMatchObject({ kind: 'file', mount: { hostPath: claude } })
+  })
+
+  test('discovers an authenticated macOS Claude CLI through Keychain', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'factory-reviewer-keychain-home-'))
+    const resolved = await resolveReviewerAuthentication(
+      { HOME: home },
+      {
+        platform: 'darwin',
+        runSecurity: async () => ({
+          kind: 'completed',
+          exitCode: 0,
+          stdout: Buffer.from('keychain item metadata'),
+          stderr: Buffer.from(''),
+        }),
+      },
+    )
+
+    expect(resolved.inspection.claude).toEqual({ state: 'available' })
+    expect(resolved.availability.claude).toBeTrue()
+    expect(resolved.sources.claude).toEqual({
+      kind: 'macos-keychain',
+      service: 'Claude Code-credentials',
+    })
+  })
+
+  test('stages only Claude inference auth from Keychain in private attempt state', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'factory-reviewer-keychain-stage-'))
+    const source = {
+      kind: 'macos-keychain' as const,
+      service: 'Claude Code-credentials' as const,
+    }
+    const prepared = await materializeReviewerCredential(source, root, {
+      runSecurity: async () => ({
+        kind: 'completed',
+        exitCode: 0,
+        stdout: Buffer.from(
+          JSON.stringify({
+            claudeAiOauth: {
+              accessToken: 'access-test',
+              refreshToken: 'refresh-test',
+              expiresAt: 123,
+            },
+            mcpOAuth: { github: { accessToken: 'must-not-cross' } },
+          }),
+        ),
+        stderr: Buffer.from(''),
+      }),
+    })
+
+    expect(JSON.parse(await readFile(prepared.mount.hostPath, 'utf8'))).toEqual({
+      claudeAiOauth: {
+        accessToken: 'access-test',
+        expiresAt: 123,
+        refreshToken: 'refresh-test',
+      },
+    })
+    expect((await stat(prepared.mount.hostPath)).mode & 0o777).toBe(0o600)
+    expect(prepared.mount.containerPath).toBe('/auth/claude/.credentials.json')
+    if (prepared.root === undefined) throw new Error('Keychain credential was not staged')
+    expect(prepared.root.startsWith(`${root}/review-auth-`)).toBeTrue()
   })
 
   test('mints identity only for a mountable bounded file owned by this non-root user', async () => {
@@ -58,8 +119,12 @@ dockerDescribe('reviewer credential discovery', () => {
       claude: { state: 'unconfigured' },
     })
     expect(resolved.availability).toEqual({ codex: true, claude: false })
-    expect(resolved.mounts.codex).toMatchObject({ hostPath: valid })
-    expect(resolved.mounts.codex?.expectedIdentity).toMatchObject({
+    expect(resolved.sources.codex).toMatchObject({ kind: 'file', mount: { hostPath: valid } })
+    expect(
+      resolved.sources.codex?.kind === 'file'
+        ? resolved.sources.codex.mount.expectedIdentity
+        : undefined,
+    ).toMatchObject({
       size: 3,
       uid: process.getuid?.(),
     })
@@ -101,7 +166,7 @@ dockerDescribe('reviewer credential discovery', () => {
         reason: scenario.reason,
       })
       expect(resolved.availability.codex).toBeFalse()
-      expect(resolved.mounts.codex).toBeUndefined()
+      expect(resolved.sources.codex).toBeUndefined()
     }
   })
 })

@@ -988,28 +988,31 @@ second normative schema; the master specification and format own mechanics.
   product-level preferred harness can replace it before release.
 - **Confidence:** Low.
 
-### Keep provider credentials host-owned without changing their private mode
+### Reuse authenticated provider CLIs without separate Factory setup
 
 - **When:** Slice 09 reviewer authentication boundary.
-- **The choice:** Factory gives the reviewer container one dedicated, read-only
-  credential file. If it is mode `0600`, Factory validates that the invoking
-  non-root developer owns it and runs the container as that numeric owner UID
-  with a fixed unprivileged group. The file remains provider-owned and
-  unchanged. Root-owned or foreign-owned files are unavailable. The rejected
-  alternative would copy the secret into a temporary file, loosen permissions,
-  pass token environment variables, or bridge a host keyring.
-- **The gap:** The plan required read-only authentication and prohibited
-  developer credentials in tests, but it did not authorize secret staging or a
-  keyring bridge for production.
-- **The reach:** Ordinary private file credentials can cross Docker Desktop and
-  Linux bind mounts without a second secret copy. Keyring-only authentication
-  remains unavailable. Future work cannot make review “just work” by weakening
-  permissions or borrowing a broader host credential surface.
-- **Verdict:** Needs-user. File-only handoff is the safest provisional boundary,
-  but it leaves keyring-only macOS setups unavailable. Reversing it requires a
-  separately designed credential broker or controlled staging protocol, never
-  an implicit host-secret fallback.
-- **Confidence:** Medium.
+- **The choice:** Factory automatically discovers each CLI's provider-owned
+  login. Ordinary credential files are identity-bound and mounted read-only as
+  their non-root owner. On macOS, Factory asks the system Keychain for Claude
+  Code's own record at review time, extracts only `claudeAiOauth`, stages that
+  minimal JSON in a private `0600` attempt directory, mounts it read-only, and
+  deletes it through normal or crash cleanup. The broader record's `mcpOAuth`
+  credentials never cross the boundary. Explicit paths remain controlled
+  overrides for nonstandard installations and tests, not user setup.
+- **The gap:** File-only handoff made a normally authenticated macOS Claude CLI
+  appear unavailable because Claude Code stores its login in Keychain. Asking a
+  logged-in user to manufacture a second credential would duplicate provider
+  setup and contradict the product's local-first promise.
+- **The reach:** A user logged into Codex or Claude can review immediately. No
+  provider home is copied, permissions are not loosened, token environment
+  variables are not borrowed, and credentials never enter `.factory`, bundles,
+  images, or logs. A future provider storage change belongs in this single
+  authentication owner rather than in CLI flags or release scripts.
+- **Verdict:** Sound. The bridge exposes less authority than mounting the full
+  Keychain record and shares the attempt lifecycle already responsible for
+  secret-bearing mounts and crash cleanup.
+- **Confidence:** High in the boundary; exact two-provider execution remains the
+  release gate.
 
 ### Keep one crash-recovery identity in Git-common runtime state
 
@@ -1548,14 +1551,14 @@ second normative schema; the master specification and format own mechanics.
 
 - **When:** Slice 12 diagnostic ownership pass.
 - **The choice:** The reviewer package owns bounded Docker-daemon inspection
-  and dedicated credential-file validation. Review execution and Doctor consume
+  and provider-login validation. Review execution and Doctor consume
   the same typed authentication result; Doctor exposes readiness states but no
   credential path or content. A pure CLI policy fold turns owner observations
   into bounded diagnostics without running probes or repairs.
 - **The gap:** Reviewer credential validation lived inside the review command,
   Docker readiness was inferred only after an attempted review, and Doctor had
   no common severity policy across otherwise typed subsystem observations.
-- **The reach:** Missing Docker, invalid dedicated credentials, hook damage,
+- **The reach:** Missing Docker, invalid provider credentials, hook damage,
   pending recovery, and repository faults remain independently visible. A
   canonical-branch disagreement is high severity only when the GitHub adapter
   returned a default-branch observation; local fallback names cannot
@@ -1725,9 +1728,10 @@ second normative schema; the master specification and format own mechanics.
 - **When:** Production reviewer completion milestone.
 - **The choice:** GitHub Actions publishes the pinned Codex/Claude reviewer for
   Linux amd64 and arm64 at `ghcr.io/dzhng/factory-reviewer`, with a mutable
-  discovery tag and an exact commit tag. Runtime configuration accepts only a
-  complete digest-qualified repository reference; review evidence records the
-  selected digest independently of its repository name.
+  discovery tag and an exact commit tag. Factory ships one complete
+  digest-qualified reference as its default; controlled overrides also accept
+  only immutable identities. Review evidence records the selected digest
+  independently of its repository name.
 - **The gap:** Local deterministic fixtures proved the container boundary but
   did not provide a production acquisition channel, while treating `main` as
   executable identity would let future publication change an already selected
@@ -1743,24 +1747,26 @@ second normative schema; the master specification and format own mechanics.
   and that exact remote reference passed the full isolation oracle on macOS
   arm64 Docker.
 
-### Make authenticated certification explicit and two-provider complete
+### Make authenticated certification automatic and two-provider complete
 
 - **When:** Release-authority completion milestone.
-- **The choice:** The release verifier enters authenticated mode only when an
-  immutable reviewer reference and separate dedicated Codex and Claude
-  credential files are supplied together. It retains the deterministic journey
-  for UI and lifecycle evidence, then forces one packaged production-path
-  review with each provider and reports that authority separately.
-- **The gap:** Ambient credential discovery could borrow a developer login, and
-  certifying only the automatically selected provider would leave the other
-  production adapter unproved.
+- **The choice:** The release verifier uses the same automatic provider-login
+  discovery as the product. When both local CLIs are authenticated, it retains
+  the deterministic journey and then forces one packaged production-path review
+  with each provider through Factory's shipped immutable image. If either login
+  is unavailable, it reports authenticated authority unavailable rather than
+  claiming partial certification.
+- **The gap:** Requiring dedicated flags forced an already authenticated user to
+  perform extra credential setup, while certifying only the automatically
+  selected provider would leave the other production adapter unproved.
 - **The reach:** Ordinary CI stays credential-free and truthful. A protected
   lane or operator can provide the missing authority without creating a second
   harness or weakening the image, credential, or exact-artifact boundaries.
-- **Verdict:** Sound. Explicit all-or-nothing inputs make the stronger claim
-  auditable and prevent partial provider coverage from looking complete.
-- **Confidence:** High in the seam; execution remains unavailable until
-  dedicated credentials are supplied.
+- **Verdict:** Sound. Automatic all-or-nothing discovery makes the stronger claim
+  auditable without a parallel login concept and prevents partial provider
+  coverage from looking complete.
+- **Confidence:** High in the seam; exact two-provider execution remains the
+  release gate.
 
 ### Certify the journal at the declared Node floor
 
