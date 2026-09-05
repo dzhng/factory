@@ -172,7 +172,7 @@ async function probe(
 
   if (termination === 'cancelled') {
     const controller = new AbortController()
-    setTimeout(() => controller.abort(), 250)
+    setTimeout(() => controller.abort(), 3_000)
     return await runIsolationProbe(plan.plan, {
       imageDigest,
       scenario,
@@ -183,7 +183,7 @@ async function probe(
   return await runIsolationProbe(plan.plan, {
     imageDigest,
     scenario,
-    ...(termination === 'timed-out' ? { timeoutMs: 250 } : {}),
+    ...(termination === 'timed-out' ? { timeoutMs: 3_000 } : {}),
     sensitiveValues: [secret],
   })
 }

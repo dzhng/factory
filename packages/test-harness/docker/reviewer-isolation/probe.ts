@@ -210,7 +210,11 @@ if (scenario === 'review') {
           }
         }, 25)
       : undefined
-  const providerTimer = setTimeout(() => reviewProcess.kill('SIGTERM'), providerTimeoutMs)
+  let providerTimedOut = false
+  const providerTimer = setTimeout(() => {
+    providerTimedOut = true
+    reviewProcess.kill('SIGTERM')
+  }, providerTimeoutMs)
   const [reviewExit, reviewStdout, reviewStderr] = await Promise.all([
     reviewProcess.exited,
     stdout,
@@ -226,6 +230,7 @@ if (scenario === 'review') {
   }
   if (reviewStdout.overflow || reviewStderr.overflow || responseOverflow)
     throw new Error('review provider command output exceeded its bound')
+  if (providerTimedOut) process.exit(124)
   if (reviewExit !== 0) throw new Error('review provider command failed')
 } else {
   await writeFile('/out/result.txt', 'fake-review-complete\n')

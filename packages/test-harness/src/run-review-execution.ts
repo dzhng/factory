@@ -163,7 +163,8 @@ async function main() {
           label: randomUUID(),
         },
         scenario: 'review',
-        timeoutMs: expected.behavior === 'factory-test-prefix-timeout' ? 500 : 5_000,
+        timeoutMs: 5_000,
+        ...(expected.behavior === 'factory-test-prefix-timeout' ? { providerTimeoutMs: 250 } : {}),
       })
       const responseInfo = await stat(join(scenarioOutput, 'response.txt'))
       if (

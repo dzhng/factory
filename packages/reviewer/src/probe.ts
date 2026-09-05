@@ -62,6 +62,8 @@ export type IsolationProbeOptions = {
   containerIdentity?: { name: string; label: string }
   scenario?: 'success' | 'hang' | 'descendant' | 'review'
   timeoutMs?: number
+  /** Provider-only deadline inside the already-started pinned runner. */
+  providerTimeoutMs?: number
   signal?: AbortSignal
   /** Ephemeral test-only sentinels that must not appear in logs or recursive output. */
   sensitiveValues?: readonly string[]
@@ -222,6 +224,11 @@ export async function runIsolationProbe(
   if (!/^sha256:[0-9a-f]{64}$/.test(options.imageDigest)) {
     throw new Error('Reviewer image must be addressed by an immutable sha256 image ID')
   }
+  if (
+    options.providerTimeoutMs !== undefined &&
+    (!Number.isSafeInteger(options.providerTimeoutMs) || options.providerTimeoutMs < 1)
+  )
+    throw new TypeError('providerTimeoutMs must be a positive integer')
   const resolved = await resolveReviewerIsolation({
     provider: plan.provider,
     bundleHostPath: plan.bundle.hostPath,
@@ -319,7 +326,7 @@ export async function runIsolationProbe(
           options.reviewer.promptVersion,
           options.expectedBundleSha256 ?? '',
           Buffer.from(JSON.stringify(options.invocation ?? null)).toString('base64'),
-          String(Math.max(1, deadline - Date.now())),
+          String(options.providerTimeoutMs ?? Math.max(1, deadline - Date.now())),
         ]),
   )
 
@@ -479,7 +486,10 @@ export async function runIsolationProbe(
     })
     const containerExitCode =
       waited.termination === 'completed' ? Number.parseInt(waited.stdout.trim(), 10) : null
-    result = { ...waited, exitCode: containerExitCode }
+    result =
+      reviewMode && containerExitCode === 124
+        ? { ...waited, termination: 'timed-out', exitCode: null }
+        : { ...waited, exitCode: containerExitCode }
     if (waited.termination !== 'completed') {
       const killed = await runCommand('docker', ['kill', containerName], { timeoutMs: 5_000 })
       if (killed.exitCode !== 0) {
