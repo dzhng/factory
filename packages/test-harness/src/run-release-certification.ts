@@ -63,7 +63,12 @@ async function replayProvider(
 ): Promise<void> {
   const harnessRoot = resolve(import.meta.dir, '..')
   const fixtureRoot = join(harnessRoot, 'fixtures', 'providers', provider)
-  const transcript = join(home, provider, 'transcript.jsonl')
+  const transcript = join(
+    home,
+    provider === 'codex'
+      ? '.codex/sessions/certification.jsonl'
+      : '.claude/projects/certification.jsonl',
+  )
   await mkdir(dirname(transcript), { recursive: true })
   await cp(join(fixtureRoot, 'transcript.jsonl'), transcript)
   const rows = (await readFile(join(fixtureRoot, 'hooks.jsonl'), 'utf8'))
