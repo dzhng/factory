@@ -1500,3 +1500,22 @@ second normative schema; the master specification and format own mechanics.
   similarity or command text never grants deletion authority.
 - **Verdict:** Sound. Observation becomes richer without weakening ownership.
 - **Confidence:** High.
+
+### Make installation one CLI owner with bounded inputs
+
+- **When:** Slice 12 installation inspection extraction.
+- **The choice:** A dedicated CLI installation module owns hook-state parsing,
+  provider paths, install/uninstall reconciliation, interrupted transaction
+  recovery, executable checks, and the typed doctor snapshot. Provider and
+  Factory configuration reads use one descriptor-relative size-bounded helper
+  that refuses symbolic-link final components.
+- **The gap:** Installation mechanics and diagnostics were embedded in the CLI
+  dispatcher, provider files were read without limits, and doctor returned the
+  ownership-state file instead of checking actual configuration.
+- **The reach:** Doctor exposes statuses and counts rather than provider bytes;
+  malformed or oversized provider configuration is isolated per provider.
+  Upgrade can now replace the remaining hook-only transaction behind one owner
+  instead of reaching back into command orchestration.
+- **Verdict:** Sound. The extraction removes duplicated mechanics and creates
+  the intended seam for the typed installation transaction.
+- **Confidence:** High.

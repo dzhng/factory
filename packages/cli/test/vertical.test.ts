@@ -521,6 +521,22 @@ describe('installed capture vertical', () => {
     expect(doctor.code).toBe(0)
     const report = JSON.parse(doctor.stdout)
     expect(report.repository).toBe('ok')
+    expect(report.installation).toMatchObject({
+      ownership: 'available',
+      executable: { path: value.factory, state: 'ready' },
+      transaction: 'absent',
+      providers: {
+        codex: { config: 'available' },
+        claude: { config: 'available' },
+      },
+    })
+    for (const provider of ['codex', 'claude']) {
+      expect(
+        report.installation.providers[provider].hooks.events.every(
+          (event: { state: string }) => event.state === 'installed',
+        ),
+      ).toBeTrue()
+    }
     expect(
       report.projection.sessions.map((session: { provider: string }) => session.provider),
     ).toEqual(['claude', 'codex'])
@@ -609,18 +625,11 @@ describe('installed capture vertical', () => {
         },
       )
       const evidenceReport = structuredClone(rebuilt)
-      if (evidenceReport.hooks !== null && evidenceReport.hooks.error === undefined) {
-        evidenceReport.hooks.executable = '<packaged-fixture>'
+      if (evidenceReport.installation !== undefined) {
+        evidenceReport.installation.executable.path = '<packaged-fixture>'
         for (const provider of ['codex', 'claude']) {
-          if (evidenceReport.hooks.providers[provider] !== undefined) {
-            evidenceReport.hooks.providers[provider] = {
-              path:
-                provider === 'codex'
-                  ? '$CODEX_HOME/hooks.json'
-                  : '$CLAUDE_CONFIG_DIR/settings.json',
-              installedEvents: evidenceReport.hooks.providers[provider].fingerprints.length,
-            }
-          }
+          evidenceReport.installation.providers[provider].path =
+            provider === 'codex' ? '$CODEX_HOME/hooks.json' : '$CLAUDE_CONFIG_DIR/settings.json'
         }
       }
       await writeFile(
@@ -772,6 +781,7 @@ describe('installed capture vertical', () => {
 
   test('recovers interrupted hook installation without losing foreign hooks', async () => {
     const value = await createFixture()
+    expect((await command(value.factory, ['init'], value.repository, value.env)).code).toBe(0)
     const codexPath = join(value.home, '.codex', 'hooks.json')
     const foreign = {
       future: true,
@@ -822,9 +832,179 @@ describe('installed capture vertical', () => {
     const edited = structuredClone(beforeEdit)
     edited.hooks.Stop.at(-1).hooks[0].command += ' # user edit'
     await writeFile(codexPath, `${JSON.stringify(edited)}\n`)
+    const diagnosed = JSON.parse(
+      (await command(value.factory, ['doctor'], value.repository, value.env)).stdout,
+    )
+    expect(
+      diagnosed.installation.providers.codex.hooks.events.find(
+        (event: { event: string }) => event.event === 'Stop',
+      ),
+    ).toMatchObject({ state: 'missing', exactOwnedMatches: 0, factoryLikeUnownedMatches: 1 })
     expect((await command(value.factory, ['uninstall'], value.repository, value.env)).code).toBe(0)
     const afterUninstall = JSON.parse(await readFile(codexPath, 'utf8'))
     expect(afterUninstall.hooks.Stop).toContainEqual(edited.hooks.Stop.at(-1))
+  })
+
+  test('bounds provider configuration reads in install and diagnostics', async () => {
+    const value = await createFixture()
+    expect((await command(value.factory, ['init'], value.repository, value.env)).code).toBe(0)
+    expect(
+      (
+        await command(
+          value.factory,
+          ['install', '--executable', value.factory],
+          value.repository,
+          value.env,
+        )
+      ).code,
+    ).toBe(0)
+    const codexPath = join(value.home, '.codex', 'hooks.json')
+    await writeFile(codexPath, ' '.repeat(4 * 1024 * 1024 + 1), { mode: 0o600 })
+
+    const report = JSON.parse(
+      (await command(value.factory, ['doctor'], value.repository, value.env)).stdout,
+    )
+    expect(report.installation.providers.codex).toMatchObject({
+      config: 'invalid',
+      error: expect.stringContaining('size bound'),
+    })
+    expect(
+      await command(
+        value.factory,
+        ['install', '--executable', value.factory],
+        value.repository,
+        value.env,
+      ),
+    ).toMatchObject({ code: 1, stderr: expect.stringContaining('size bound') })
+    expect((await lstat(codexPath)).size).toBe(4 * 1024 * 1024 + 1)
+  })
+
+  test('refuses malformed or unsafe installation transactions before mutation', async () => {
+    const value = await createFixture()
+    expect((await command(value.factory, ['init'], value.repository, value.env)).code).toBe(0)
+    const transaction = join(value.home, '.config', 'factory', 'hook-transaction.json')
+    await mkdir(join(value.home, '.config', 'factory'), { recursive: true })
+    const validShape = {
+      schemaVersion: 1,
+      provider: 'codex',
+      path: join(value.home, '.codex', 'hooks.json'),
+      beforeSha256: '0'.repeat(64),
+      afterSha256: '1'.repeat(64),
+      bytes: '',
+      nextState: {
+        schemaVersion: 1,
+        executable: value.factory,
+        providers: {},
+      },
+    }
+    for (const malformed of [
+      { ...validShape, schemaVersion: 2 },
+      { ...validShape, provider: 'other' },
+      { ...validShape, nextState: { ...validShape.nextState, executable: 'relative' } },
+    ]) {
+      await writeFile(transaction, `${JSON.stringify(malformed)}\n`, { mode: 0o600 })
+      expect(
+        await command(
+          value.factory,
+          ['install', '--executable', value.factory],
+          value.repository,
+          value.env,
+        ),
+      ).toMatchObject({ code: 1, stderr: expect.stringContaining('transaction is invalid') })
+      expect(await Bun.file(transaction).exists()).toBeTrue()
+    }
+
+    await unlink(transaction)
+    await symlink(value.home, transaction)
+    const report = JSON.parse(
+      (await command(value.factory, ['doctor'], value.repository, value.env)).stdout,
+    )
+    expect(report.installation).toMatchObject({
+      transaction: 'invalid',
+      transactionError: 'installation transaction is unsafe',
+    })
+  })
+
+  test('diagnoses transaction bytes, ownership, and provider divergence before recovery', async () => {
+    const value = await createFixture()
+    expect((await command(value.factory, ['init'], value.repository, value.env)).code).toBe(0)
+    expect(
+      (
+        await command(value.factory, ['install', '--executable', value.factory], value.repository, {
+          ...value.env,
+          FACTORY_TEST_HOOK_CRASH: 'after-journal',
+        })
+      ).code,
+    ).toBe(1)
+    const transactionPath = join(value.home, '.config', 'factory', 'hook-transaction.json')
+    const providerPath = join(value.home, '.codex', 'hooks.json')
+    const valid = JSON.parse(await readFile(transactionPath, 'utf8'))
+    const originalProvider = (await Bun.file(providerPath).exists())
+      ? await readFile(providerPath)
+      : Buffer.from('{}\n')
+    const cases = [
+      {
+        transaction: { ...valid, bytes: Buffer.from('{}\n').toString('base64') },
+        error: 'bytes are corrupt',
+      },
+      {
+        transaction: {
+          ...valid,
+          nextState: {
+            ...valid.nextState,
+            providers: {
+              ...valid.nextState.providers,
+              codex: {
+                ...valid.nextState.providers.codex,
+                fingerprints: valid.nextState.providers.codex.fingerprints.map(
+                  (entry: { event: string; fingerprint: string }, index: number) =>
+                    index === 0 ? { ...entry, fingerprint: '0'.repeat(64) } : entry,
+                ),
+              },
+            },
+          },
+        },
+        error: 'ownership does not match provider hooks',
+      },
+    ]
+    for (const scenario of cases) {
+      await writeFile(transactionPath, `${JSON.stringify(scenario.transaction)}\n`, { mode: 0o600 })
+      await writeFile(providerPath, originalProvider, { mode: 0o600 })
+      const report = JSON.parse(
+        (await command(value.factory, ['doctor'], value.repository, value.env)).stdout,
+      )
+      expect(report.installation).toMatchObject({
+        transaction: 'invalid',
+        transactionError: expect.stringContaining(scenario.error),
+      })
+      expect(
+        await command(
+          value.factory,
+          ['install', '--executable', value.factory],
+          value.repository,
+          value.env,
+        ),
+      ).toMatchObject({ code: 1, stderr: expect.stringContaining(scenario.error) })
+    }
+
+    await writeFile(transactionPath, `${JSON.stringify(valid)}\n`, { mode: 0o600 })
+    await writeFile(providerPath, '{"owner":"edited-concurrently","hooks":{}}\n', { mode: 0o600 })
+    const report = JSON.parse(
+      (await command(value.factory, ['doctor'], value.repository, value.env)).stdout,
+    )
+    expect(report.installation).toMatchObject({
+      transaction: 'invalid',
+      transactionError: expect.stringContaining('provider hooks changed'),
+    })
+    expect(
+      await command(
+        value.factory,
+        ['install', '--executable', value.factory],
+        value.repository,
+        value.env,
+      ),
+    ).toMatchObject({ code: 1, stderr: expect.stringContaining('provider hooks changed') })
+    expect(JSON.parse(await readFile(providerPath, 'utf8')).owner).toBe('edited-concurrently')
   })
 
   test('provider hook remains fail-open when its installed executable crashes', async () => {

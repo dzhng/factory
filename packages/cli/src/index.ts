@@ -1,29 +1,15 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
-import {
-  access,
-  chmod,
-  lstat,
-  link,
-  mkdir,
-  open,
-  readFile,
-  realpath,
-  rename,
-  unlink,
-  writeFile,
-} from 'node:fs/promises'
+import { link, mkdir, open, readFile, realpath, unlink, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { dirname, isAbsolute, join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 
 import {
   claudeCaptureAdapter,
   codexCaptureAdapter,
-  createCaptureAdapter,
   materializeLifecycle,
   materializeStop,
   reduceRepository,
-  removeOwnedHooks,
   resolveConfiguration,
   suggestCanonicalBranch,
   verifyLifecycleCompletion,
@@ -52,21 +38,26 @@ import {
   type RuntimeJournal,
 } from '@factory/runtime-journal'
 
+import {
+  inspectInstallation,
+  installHooks,
+  recoverHookTransaction,
+  uninstallHooks,
+} from './installation'
 import { openCommand, type OpenCommandOptions } from './open'
+import {
+  atomicPrivateWrite,
+  configRoot,
+  pathKind,
+  readBoundedOrdinaryFile,
+  syncDirectory,
+} from './private-files'
 import { reviewCommand } from './review'
 import { factoryBuildIdentity } from './version'
 
 export { verifyReleaseArtifact, type VerifiedRelease } from './release-manifest'
 
 type Output = { stdout(value: string): void; stderr(value: string): void }
-type OwnedFingerprint = { event: string; fingerprint: string }
-type HookState = {
-  schemaVersion: 1
-  executable: string
-  providers: Partial<
-    Record<CaptureProvider, { path: string; fingerprints: readonly OwnedFingerprint[] }>
-  >
-}
 type SessionOwner = {
   provider: CaptureProvider
   sessionId: string
@@ -79,13 +70,6 @@ type SessionOwner = {
 const textEncoder = new TextEncoder()
 const textDecoder = new TextDecoder('utf-8', { fatal: true })
 
-function configRoot(environment: NodeJS.ProcessEnv): string {
-  return join(
-    environment.XDG_CONFIG_HOME ?? join(environment.HOME ?? homedir(), '.config'),
-    'factory',
-  )
-}
-
 function stateRoot(environment: NodeJS.ProcessEnv): string {
   return join(
     environment.XDG_STATE_HOME ?? join(environment.HOME ?? homedir(), '.local', 'state'),
@@ -93,50 +77,10 @@ function stateRoot(environment: NodeJS.ProcessEnv): string {
   )
 }
 
-async function pathKind(path: string): Promise<'missing' | 'file' | 'directory' | 'symlink'> {
-  try {
-    const value = await lstat(path)
-    if (value.isSymbolicLink()) return 'symlink'
-    if (value.isFile()) return 'file'
-    if (value.isDirectory()) return 'directory'
-    throw new Error(`unsupported filesystem entry: ${path}`)
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 'missing'
-    throw error
-  }
-}
-
-async function syncDirectory(path: string): Promise<void> {
-  const handle = await open(path, constants.O_RDONLY)
-  try {
-    await handle.sync()
-  } finally {
-    await handle.close()
-  }
-}
-
-async function atomicPrivateWrite(path: string, bytes: Uint8Array): Promise<void> {
-  await mkdir(dirname(path), { recursive: true, mode: 0o700 })
-  if ((await pathKind(path)) === 'symlink')
-    throw new Error(`Factory refuses symbolic link: ${path}`)
-  const temporary = `${path}.factory-${randomUUID()}.tmp`
-  await writeFile(temporary, bytes, { flag: 'wx', mode: 0o600 })
-  const handle = await open(temporary, constants.O_RDONLY)
-  try {
-    await handle.sync()
-  } finally {
-    await handle.close()
-  }
-  await rename(temporary, path)
-  await chmod(path, 0o600)
-  await syncDirectory(dirname(path))
-}
-
 async function readJsonObject(path: string): Promise<Record<string, JsonValue>> {
-  if ((await pathKind(path)) === 'missing') return {}
-  if ((await pathKind(path)) !== 'file')
-    throw new Error(`Factory requires an ordinary file: ${path}`)
-  const value = JSON.parse(await readFile(path, 'utf8')) as unknown
+  const bytes = await readBoundedOrdinaryFile(path, 1024 * 1024)
+  if (bytes === undefined) return {}
+  const value = JSON.parse(textDecoder.decode(bytes)) as unknown
   if (value === null || Array.isArray(value) || typeof value !== 'object') {
     throw new TypeError(`${path} must contain a JSON object`)
   }
@@ -355,190 +299,6 @@ async function initialize(
     },
     { canonicalBranch: suggestion.branch },
   )
-}
-
-function providerPath(provider: CaptureProvider, environment: NodeJS.ProcessEnv): string {
-  if (provider === 'codex') {
-    return join(
-      environment.CODEX_HOME ?? join(environment.HOME ?? homedir(), '.codex'),
-      'hooks.json',
-    )
-  }
-  return join(
-    environment.CLAUDE_CONFIG_DIR ?? join(environment.HOME ?? homedir(), '.claude'),
-    'settings.json',
-  )
-}
-
-async function readHookState(environment: NodeJS.ProcessEnv): Promise<HookState | undefined> {
-  const path = join(configRoot(environment), 'hooks-state.json')
-  if ((await pathKind(path)) === 'missing') return undefined
-  const bytes = await readFile(path)
-  if (bytes.byteLength > 1024 * 1024) throw new Error('Factory hook state exceeds its size bound')
-  const state = JSON.parse(textDecoder.decode(bytes)) as HookState
-  if (
-    state.schemaVersion !== 1 ||
-    !isAbsolute(state.executable) ||
-    typeof state.providers !== 'object'
-  ) {
-    throw new Error('Factory hook state is invalid')
-  }
-  for (const provider of ['codex', 'claude'] as const) {
-    const owned = state.providers[provider]
-    if (owned === undefined) continue
-    if (owned.path !== providerPath(provider, environment) || !Array.isArray(owned.fingerprints)) {
-      throw new Error('Factory hook state is invalid')
-    }
-  }
-  return state
-}
-
-async function applyHookPatch(
-  provider: CaptureProvider,
-  path: string,
-  expected: Uint8Array | undefined,
-  bytes: Uint8Array,
-  nextState: HookState,
-  environment: NodeJS.ProcessEnv,
-): Promise<void> {
-  const root = configRoot(environment)
-  const journalPath = join(root, 'hook-transaction.json')
-  const before =
-    (await pathKind(path)) === 'file' ? await readFile(path) : textEncoder.encode('{}\n')
-  const expectedBefore = expected ?? textEncoder.encode('{}\n')
-  if (!Buffer.from(before).equals(expectedBefore)) {
-    throw new Error('provider hooks changed while Factory prepared its patch')
-  }
-  const journal = {
-    schemaVersion: 1,
-    provider,
-    path,
-    beforeSha256: createHash('sha256').update(before).digest('hex'),
-    afterSha256: createHash('sha256').update(bytes).digest('hex'),
-    bytes: Buffer.from(bytes).toString('base64'),
-    nextState,
-  }
-  await atomicPrivateWrite(journalPath, textEncoder.encode(canonicalJson(journal)))
-  if (process.env.FACTORY_TEST_HOOK_CRASH === 'after-journal') throw new Error('injected crash')
-  const prewrite =
-    (await pathKind(path)) === 'file' ? await readFile(path) : textEncoder.encode('{}\n')
-  if (!Buffer.from(prewrite).equals(expectedBefore)) {
-    await unlink(journalPath)
-    await syncDirectory(root)
-    throw new Error('provider hooks changed while Factory prepared its patch')
-  }
-  await atomicPrivateWrite(path, bytes)
-  if (process.env.FACTORY_TEST_HOOK_CRASH === 'after-config') throw new Error('injected crash')
-  await atomicPrivateWrite(
-    join(root, 'hooks-state.json'),
-    textEncoder.encode(canonicalJson(nextState)),
-  )
-  await unlink(journalPath)
-  await syncDirectory(root)
-}
-
-async function recoverHookTransaction(environment: NodeJS.ProcessEnv): Promise<void> {
-  const root = configRoot(environment)
-  const path = join(root, 'hook-transaction.json')
-  if ((await pathKind(path)) === 'missing') return
-  const journalBytes = await readFile(path)
-  if (journalBytes.byteLength > 2 * 1024 * 1024)
-    throw new Error('interrupted hook transaction exceeds its size bound')
-  const journal = JSON.parse(textDecoder.decode(journalBytes)) as {
-    provider: CaptureProvider
-    path: string
-    beforeSha256: string
-    afterSha256: string
-    bytes: string
-    nextState: HookState
-  }
-  if (journal.path !== providerPath(journal.provider, environment)) {
-    throw new Error('interrupted hook transaction targets an unexpected provider path')
-  }
-  const bytes = Buffer.from(journal.bytes, 'base64')
-  if (createHash('sha256').update(bytes).digest('hex') !== journal.afterSha256) {
-    throw new Error('interrupted hook transaction bytes are corrupt')
-  }
-  const current =
-    (await pathKind(journal.path)) === 'file'
-      ? await readFile(journal.path)
-      : textEncoder.encode('{}\n')
-  const hash = createHash('sha256').update(current).digest('hex')
-  if (hash === journal.beforeSha256) {
-    await unlink(path)
-    await syncDirectory(root)
-    return
-  }
-  if (hash !== journal.afterSha256) {
-    throw new Error('provider hooks changed during interrupted Factory transaction')
-  }
-  await atomicPrivateWrite(
-    join(root, 'hooks-state.json'),
-    textEncoder.encode(canonicalJson(journal.nextState)),
-  )
-  await unlink(path)
-  await syncDirectory(root)
-}
-
-async function installHooks(
-  executable: string,
-  environment: NodeJS.ProcessEnv,
-): Promise<HookState> {
-  if (!isAbsolute(executable) || (await pathKind(executable)) !== 'file') {
-    throw new Error('Factory hook executable must be an existing absolute ordinary file')
-  }
-  await access(executable, constants.X_OK).catch(() => {
-    throw new Error('Factory hook executable must be executable')
-  })
-  await recoverHookTransaction(environment)
-  let state: HookState = (await readHookState(environment)) ?? {
-    schemaVersion: 1,
-    executable,
-    providers: {},
-  }
-  for (const provider of ['codex', 'claude'] as const) {
-    const path = providerPath(provider, environment)
-    const existing = (await pathKind(path)) === 'file' ? await readFile(path) : undefined
-    const adapter = createCaptureAdapter(provider, state.providers[provider]?.fingerprints)
-    const patch = adapter.reconcileHooks(existing, executable)
-    state = {
-      schemaVersion: 1,
-      executable,
-      providers: {
-        ...state.providers,
-        [provider]: { path, fingerprints: patch.ownedFingerprints },
-      },
-    }
-    await applyHookPatch(provider, path, existing, patch.bytes, state, environment)
-  }
-  return state
-}
-
-async function uninstallHooks(environment: NodeJS.ProcessEnv): Promise<void> {
-  await recoverHookTransaction(environment)
-  let state = await readHookState(environment)
-  if (state === undefined) return
-  for (const provider of ['codex', 'claude'] as const) {
-    const owned = state.providers[provider]
-    if (owned === undefined) continue
-    if (owned.path !== providerPath(provider, environment)) {
-      throw new Error('Factory hook ownership state targets an unexpected provider path')
-    }
-    const existing =
-      (await pathKind(owned.path)) === 'file' ? await readFile(owned.path) : undefined
-    const providers: HookState['providers'] = { ...state.providers }
-    delete providers[provider]
-    state = { ...state, providers }
-    if (existing === undefined) {
-      await atomicPrivateWrite(
-        join(configRoot(environment), 'hooks-state.json'),
-        textEncoder.encode(canonicalJson(state)),
-      )
-      continue
-    }
-    const patch = removeOwnedHooks(provider, existing, owned.fingerprints)
-    await applyHookPatch(provider, owned.path, existing, patch.bytes, state, environment)
-  }
 }
 
 function ownerKey(provider: CaptureProvider, sessionId: string, generation: number): string {
@@ -868,11 +628,7 @@ async function doctor(
     runtime = await inspectRuntimeJournal(repositoryRoot)
   }
   const records = await store.readRecords()
-  const hookState = await readHookState(environment).catch(error => ({
-    error: error instanceof Error ? error.message : String(error),
-  }))
-  const hookTransactionPending =
-    (await pathKind(join(configRoot(environment), 'hook-transaction.json'))) === 'file'
+  const installation = await inspectInstallation(environment)
   const captureDiagnostics =
     runtime.state === 'available'
       ? [
@@ -892,8 +648,7 @@ async function doctor(
     pendingLifecycle: runtime.state === 'available' ? runtime.pendingLifecycle : null,
     runtimeStorageBytes: runtime.storageBytes,
     projection: projection as unknown as JsonValue,
-    hooks: (hookState ?? null) as unknown as JsonValue,
-    hookTransactionPending,
+    installation: installation as unknown as JsonValue,
     captureDiagnostics: captureDiagnostics as unknown as JsonValue,
     canonicalBranch: config.canonicalBranch ?? null,
     observedDefaultBranch: suggestion?.branch ?? null,

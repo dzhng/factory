@@ -75,7 +75,7 @@ export type HookInspection = { events: readonly HookEventInspection[] }
 export interface CaptureAdapter {
   classify(raw: Uint8Array): CaptureEnvelope
   providerResponse(result: CaptureResult): Uint8Array
-  inspectHooks(existing: Uint8Array | undefined, executable: string): HookInspection
+  inspectHooks(existing: Uint8Array | undefined, executable?: string): HookInspection
   reconcileHooks(existing: Uint8Array | undefined, executable: string): HookPatch
 }
 
@@ -190,6 +190,14 @@ const CLAUDE_EVENTS = [
   'FileChanged',
 ] as const
 
+/** Provider hook events Factory is permitted to own for capture. */
+export function isCaptureHookEvent(provider: CaptureProvider, event: unknown): event is string {
+  return (
+    typeof event === 'string' &&
+    (provider === 'codex' ? CODEX_EVENTS : CLAUDE_EVENTS).includes(event as never)
+  )
+}
+
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'"'"'`)}'`
 }
@@ -237,11 +245,12 @@ function parseHookConfiguration(existing: Uint8Array | undefined): JsonObject {
 function inspectHooks(
   provider: CaptureProvider,
   existing: Uint8Array | undefined,
-  executable: string,
+  executable: string | undefined,
   priorOwned: ReadonlyMap<string, ReadonlySet<string>>,
 ): HookInspection {
-  if (!executable.startsWith('/')) throw new TypeError('Factory hook executable must be absolute')
   const value = parseHookConfiguration(existing)
+  if (executable === undefined) return { events: [] }
+  if (!executable.startsWith('/')) throw new TypeError('Factory hook executable must be absolute')
   const hooks = value.hooks as JsonObject
   const events: HookEventInspection[] = []
   for (const event of provider === 'codex' ? CODEX_EVENTS : CLAUDE_EVENTS) {

@@ -12,8 +12,11 @@ evidence that reached the journal remains recoverable.
 
 Global hook ownership is private operational state. Exact recorded
 fingerprints authorize removal; foreign, duplicate-looking, and user-edited
-entries remain untouched. `factory doctor` is read-only unless `--repair` is
-explicit.
+entries remain untouched. Installation code owns bounded, no-follow reads of
+provider configuration, transaction recovery, and a typed inspection that
+compares actual hooks with provider-owned semantics. `factory doctor` is
+read-only unless `--repair` is explicit and reports that inspection without
+including provider configuration bytes.
 
 `factory open` rebuilds a presentation projection from portable repository
 records, serves it only on `127.0.0.1`, and stops when the command exits. The
