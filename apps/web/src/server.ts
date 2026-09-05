@@ -224,7 +224,7 @@ export async function serveLocalUi(input: ServeLocalUiInput): Promise<LocalUiHan
             const snapshot = await input.snapshot()
             const encoded = JSON.stringify(snapshot)
             result =
-              encoded.length > 8 * 1024 * 1024
+              new TextEncoder().encode(encoded).byteLength > 8 * 1024 * 1024
                 ? error('snapshot-too-large', 413)
                 : response(encoded, 200, 'application/json; charset=utf-8')
           } catch {

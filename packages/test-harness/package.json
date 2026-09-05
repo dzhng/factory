@@ -20,6 +20,8 @@
     "lab:review-pr-cli": "bun run src/run-review-pr-cli.ts",
     "lab:reviewer-isolation": "bun run src/reviewer-isolation.ts",
     "lab:decision-replay": "bun run src/run-decision-replay.ts",
+    "lab:localhost-ui": "bun run src/run-local-ui.ts",
+    "check:localhost-ui": "bun run src/run-local-ui.ts --check",
     "lint": "oxlint src test docker",
     "test": "bun test"
   },
@@ -31,6 +33,8 @@
     "@factory/repository": "workspace:*",
     "@factory/review": "workspace:*",
     "@factory/review-plan": "workspace:*",
-    "@factory/reviewer": "workspace:*"
+    "@factory/reviewer": "workspace:*",
+    "@factory/web": "workspace:*",
+    "playwright-core": "1.61.0"
   }
 }

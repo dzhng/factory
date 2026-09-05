@@ -91,6 +91,13 @@ describe('local UI server', () => {
     }
     expect(
       (
+        await fetch(`${handle.origin}/api/snapshot`, {
+          headers: { host: `localhost:${handle.port}` },
+        })
+      ).status,
+    ).toBe(421)
+    expect(
+      (
         await fetch(`${handle.origin}/api/actions/decision`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
@@ -111,6 +118,19 @@ describe('local UI server', () => {
         })
       ).status,
     ).toBe(400)
+    expect(
+      (
+        await fetch(`${handle.origin}/api/actions/decision`, {
+          method: 'POST',
+          headers: {
+            origin: handle.origin,
+            'content-type': 'application/json',
+            'x-factory-csrf': session.csrfToken,
+          },
+          body: JSON.stringify({ ...valid, note: 'é'.repeat(9 * 1024) }),
+        })
+      ).status,
+    ).toBe(413)
     expect(decisions).toEqual([])
   })
 

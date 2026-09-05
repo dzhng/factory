@@ -1,0 +1,146 @@
+{
+  "schemaVersion": 1,
+  "scenarios": [
+    {
+      "id": "empty",
+      "description": "initialized repository without evidence",
+      "assertions": [
+        "named heading and navigation",
+        "keyboard skip link"
+      ]
+    },
+    {
+      "id": "active-capture",
+      "description": "active multi-harness Session capture",
+      "assertions": [
+        "named heading and navigation",
+        "keyboard skip link"
+      ]
+    },
+    {
+      "id": "workspace-review",
+      "description": "complete workspace review",
+      "assertions": [
+        "named heading and navigation",
+        "keyboard skip link"
+      ]
+    },
+    {
+      "id": "exact-pr",
+      "description": "exact PR association",
+      "assertions": [
+        "named heading and navigation",
+        "exact association label",
+        "keyboard skip link"
+      ]
+    },
+    {
+      "id": "ambiguous-pr",
+      "description": "partial PR without exact association",
+      "assertions": [
+        "named heading and navigation",
+        "ambiguous association label",
+        "keyboard skip link"
+      ]
+    },
+    {
+      "id": "partial-coverage",
+      "description": "partial review with unsettled evidence",
+      "assertions": [
+        "named heading and navigation",
+        "partial review label",
+        "repository text rendered literally",
+        "keyboard skip link"
+      ]
+    },
+    {
+      "id": "failed-review",
+      "description": "failed review and pending trigger",
+      "assertions": [
+        "named heading and navigation",
+        "keyboard skip link"
+      ]
+    },
+    {
+      "id": "canonical-decisions",
+      "description": "confirmed canonical decision and pending change",
+      "assertions": [
+        "named heading and navigation",
+        "canonical confirmation and pending change labels",
+        "keyboard skip link"
+      ]
+    },
+    {
+      "id": "detached-head",
+      "description": "detached Git observation",
+      "assertions": [
+        "named heading and navigation",
+        "keyboard skip link"
+      ]
+    },
+    {
+      "id": "github-unavailable",
+      "description": "durable unavailable GitHub observation",
+      "assertions": [
+        "named heading and navigation",
+        "keyboard skip link"
+      ]
+    },
+    {
+      "id": "corrupt-data",
+      "description": "read-only corrupt repository state",
+      "assertions": [
+        "read-only failure heading"
+      ]
+    },
+    {
+      "id": "upgrade-required",
+      "description": "read-only version gate",
+      "assertions": [
+        "read-only failure heading"
+      ]
+    }
+  ],
+  "screenshots": [
+    {
+      "file": "active-capture--wide.png",
+      "sha256": "6e5f452e3454e108e455bf4d4dc4b2073d478965fcffe66b7bea9af02b93d606",
+      "bytes": 275697
+    },
+    {
+      "file": "active-capture--narrow.png",
+      "sha256": "3f7fd3e71e240d22aef3b7cbf1e3697e6b637d7014ab30aadc16b574ffdae472",
+      "bytes": 108773
+    },
+    {
+      "file": "exact-pr--wide.png",
+      "sha256": "0fade8c23fdda88b0a40d7ce41481a55589f3f860686cb776dc4ee0fb7f58ded",
+      "bytes": 117331
+    },
+    {
+      "file": "exact-pr--narrow.png",
+      "sha256": "7a2dae067c8531eabd41d586c227229d321b449102b2dbb247b797974517ec74",
+      "bytes": 61616
+    },
+    {
+      "file": "partial-coverage--wide.png",
+      "sha256": "021ed5ad29ef35305cb71dc02bfe5fae583a37f9f711be9978f99660b6bf8952",
+      "bytes": 116373
+    },
+    {
+      "file": "partial-coverage--narrow.png",
+      "sha256": "cff72ca27607c167398203902b29d01c9a1359a27a0cba951dcd8f12616b75e8",
+      "bytes": 67465
+    },
+    {
+      "file": "canonical-decisions--wide.png",
+      "sha256": "e5153fd536b8ffca028a27787e6d667e7d0f1c1ab6a10d99e9d98efa8d907579",
+      "bytes": 223046
+    },
+    {
+      "file": "canonical-decisions--narrow.png",
+      "sha256": "08bf154385bfff2d95c56f58ecf5c9a9b0821e263213d179c136a3ed4c68247c",
+      "bytes": 72558
+    }
+  ]
+}
