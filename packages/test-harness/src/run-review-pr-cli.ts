@@ -32,10 +32,7 @@ if (args[0] === 'repo' && args[1] === 'view') {
 } else process.exit(3)
 `
 
-async function review(
-  root: string,
-  environment: NodeJS.ProcessEnv,
-): Promise<StoredReviewResult> {
+async function review(root: string, environment: NodeJS.ProcessEnv): Promise<StoredReviewResult> {
   const child = Bun.spawn([process.execPath, factoryProgram, 'review', '--pr', '42', '--force'], {
     cwd: root,
     env: environment,
