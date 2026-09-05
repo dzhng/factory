@@ -40,3 +40,7 @@ authority. The writer checks the exact decision record set and configured
 canonical branch while holding mutation ownership, then creates one immutable
 action. Semantic retries keep the first stored timestamp; changed authority is
 reported separately from an immutable-path collision.
+
+Repository verification reports the bytes occupied by Factory-owned ordinary
+files as part of the same read-only traversal. Preserved foreign `.factory`
+paths are excluded because Factory neither interprets nor claims their storage.

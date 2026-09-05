@@ -1,3 +1,4 @@
+import type { CaptureProviderEnvironmentInspection } from '@factory/capture'
 import type { GithubDefaultBranchObservation } from '@factory/github'
 import type { ReviewerEnvironmentInspection } from '@factory/reviewer'
 import type { RuntimeJournalInspection } from '@factory/runtime-journal'
@@ -17,6 +18,7 @@ export type DiagnosticContext = {
   installation: InstallationStatus
   github: GithubDefaultBranchObservation
   reviewer: ReviewerEnvironmentInspection
+  providers: CaptureProviderEnvironmentInspection
   canonicalBranch?: string
 }
 
@@ -113,6 +115,13 @@ export function runDiagnostics(context: DiagnosticContext): readonly FactoryDiag
       summary: `Docker reviewer is unavailable: ${context.reviewer.docker.reason}`,
     })
   for (const provider of ['codex', 'claude'] as const) {
+    const providerEnvironment = context.providers[provider]
+    if (providerEnvironment.availability === 'unavailable')
+      diagnostics.push({
+        code: `${provider}-cli-unavailable`,
+        severity: 'low',
+        summary: `${provider} CLI is unavailable: ${providerEnvironment.reason}`,
+      })
     const credentials = context.reviewer.credentials[provider]
     if (credentials.state !== 'available')
       diagnostics.push({

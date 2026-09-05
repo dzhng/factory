@@ -1539,3 +1539,20 @@ second normative schema; the master specification and format own mechanics.
 - **Verdict:** Sound. Diagnostics assemble facts from owners without becoming a
   new authority for GitHub, hooks, credentials, or container execution.
 - **Confidence:** High.
+
+### Report storage and provider presence from their owners
+
+- **When:** Slice 12 diagnostic ownership pass.
+- **The choice:** Repository verification counts bytes for Factory-owned
+  ordinary files during its existing integrity traversal, excluding preserved
+  foreign paths. The capture provider boundary owns fixed, bounded, concurrent
+  `--version` observations for Codex and Claude Code.
+- **The gap:** Doctor reported private runtime bytes but not portable Factory
+  storage, and it could not distinguish a missing provider CLI from missing hook
+  configuration without inventing provider command semantics itself.
+- **The reach:** Storage and provider versions are typed facts in Doctor output.
+  Provider absence remains diagnostic only; it cannot grant hook ownership or
+  block inspection of the other provider.
+- **Verdict:** Sound. Existing semantic owners supply the facts without giving
+  diagnostic policy a filesystem or subprocess authority of its own.
+- **Confidence:** High.

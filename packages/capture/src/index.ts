@@ -36,6 +36,13 @@ import type {
 } from '@factory/runtime-journal'
 import type { RuntimeJournal } from '@factory/runtime-journal'
 
+export {
+  inspectCaptureProviderEnvironment,
+  type CaptureProviderEnvironmentOptions,
+  type CaptureProviderEnvironmentInspection,
+  type ProviderCommandResult,
+} from './provider-environment'
+
 export type CaptureEnvelope = {
   provider: CaptureProvider
   nativeSessionId: string

@@ -533,6 +533,8 @@ describe('installed capture vertical', () => {
     expect(doctor.code).toBe(0)
     const report = JSON.parse(doctor.stdout)
     expect(report.repository).toBe('ok')
+    expect(report.repositoryStorageBytes).toBeGreaterThan(0)
+    expect(report.runtimeStorageBytes).toBeGreaterThan(0)
     expect(report.installation).toMatchObject({
       ownership: 'available',
       executable: { path: value.factory, state: 'ready' },

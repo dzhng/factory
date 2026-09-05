@@ -25,6 +25,10 @@ describe('diagnostic policy', () => {
           claude: { state: 'unconfigured' },
         },
       },
+      providers: {
+        codex: { availability: 'unavailable', reason: 'missing' },
+        claude: { availability: 'unavailable', reason: 'missing' },
+      },
       canonicalBranch: 'release',
     })
     expect(diagnostics).toContainEqual({
@@ -66,6 +70,10 @@ describe('diagnostic policy', () => {
       reviewer: {
         docker: { availability: 'available', version: '27.5.1' },
         credentials: { codex: { state: 'available' }, claude: { state: 'available' } },
+      },
+      providers: {
+        codex: { availability: 'available', version: 'codex 1.2.3' },
+        claude: { availability: 'available', version: 'claude 1.2.3' },
       },
     })
     expect(diagnostics).toContainEqual({

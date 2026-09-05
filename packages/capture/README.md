@@ -16,6 +16,10 @@ The same adapters inspect hook semantics: exact, duplicate, and stale entries
 are derived from recorded fingerprints, while edited Factory-like entries are
 reported without becoming removal authority.
 
+Provider CLI presence is also a bounded observation owned here. Version probes
+have fixed arguments, deadlines, and output limits; absence or malformed output
+stays a typed diagnostic and never changes hook ownership.
+
 Transcript reads are bounded and descriptor-relative beneath the configured
 provider home. Missing, racing, forged, or otherwise unsafe transcript input
 produces a readable partial Turn instead of suppressing review.

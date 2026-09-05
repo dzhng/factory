@@ -95,6 +95,8 @@ export type RepositoryVerification = {
   repositoryId: string
   recordsChecked: number
   objectsChecked: number
+  /** Bytes occupied by Factory-owned ordinary files; preserved foreign paths are excluded. */
+  ownedStorageBytes: number
   issues: readonly VerificationIssue[]
 }
 
@@ -128,6 +130,7 @@ export type RepositoryStoreOptions = {
 }
 
 const DEFAULT_MAX_OBJECT_BYTES = 64 * 1024 * 1024
+const MAX_STRUCTURED_RECORD_BYTES = 4 * 1024 * 1024
 const OWNED_DIRECTORIES = [
   'sessions',
   'repository-observations',
@@ -167,13 +170,44 @@ async function requireOrdinaryFile(path: string): Promise<void> {
   if (kind !== 'file') throw new Error(`Factory requires an ordinary file: ${path}`)
 }
 
+class BoundedOrdinaryFileError extends Error {
+  constructor(
+    message: string,
+    readonly observedSize?: number,
+    options?: ErrorOptions,
+  ) {
+    super(message, options)
+  }
+}
+
+class StorageReportingBoundsError extends Error {
+  constructor() {
+    super('Factory repository storage exceeds numeric reporting bounds')
+  }
+}
+
 async function readBoundedOrdinary(path: string, maximumBytes: number): Promise<Uint8Array> {
-  const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
+  let handle
+  try {
+    handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
+  } catch (error) {
+    const observed = await lstat(path).catch(() => undefined)
+    if (observed?.isFile() && Number.isSafeInteger(observed.size))
+      throw new BoundedOrdinaryFileError(
+        `Factory could not read ordinary file: ${path}`,
+        observed.size,
+        { cause: error },
+      )
+    throw error
+  }
+  let observedSize: number | undefined
   try {
     const before = await handle.stat({ bigint: true })
     if (!before.isFile()) throw new Error(`Factory requires an ordinary file: ${path}`)
+    if (before.size > BigInt(Number.MAX_SAFE_INTEGER)) throw new StorageReportingBoundsError()
+    observedSize = Number(before.size)
     if (before.size > BigInt(maximumBytes))
-      throw new Error(`Factory file exceeds read bound: ${path}`)
+      throw new BoundedOrdinaryFileError(`Factory file exceeds read bound: ${path}`, observedSize)
     const bytes = new Uint8Array(Number(before.size))
     let offset = 0
     while (offset < bytes.byteLength) {
@@ -190,17 +224,26 @@ async function readBoundedOrdinary(path: string, maximumBytes: number): Promise<
       before.mtimeNs !== after.mtimeNs ||
       before.ctimeNs !== after.ctimeNs
     ) {
-      throw new Error(`Factory file changed while reading: ${path}`)
+      throw new BoundedOrdinaryFileError(
+        `Factory file changed while reading: ${path}`,
+        observedSize,
+      )
     }
     return bytes
+  } catch (error) {
+    if (error instanceof BoundedOrdinaryFileError || observedSize === undefined) throw error
+    throw new BoundedOrdinaryFileError(
+      error instanceof Error ? error.message : String(error),
+      observedSize,
+      { cause: error },
+    )
   } finally {
     await handle.close()
   }
 }
 
 async function readManifest(path: string): Promise<RepositoryManifest> {
-  await requireOrdinaryFile(path)
-  const text = decodeUtf8(await readFile(path))
+  const text = decodeUtf8(await readBoundedOrdinary(path, MAX_STRUCTURED_RECORD_BYTES))
   const manifest = parseRepositoryManifest(JSON.parse(text))
   if (canonicalJson(manifest) !== text) throw new TypeError('manifest is not canonical JSON')
   return manifest
@@ -409,14 +452,38 @@ async function inspectObject(
   path: string,
   maximumBytes: number,
 ): Promise<{ bytes: number; digest?: string; oversized: boolean }> {
-  const hash = createHash('sha256')
-  let bytes = 0
-  for await (const chunk of createReadStream(path)) {
-    bytes += chunk.byteLength
-    if (bytes > maximumBytes) return { bytes, oversized: true }
-    hash.update(chunk)
+  const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
+  try {
+    const before = await handle.stat({ bigint: true })
+    if (!before.isFile()) throw new Error('Factory object is not an ordinary file')
+    if (before.size > BigInt(Number.MAX_SAFE_INTEGER)) throw new StorageReportingBoundsError()
+    const observedSize = Number(before.size)
+    if (observedSize > maximumBytes) return { bytes: observedSize, oversized: true }
+    const content = Buffer.alloc(observedSize)
+    let offset = 0
+    while (offset < content.byteLength) {
+      const result = await handle.read(content, offset, content.byteLength - offset, offset)
+      if (result.bytesRead === 0) break
+      offset += result.bytesRead
+    }
+    const after = await handle.stat({ bigint: true })
+    if (
+      offset !== observedSize ||
+      after.dev !== before.dev ||
+      after.ino !== before.ino ||
+      after.size !== before.size ||
+      after.mtimeNs !== before.mtimeNs ||
+      after.ctimeNs !== before.ctimeNs
+    )
+      throw new Error('Factory object changed while it was verified')
+    return {
+      bytes: observedSize,
+      digest: createHash('sha256').update(content).digest('hex'),
+      oversized: false,
+    }
+  } finally {
+    await handle.close()
   }
-  return { bytes, digest: hash.digest('hex'), oversized: false }
 }
 
 export class RepositoryStore {
@@ -518,7 +585,7 @@ export class RepositoryStore {
     assertOwnedRecordPath(path)
     if (path === makeOwnedPath('config')) throw new TypeError('config is mutable')
     const absolute = join(this.factoryRoot, path)
-    const bytes = await readBoundedOrdinary(absolute, 4 * 1024 * 1024)
+    const bytes = await readBoundedOrdinary(absolute, MAX_STRUCTURED_RECORD_BYTES)
     validateStructuredRecord(path, bytes)
     if (expectedSha256 !== undefined && sha256(bytes) !== expectedSha256) {
       throw new Error(`Factory immutable record failed verification: ${path}`)
@@ -555,7 +622,7 @@ export class RepositoryStore {
     }
     const paths = new Set<string>()
     for (const record of snapshots) {
-      if (record.bytes.byteLength > 4 * 1024 * 1024)
+      if (record.bytes.byteLength > MAX_STRUCTURED_RECORD_BYTES)
         throw new TypeError('immutable structured record exceeds its read bound')
       if (record.path === makeOwnedPath('manifest') || record.path === makeOwnedPath('config')) {
         throw new TypeError('manifest and config cannot belong to an immutable group')
@@ -614,7 +681,7 @@ export class RepositoryStore {
     const root = `${dirname(commitPath)}/`
     const paths = new Set<string>()
     for (const record of snapshots) {
-      if (record.bytes.byteLength > 4 * 1024 * 1024)
+      if (record.bytes.byteLength > MAX_STRUCTURED_RECORD_BYTES)
         throw new TypeError('immutable structured record exceeds its read bound')
       if (!record.path.startsWith(root) || paths.has(record.path))
         throw new TypeError('review publication contains an invalid path set')
@@ -700,12 +767,12 @@ export class RepositoryStore {
         if (recordCount > 100_000) throw new Error('Factory record tree exceeds record bound')
         const path = relative as OwnedPath
         const file = await stat(absolute)
-        if (file.size > 4 * 1024 * 1024)
+        if (file.size > MAX_STRUCTURED_RECORD_BYTES)
           throw new Error(`Factory record exceeds read bound: ${path}`)
         aggregateBytes += file.size
         if (aggregateBytes > 64 * 1024 * 1024)
           throw new Error('Factory record tree exceeds aggregate read bound')
-        const bytes = await readBoundedOrdinary(absolute, 4 * 1024 * 1024)
+        const bytes = await readBoundedOrdinary(absolute, MAX_STRUCTURED_RECORD_BYTES)
         validateStructuredRecord(path, bytes)
         const text = decodeUtf8(bytes)
         if (path.endsWith('.json')) records.push({ path, value: JSON.parse(text) as JsonValue })
@@ -730,7 +797,7 @@ export class RepositoryStore {
     if (path.startsWith('objects/')) {
       throw new TypeError('objects use putObject so their identity is derived from exact bytes')
     }
-    if (bytes.byteLength > 4 * 1024 * 1024)
+    if (bytes.byteLength > MAX_STRUCTURED_RECORD_BYTES)
       throw new TypeError('immutable structured record exceeds its read bound')
     validateStructuredRecord(path, bytes)
     await this.withMutationLock(async () => {
@@ -749,7 +816,7 @@ export class RepositoryStore {
     return await this.withMutationLock(async () => {
       const destination = await ensureOwnedParent(this.factoryRoot, path)
       if ((await pathKind(destination)) === 'file') {
-        const bytes = await readBoundedOrdinary(destination, 4 * 1024 * 1024)
+        const bytes = await readBoundedOrdinary(destination, MAX_STRUCTURED_RECORD_BYTES)
         validateStructuredRecord(path, bytes)
         const existing = JSON.parse(decodeUtf8(bytes)) as CoverageAction
         const { createdAt: _createdAt, ...existingSemantic } = existing
@@ -777,7 +844,7 @@ export class RepositoryStore {
     return await this.withMutationLock(async () => {
       const destination = await ensureOwnedParent(this.factoryRoot, path)
       if ((await pathKind(destination)) === 'file') {
-        const bytes = await readBoundedOrdinary(destination, 4 * 1024 * 1024)
+        const bytes = await readBoundedOrdinary(destination, MAX_STRUCTURED_RECORD_BYTES)
         validateStructuredRecord(path, bytes)
         const existing = JSON.parse(decodeUtf8(bytes)) as DecisionAction
         const { createdAt: _existingAt, ...existingSemantic } = existing
@@ -889,6 +956,19 @@ export class RepositoryStore {
     const refs: ObjectRef[] = []
     let recordsChecked = 1
     let objectsChecked = 0
+    let ownedStorageBytes = 0
+    const addOwnedStorage = (bytes: number) => {
+      if (!Number.isSafeInteger(ownedStorageBytes + bytes)) throw new StorageReportingBoundsError()
+      ownedStorageBytes += bytes
+    }
+    addOwnedStorage(
+      (
+        await readBoundedOrdinary(
+          join(this.factoryRoot, 'manifest.json'),
+          MAX_STRUCTURED_RECORD_BYTES,
+        )
+      ).byteLength,
+    )
 
     const inspectTree = async (root: string, relativeRoot: string): Promise<void> => {
       for (const entry of await readdir(root, { withFileTypes: true })) {
@@ -910,6 +990,8 @@ export class RepositoryStore {
         if (!entry.isFile()) continue
         if (relativePath.startsWith('objects/')) {
           objectsChecked += 1
+          const inspected = await inspectObject(fullPath, reopened.maxObjectBytes)
+          addOwnedStorage(inspected.bytes)
           const match = /^objects\/sha256\/([0-9a-f]{2})\/([0-9a-f]{62})$/.exec(relativePath)
           if (match === null) {
             issues.push({
@@ -920,7 +1002,6 @@ export class RepositoryStore {
             continue
           }
           const expectedHash = `${match[1]}${match[2]}`
-          const inspected = await inspectObject(fullPath, reopened.maxObjectBytes)
           if (inspected.oversized) {
             issues.push({
               code: 'object-oversized',
@@ -937,8 +1018,22 @@ export class RepositoryStore {
           continue
         }
         recordsChecked += 1
+        let content: Uint8Array
         try {
-          const content = await readFile(fullPath)
+          content = await readBoundedOrdinary(fullPath, MAX_STRUCTURED_RECORD_BYTES)
+        } catch (error) {
+          if (error instanceof StorageReportingBoundsError) throw error
+          if (error instanceof BoundedOrdinaryFileError && error.observedSize !== undefined)
+            addOwnedStorage(error.observedSize)
+          issues.push({
+            code: 'invalid-structured-record',
+            path: relativePath,
+            detail: error instanceof Error ? error.message : String(error),
+          })
+          continue
+        }
+        addOwnedStorage(content.byteLength)
+        try {
           validateStructuredRecord(relativePath as OwnedPath, content)
           if (relativePath.endsWith('.json')) {
             collectObjectRefs(JSON.parse(decodeUtf8(content)), refs)
@@ -960,18 +1055,33 @@ export class RepositoryStore {
     const configPath = join(this.factoryRoot, 'config.json')
     if ((await pathKind(configPath)) === 'file') {
       recordsChecked += 1
+      let bytes: Uint8Array | undefined
       try {
-        const bytes = await readFile(configPath)
-        const config = parseRepositoryConfig(JSON.parse(decodeUtf8(bytes)))
-        if (canonicalJson(config) !== decodeUtf8(bytes))
-          throw new Error('config is not canonical JSON')
-        assertNoMachinePaths(config)
+        bytes = await readBoundedOrdinary(configPath, MAX_STRUCTURED_RECORD_BYTES)
       } catch (error) {
+        if (error instanceof StorageReportingBoundsError) throw error
+        if (error instanceof BoundedOrdinaryFileError && error.observedSize !== undefined)
+          addOwnedStorage(error.observedSize)
         issues.push({
           code: 'invalid-structured-record',
           path: 'config.json',
           detail: error instanceof Error ? error.message : String(error),
         })
+      }
+      if (bytes !== undefined) {
+        addOwnedStorage(bytes.byteLength)
+        try {
+          const config = parseRepositoryConfig(JSON.parse(decodeUtf8(bytes)))
+          if (canonicalJson(config) !== decodeUtf8(bytes))
+            throw new Error('config is not canonical JSON')
+          assertNoMachinePaths(config)
+        } catch (error) {
+          issues.push({
+            code: 'invalid-structured-record',
+            path: 'config.json',
+            detail: error instanceof Error ? error.message : String(error),
+          })
+        }
       }
     }
 
@@ -1011,6 +1121,7 @@ export class RepositoryStore {
       repositoryId: reopened.manifest.repositoryId,
       recordsChecked,
       objectsChecked,
+      ownedStorageBytes,
       issues,
     }
   }

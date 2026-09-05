@@ -7,6 +7,7 @@ import { isAbsolute, join } from 'node:path'
 import {
   claudeCaptureAdapter,
   codexCaptureAdapter,
+  inspectCaptureProviderEnvironment,
   materializeLifecycle,
   materializeStop,
   reduceRepository,
@@ -595,9 +596,10 @@ async function doctor(
   const store = await openRepositoryStore(repositoryRoot)
   const verification = await store.verify()
   const config = await store.readConfig()
-  const [github, reviewer] = await Promise.all([
+  const [github, reviewer, providers] = await Promise.all([
     observeGithubDefaultBranch({ cwd: repositoryRoot, environment }),
     inspectReviewerEnvironment(environment),
+    inspectCaptureProviderEnvironment(environment),
   ])
   const suggestion = await canonicalSuggestion(repositoryRoot, environment, undefined, github)
   let runtime = await inspectRuntimeJournal(repositoryRoot)
@@ -654,6 +656,7 @@ async function doctor(
     installation,
     github,
     reviewer,
+    providers,
     ...(config.canonicalBranch === undefined ? {} : { canonicalBranch: config.canonicalBranch }),
   })
   return {
@@ -661,10 +664,12 @@ async function doctor(
     issues: issues as unknown as JsonValue,
     pendingStops: runtime.state === 'available' ? runtime.pendingStops : null,
     pendingLifecycle: runtime.state === 'available' ? runtime.pendingLifecycle : null,
+    repositoryStorageBytes: verification.ownedStorageBytes,
     runtimeStorageBytes: runtime.storageBytes,
     projection: projection as unknown as JsonValue,
     installation: installation as unknown as JsonValue,
     reviewer: reviewer as unknown as JsonValue,
+    providers: providers as unknown as JsonValue,
     github: github as unknown as JsonValue,
     captureDiagnostics: captureDiagnostics as unknown as JsonValue,
     diagnostics: diagnostics as unknown as JsonValue,

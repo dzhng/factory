@@ -226,12 +226,38 @@ describe('sole repository writer', () => {
   test('keeps open and verify read-only when runtime state is absent', async () => {
     const root = await fixtureRoot()
     const initialized = await initializeRepositoryStore(root, manifest, {})
+    await writeFile(join(root, '.factory', 'foreign.txt'), 'preserved but not Factory-owned\n')
+    await writeFile(join(root, '.factory', 'sessions-old'), 'prefix collision remains foreign\n')
     await rm(join(root, '.git', 'factory-runtime'), { recursive: true, force: true })
 
     const opened = await openRepositoryStore(root)
-    expect((await opened.verify()).issues).toEqual([])
+    const verification = await opened.verify()
+    expect(verification.issues).toEqual([])
+    expect(verification.ownedStorageBytes).toBe(
+      (await lstat(join(root, '.factory', 'manifest.json'))).size +
+        (await lstat(join(root, '.factory', 'config.json'))).size,
+    )
     expect((await initialized.verify()).issues).toEqual([])
     await expect(lstat(join(root, '.git', 'factory-runtime'))).rejects.toThrow()
+  })
+
+  test('counts oversized owned records while excluding preserved foreign files', async () => {
+    const root = await fixtureRoot()
+    const store = await initializeRepositoryStore(root, manifest, {})
+    const baseline = (await store.verify()).ownedStorageBytes
+    const oversizedBytes = 4 * 1024 * 1024 + 1
+    await mkdir(join(root, '.factory', 'sessions', 'corrupt'), { recursive: true })
+    await writeFile(
+      join(root, '.factory', 'sessions', 'corrupt', 'oversized.json'),
+      Buffer.alloc(oversizedBytes),
+    )
+    await writeFile(join(root, '.factory', 'foreign-large.bin'), Buffer.alloc(1024))
+
+    const verification = await store.verify()
+    expect(verification.issues).toContainEqual(
+      expect.objectContaining({ code: 'invalid-structured-record' }),
+    )
+    expect(verification.ownedStorageBytes).toBe(baseline + oversizedBytes)
   })
 
   test('verifies a non-Git repository opened with an explicit runtime root', async () => {
