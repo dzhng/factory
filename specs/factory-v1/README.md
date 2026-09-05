@@ -21,7 +21,7 @@ Status: **in implementation; Slices 01–10 are complete**
 > workspace/PR bundles through `c934ba8`. Slice 09 implements isolated review
 > execution and immutable acceptance through `37d9a04`. Slice 10 implements
 > verified decision observations, deterministic canonical folding, and linear
-> append-only human actions in the current checkpoint.
+> append-only human actions through `d33b21e`.
 > Next, begin Slice 11 without widening the localhost or filesystem authority.
 > Read `AGENTS.md`, `SECURITY.md`, this README, `choices.md`, `format.md`, and
 > Slices 10 and 11 in full.
