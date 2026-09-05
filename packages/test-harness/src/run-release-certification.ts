@@ -22,6 +22,7 @@ import {
 } from '@factory/cli'
 import {
   DEFAULT_REVIEWER_IMAGE_REFERENCE,
+  materializeReviewerCredential,
   resolveReviewerAuthentication,
   reviewerImageIdentity,
   type ReviewerCredentialSource,
@@ -414,14 +415,17 @@ try {
       ...environment,
       FACTORY_REVIEWER_IMAGE: productionReviewer.image,
     }
-    const exposeFileCredential = (
+    const exposeCredential = async (
       name: 'FACTORY_CODEX_AUTH_FILE' | 'FACTORY_CLAUDE_AUTH_FILE',
       source: ReviewerCredentialSource,
-    ) => {
-      if (source.kind === 'file') authenticatedEnvironment[name] = source.mount.hostPath
+    ): Promise<void> => {
+      const prepared = await materializeReviewerCredential(source, scratch)
+      authenticatedEnvironment[name] = prepared.mount.hostPath
     }
-    exposeFileCredential('FACTORY_CODEX_AUTH_FILE', productionReviewer.codexCredential)
-    exposeFileCredential('FACTORY_CLAUDE_AUTH_FILE', productionReviewer.claudeCredential)
+    await Promise.all([
+      exposeCredential('FACTORY_CODEX_AUTH_FILE', productionReviewer.codexCredential),
+      exposeCredential('FACTORY_CLAUDE_AUTH_FILE', productionReviewer.claudeCredential),
+    ])
     for (const provider of ['codex', 'claude'] as const) {
       await succeed(
         executable,
