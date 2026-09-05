@@ -257,7 +257,7 @@ try {
       'docker',
       ['build', '-q', resolve(import.meta.dir, '../docker/reviewer-isolation')],
       scratch,
-      environment,
+      process.env,
     )
   ).stdout.trim()
   const reviewEnvironment = {
