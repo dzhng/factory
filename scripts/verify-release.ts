@@ -1,7 +1,10 @@
 import { createHash } from 'node:crypto'
-import { mkdtemp } from 'node:fs/promises'
+import { constants } from 'node:fs'
+import { mkdtemp, open } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+
+import { RELEASE_METADATA_MAXIMUM_BYTES } from '../packages/cli/src/release-manifest'
 
 function option(name: string): string | undefined {
   const index = process.argv.indexOf(name)
@@ -25,6 +28,27 @@ function hostTarget(): 'bun-darwin-arm64' | 'bun-linux-x64-baseline' | undefined
 async function run(args: readonly string[]): Promise<void> {
   const child = Bun.spawn(args, { cwd: repositoryRoot, stdout: 'inherit', stderr: 'inherit' })
   if ((await child.exited) !== 0) throw new Error(`${args.join(' ')} failed`)
+}
+
+async function boundedManifestDigest(path: string): Promise<string> {
+  const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
+  try {
+    const info = await handle.stat()
+    if (!info.isFile() || info.size === 0 || info.size > RELEASE_METADATA_MAXIMUM_BYTES)
+      throw new Error('release manifest is not a bounded ordinary file')
+    const bytes = new Uint8Array(info.size)
+    let offset = 0
+    while (offset < bytes.byteLength) {
+      const { bytesRead } = await handle.read(bytes, offset, bytes.byteLength - offset, offset)
+      if (bytesRead === 0) throw new Error('release manifest changed while reading')
+      offset += bytesRead
+    }
+    if ((await handle.read(new Uint8Array(1), 0, 1, offset)).bytesRead !== 0)
+      throw new Error('release manifest changed while reading')
+    return createHash('sha256').update(bytes).digest('hex')
+  } finally {
+    await handle.close()
+  }
 }
 
 const repositoryRoot = resolve(import.meta.dir, '..')
@@ -51,9 +75,7 @@ if (artifactRoot === undefined)
 const stem = `factory-v${version}-${target.replace(/^bun-/, '')}`
 const archive = join(buildRoot, `${stem}.tar.gz`)
 const manifest = join(buildRoot, `${stem}.json`)
-const manifestSha256 = createHash('sha256')
-  .update(await Bun.file(manifest).bytes())
-  .digest('hex')
+const manifestSha256 = await boundedManifestDigest(manifest)
 const output = resolve(option('--output') ?? join(buildRoot, 'certification'))
 await run([
   process.execPath,
