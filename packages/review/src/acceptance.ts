@@ -190,7 +190,7 @@ export async function validateReview(
       : { repositoryId: verified.authority.repositoryId }),
     subjectPath: verified.authority.subjectPath,
     subjectRecord: canonicalJson(verified.authority.subjectRecord),
-    inventory: verified.manifest.inventory,
+    inventory: verified.authority.inventory,
     records: verified.authority.records,
   })
   return capability

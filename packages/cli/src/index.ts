@@ -40,6 +40,7 @@ import {
   newRecordId,
   parseRepositoryConfig,
   type JsonValue,
+  type AssociationBatch,
   type GithubRepositoryMappingObservation,
   type AvailablePullRequestObservation,
   type RepositoryConfig,
@@ -50,8 +51,6 @@ import {
   type ReviewLedger,
   type ReviewManifest,
   type SessionPullRequestAssociation,
-  type ReviewTrigger,
-  type TurnManifest,
 } from '@factory/contract'
 import { deriveAssociations } from '@factory/domain'
 import {
@@ -59,6 +58,7 @@ import {
   observeGithubRepositoryMapping,
   persistGithubRepositoryMapping,
   persistPullRequestEvidence,
+  verifyAssociationBatch,
 } from '@factory/github'
 import {
   GitObserver,
@@ -71,6 +71,7 @@ import { acceptPartialCoverageByReviewId, acceptReview, validateReview } from '@
 import {
   bindReviewPolicies,
   buildBundle,
+  loadCandidateEvidence,
   loadReviewHistory,
   loadReviewInputs,
   openReviewRepositoryReader,
@@ -1120,6 +1121,7 @@ async function freshReviewSubject(
   const mapping = await observeGithubRepositoryMapping(store.manifest.repositoryId, hostname, {
     objects,
     cwd: repositoryRoot,
+    environment,
   })
   if ('availability' in mapping)
     throw new Error(`pull-request repository mapping unavailable: ${mapping.reason}`)
@@ -1127,7 +1129,11 @@ async function freshReviewSubject(
   const [owner, name, ...extra] = mapping.repository.split('/')
   if (!owner || !name || extra.length !== 0)
     throw new Error('pull-request repository mapping returned an invalid name')
-  const observation = await new GithubPrObserver({ objects, cwd: repositoryRoot }).observe({
+  const observation = await new GithubPrObserver({
+    objects,
+    cwd: repositoryRoot,
+    environment,
+  }).observe({
     hostname: mapping.hostname,
     owner,
     name,
@@ -1139,30 +1145,38 @@ async function freshReviewSubject(
     throw new Error(`pull-request observation unavailable: ${observation.reason}`)
   }
   const records = (await store.readRecords()).records
-  const repositoryObservations = new Map(
-    records
-      .filter(record => /^repository-observations\/[^/]+\.json$/.test(record.path))
-      .map(record => {
-        const value = record.value as unknown as RepositoryObservation
-        return [value.observationId, value] as const
-      }),
-  )
   const recordByPath = new Map(records.map(record => [record.path, record.value]))
-  const sessions = records
-    .filter(record => /^review-triggers\/[^/]+\.json$/.test(record.path))
-    .flatMap(record => {
-      const trigger = record.value as unknown as ReviewTrigger
-      const turn = recordByPath.get(
-        `sessions/${trigger.provider}/${trigger.sessionKey}/turns/${trigger.turnId}/manifest.json` as OwnedPath,
-      ) as TurnManifest | undefined
-      if (turn === undefined) return []
-      const repositoryObservation =
-        turn.repositoryObservationId === undefined
-          ? undefined
-          : repositoryObservations.get(turn.repositoryObservationId)
-      if (repositoryObservation === undefined) return []
-      return [{ provider: trigger.provider, turn, repositoryObservation }]
-    })
+  const reader = await openReviewRepositoryReader(store.factoryRoot)
+  const sessions = (
+    await Promise.all(
+      records
+        .filter(record => /^review-triggers\/[^/]+\.json$/.test(record.path))
+        .map(async record => {
+          const triggerId = record.path.slice(
+            'review-triggers/'.length,
+            -'.json'.length,
+          ) as RecordId
+          return await loadCandidateEvidence(reader, {
+            triggerId,
+            scopeProof: { kind: 'workspace-store', repositoryId: store.manifest.repositoryId },
+          })
+        }),
+    )
+  ).flatMap(candidate => {
+    if (
+      !('trigger' in candidate) ||
+      candidate.repositoryObservation === undefined ||
+      candidate.identity.repositoryId !== store.manifest.repositoryId
+    )
+      return []
+    return [
+      {
+        provider: candidate.trigger.provider,
+        turn: candidate.turn,
+        repositoryObservation: candidate.repositoryObservation,
+      },
+    ]
+  })
   const repositoryMappings = records
     .filter(record => record.path.includes('/repository-mappings/'))
     .map(record => record.value as unknown as GithubRepositoryMappingObservation)
@@ -1181,16 +1195,23 @@ async function freshReviewSubject(
         return [value.observationId, value] as const
       }),
   )
+  const associationRoot = `pull-requests/github/${observation.repositoryKey}/${observation.number}/associations/`
   const previous = records
-    .filter(record =>
-      new RegExp(
-        `^pull-requests/github/${observation.repositoryKey}/${observation.number}/associations/[^/]+/[^/]+\\.json$`,
-      ).test(record.path),
+    .filter(
+      record =>
+        record.path.startsWith(associationRoot) && /\/batches\/[^/]+\.json$/.test(record.path),
     )
     .flatMap(record => {
-      const association = record.value as unknown as SessionPullRequestAssociation
-      const pullRequest = priorPullRequests.get(association.pullRequestObservationId)
-      return pullRequest === undefined ? [] : [{ pullRequest, association }]
+      const batch = record.value as unknown as AssociationBatch
+      const pullRequest = priorPullRequests.get(batch.pullRequestObservationId)
+      if (pullRequest === undefined) return []
+      const root = `${associationRoot}${batch.pullRequestObservationId}`
+      const evidence = batch.evidence.flatMap(reference => {
+        const value = recordByPath.get(`${root}/${reference.evidenceId}.json` as OwnedPath)
+        return value === undefined ? [] : [value as unknown as SessionPullRequestAssociation]
+      })
+      if (!verifyAssociationBatch(batch, pullRequest, evidence)) return []
+      return evidence.map(association => ({ pullRequest, association }))
     })
   const associations = deriveAssociations({
     pullRequest: observation,

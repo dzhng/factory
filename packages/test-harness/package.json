@@ -17,6 +17,7 @@
     "lab:review-plan": "bun run src/run-review-plan.ts",
     "lab:review-execution": "bun run src/run-review-execution.ts",
     "lab:review-cli": "bun run src/run-review-cli.ts",
+    "lab:review-pr-cli": "bun run src/run-review-pr-cli.ts",
     "lab:reviewer-isolation": "bun run src/reviewer-isolation.ts",
     "lint": "oxlint src test docker",
     "test": "bun test"

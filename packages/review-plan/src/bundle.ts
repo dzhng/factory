@@ -545,6 +545,8 @@ export type ReviewAcceptanceAuthority = {
   subjectPath: OwnedPath
   subjectRecord: JsonValue
   records: readonly { path: OwnedPath; sha256: string }[]
+  /** CAS objects that must exist in the target repository, excluding bundle-derived artifacts. */
+  inventory: readonly ObjectRef[]
   repositoryId?: string
 }
 
@@ -1420,6 +1422,11 @@ export async function verifyBundle(
             sha256: file.sha256,
           }))
           .sort((left, right) => left.path.localeCompare(right.path)),
+        inventory: manifest.inventory.filter(
+          reference =>
+            manifest.plan.priorLedger === undefined ||
+            canonicalJson(reference) !== canonicalJson(manifest.plan.priorLedger.object),
+        ),
         repositoryId: manifest.repositoryId,
       },
     }

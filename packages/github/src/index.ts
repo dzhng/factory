@@ -110,6 +110,8 @@ export type GithubPrObserverOptions = {
   now?: () => Date
   /** Exact local repository whose authenticated gh context is being observed. */
   cwd?: string
+  /** Environment of the invoking Factory command, including its selected gh executable path. */
+  environment?: NodeJS.ProcessEnv
 }
 
 /** Runtime-only typed failure when no provider-stable repository identity can be proven. */
@@ -360,6 +362,7 @@ export async function runBoundedGh(
   maximumDurationMs: number,
   executable = 'gh',
   cwd?: string,
+  environment?: NodeJS.ProcessEnv,
 ): Promise<GhCommandResult> {
   if (!Number.isSafeInteger(maximumBytes) || maximumBytes < 1) {
     throw new TypeError('maximumBytes must be a positive integer')
@@ -370,6 +373,7 @@ export async function runBoundedGh(
   return await new Promise(resolve => {
     const child = spawn(executable, [...args], {
       ...(cwd === undefined ? {} : { cwd }),
+      ...(environment === undefined ? {} : { env: environment }),
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     const stdout: Buffer[] = []
@@ -458,6 +462,7 @@ export class GithubPrObserver {
           Math.min(maximumDurationMs, duration ?? maximumDurationMs),
           'gh',
           options.cwd,
+          options.environment,
         ))
     this.now = options.now ?? (() => new Date())
     this.maxCommits = options.maxCommits ?? 250
@@ -982,6 +987,7 @@ export type GithubRepositoryMapperOptions = {
   maxAcquisitionDurationMs?: number
   now?: () => Date
   cwd?: string
+  environment?: NodeJS.ProcessEnv
 }
 
 export type GithubRepositoryMappingUnavailable = {
@@ -1017,7 +1023,14 @@ export async function observeGithubRepositoryMapping(
   const run =
     options.run ??
     ((args: readonly string[], duration?: number) =>
-      runBoundedGh(args, maximumBytes, duration ?? maximumDurationMs, 'gh', options.cwd))
+      runBoundedGh(
+        args,
+        maximumBytes,
+        duration ?? maximumDurationMs,
+        'gh',
+        options.cwd,
+        options.environment,
+      ))
   const observedAt = (options.now ?? (() => new Date()))().toISOString()
   const deadline = performance.now() + maximumAcquisitionDurationMs
   const execution = await settleWithinDeadline(
