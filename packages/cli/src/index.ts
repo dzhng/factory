@@ -83,6 +83,7 @@ import {
   ReviewAttemptCoordinator,
   dockerReviewerExecutor,
   openVerifiedReviewBundle,
+  reviewerAdapter,
   selectReviewer,
   unavailableReviewerExecutor,
   type ReadonlyAuthMount,
@@ -1221,6 +1222,30 @@ function committedReviewManifests(
     })
 }
 
+function reviewResultOutput(review: ReviewManifest, status?: 'already-reviewed'): string {
+  const root =
+    review.subject.kind === 'workspace'
+      ? `reviews/workspace/${review.reviewId}`
+      : `reviews/pull-requests/github/${review.subject.repositoryKey}/${review.subject.number}/${review.reviewId}`
+  return canonicalJson({
+    schemaVersion: 1,
+    ...(status === undefined ? {} : { status }),
+    reviewId: review.reviewId,
+    disposition: review.disposition,
+    limitations: review.limitations,
+    reviewer: { ...review.reviewer, version: review.providerCliVersion },
+    coverageEffect: review.subjectAttempt.effect,
+    paths: {
+      manifest: `${root}/manifest.json`,
+      response: `${root}/response.txt`,
+      ...(review.disposition === 'failed' ? {} : { ledger: `${root}/ledger.json` }),
+    },
+    executionFailed:
+      review.disposition === 'failed' ||
+      review.limitations.some(item => item.code === 'invalid-review-output'),
+  })
+}
+
 function reviewSubjectLineage(
   review: ReviewManifest,
   records: Awaited<ReturnType<RepositoryStore['readRecords']>>['records'],
@@ -1350,6 +1375,21 @@ async function reviewCommand(
     return 0
   }
   const store = await openRepositoryStore(repositoryRoot)
+  const reviewerDefaults = requiredReviewDefaults(environment)
+  reviewerAdapter({ provider: 'codex', ...reviewerDefaults.codex })
+  reviewerAdapter({ provider: 'claude', ...reviewerDefaults.claude })
+  const repositorySettings = await repositoryConfig(repositoryRoot)
+  if (repositorySettings.reviewer !== undefined && repositorySettings.reviewer !== 'auto') {
+    const configured = repositorySettings.reviewer
+    reviewerAdapter({
+      provider: configured.provider,
+      model: configured.model ?? reviewerDefaults[configured.provider].model,
+      effort: configured.effort ?? reviewerDefaults[configured.provider].effort,
+    })
+  }
+  const imageDigest = environment.FACTORY_REVIEWER_IMAGE_DIGEST
+  if (!imageDigest || !/^sha256:[0-9a-f]{64}$/.test(imageDigest))
+    throw new Error('FACTORY_REVIEWER_IMAGE_DIGEST must pin an immutable reviewer image')
   const subjectLock = join(
     coordinator.runtimeRoot,
     `subject-${createHash('sha256')
@@ -1393,12 +1433,11 @@ async function reviewCommand(
     })
     const authoringProvider = reviewAuthoringProvider(evidence)
     const auth = await dedicatedReviewerAuth(environment)
-    const repositorySettings = await repositoryConfig(repositoryRoot)
     const selected = selectReviewer(
       repositorySettings.reviewer ?? 'auto',
       authoringProvider,
       auth.availability,
-      requiredReviewDefaults(environment),
+      reviewerDefaults,
     )
     const policies = {
       reviewer: selected.choice.settings,
@@ -1409,14 +1448,21 @@ async function reviewCommand(
     }
     const plan = planReview(bindReviewPolicies(evidence, policies))
     if (plan.status !== 'ready') {
+      if (plan.status === 'already-reviewed') {
+        const prior = committedReviews
+          .filter(review => reviewSubjectLineage(review, stored.records) === lineage)
+          .sort((left, right) => left.reviewId.localeCompare(right.reviewId))
+          .at(-1)
+        if (prior !== undefined) {
+          output.stdout(reviewResultOutput(prior, 'already-reviewed'))
+          return 0
+        }
+      }
       output.stdout(
         canonicalJson({ schemaVersion: 1, status: plan.status, limitations: plan.limitations }),
       )
       return plan.status === 'unavailable' ? 1 : 0
     }
-    const imageDigest = environment.FACTORY_REVIEWER_IMAGE_DIGEST
-    if (!imageDigest || !/^sha256:[0-9a-f]{64}$/.test(imageDigest))
-      throw new Error('FACTORY_REVIEWER_IMAGE_DIGEST must pin an immutable reviewer image')
     const bundleParent = await mkdtemp(join(coordinator.runtimeRoot, 'review-bundle-'))
     try {
       const built = await buildBundle(plan, store, join(bundleParent, 'bundle'))
@@ -1450,12 +1496,10 @@ async function reviewCommand(
           }
           const enforced = await reviewFindingsEnforced(store, error.reviewId, options.failOn)
           output.stdout(
-            canonicalJson({
-              schemaVersion: 1,
-              status: 'already-reviewed',
-              reviewId: error.reviewId,
-              ...error.outcome,
-            }),
+            reviewResultOutput(
+              currentReviews.find(review => review.reviewId === error.reviewId)!,
+              'already-reviewed',
+            ),
           )
           return error.outcome.executionFailed || enforced ? 1 : 0
         }
@@ -1469,9 +1513,11 @@ async function reviewCommand(
         executionGeneration,
       )
       const enforced = await reviewFindingsEnforced(store, accepted.reviewId, options.failOn)
-      output.stdout(
-        canonicalJson({ schemaVersion: 1, ...accepted, reviewer: selected.choice.settings }),
+      const acceptedManifest = committedReviewManifests((await store.readRecords()).records).find(
+        review => review.reviewId === accepted.reviewId,
       )
+      if (acceptedManifest === undefined) throw new Error('accepted review manifest is absent')
+      output.stdout(reviewResultOutput(acceptedManifest))
       return accepted.executionFailed || enforced ? 1 : 0
     } finally {
       await rm(bundleParent, { recursive: true, force: true })
