@@ -28,6 +28,7 @@
         "@factory/contract": "workspace:*",
         "@factory/repository": "workspace:*",
         "@factory/runtime-journal": "workspace:*",
+        "@factory/sanitization": "workspace:*",
       },
     },
     "packages/cli": {
