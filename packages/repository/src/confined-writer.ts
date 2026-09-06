@@ -331,6 +331,173 @@ export class ConfinedWriter {
     }
   }
 
+  /** Discover selected ordinary files without consulting ignore rules or following links. */
+  static async readFiles(
+    rootPath: string,
+    bounds: {
+      maximumEntries: number
+      maximumDepth: number
+      maximumFiles: number
+      maximumFileBytes: number
+      maximumBytes: number
+      includeFile: (name: string) => boolean
+      skipDirectory: (name: string) => boolean
+      skipNestedRepositories?: boolean
+      afterEntryOpen?: (path: readonly Uint8Array[]) => Promise<void>
+    },
+  ): Promise<readonly Uint8Array[]> {
+    for (const bound of [
+      bounds.maximumEntries,
+      bounds.maximumDepth,
+      bounds.maximumFiles,
+      bounds.maximumFileBytes,
+      bounds.maximumBytes,
+    ]) {
+      if (!Number.isSafeInteger(bound) || bound < 0)
+        throw new TypeError('confined file discovery bounds must be nonnegative safe integers')
+    }
+    try {
+      const backend = await loadBackend()
+      const root = await open(
+        rootPath,
+        constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
+      )
+      const writer = new ConfinedWriter(root, backend, {})
+      const files: Uint8Array[] = []
+      const observed: { path: Buffer[]; identity: NativeIdentity }[] = []
+      let entries = 0
+      let bytes = 0
+      // O_EVTONLY | O_SYMLINK on macOS; O_PATH | O_NOFOLLOW on Linux.
+      // macOS still opens FIFOs with O_EVTONLY, so O_NONBLOCK is required there.
+      const metadataFlags =
+        process.platform === 'darwin'
+          ? 0x8000 | 0x20_0000 | constants.O_NONBLOCK
+          : 0x20_0000 | constants.O_NOFOLLOW
+      const visit = async (descriptor: number, prefix: Buffer[]): Promise<void> => {
+        const before = descriptorIdentity(descriptor)
+        observed.push({ path: prefix, identity: before })
+        if (prefix.length > 0 && bounds.skipNestedRepositories) {
+          const marker = backend.library.symbols.openat(
+            descriptor,
+            backend.ptr(cString(Buffer.from('.git'))),
+            metadataFlags,
+            0,
+          )
+          if (marker >= 0) {
+            backend.library.symbols.close(marker)
+            if (!sameNativeState(before, descriptorIdentity(descriptor))) throw new Error()
+            return
+          }
+        }
+        const names = writer.directoryEntries(descriptor, bounds.maximumEntries - entries)
+        entries += names.length
+        for (const name of names) {
+          const path = [...prefix, name]
+          if (path.length > bounds.maximumDepth) throw new Error()
+          const child = backend.library.symbols.openat(
+            descriptor,
+            backend.ptr(confinedSegment(name)),
+            metadataFlags,
+            0,
+          )
+          if (child < 0) throw new Error()
+          try {
+            const identity = descriptorIdentity(child)
+            await bounds.afterEntryOpen?.(clonePath(path))
+            // Replacement decoding supports ASCII basename policies on non-UTF-8 names;
+            // filesystem operations keep the original bytes, never this display string.
+            const label = name.toString('utf8')
+            if (identity.kind === 'directory' && !bounds.skipDirectory(label)) {
+              const directory = writer.openExistingDirectory(descriptor, name)
+              try {
+                if (!sameNativeState(identity, descriptorIdentity(directory))) throw new Error()
+                await visit(directory, path)
+              } finally {
+                backend.library.symbols.close(directory)
+              }
+            } else if (
+              identity.kind !== 'directory' &&
+              identity.kind !== 'symlink' &&
+              bounds.includeFile(label)
+            ) {
+              if (
+                identity.kind !== 'file' ||
+                files.length >= bounds.maximumFiles ||
+                identity.size > BigInt(bounds.maximumFileBytes) ||
+                identity.size > BigInt(bounds.maximumBytes - bytes)
+              )
+                throw new Error()
+              const file = backend.library.symbols.openat(
+                descriptor,
+                backend.ptr(confinedSegment(name)),
+                constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+                0,
+              )
+              if (file < 0) throw new Error()
+              try {
+                if (!sameNativeState(identity, descriptorIdentity(file))) throw new Error()
+                const content = Buffer.alloc(Number(identity.size))
+                let offset = 0
+                while (offset < content.byteLength) {
+                  const count = readSync(file, content, offset, content.byteLength - offset, offset)
+                  if (count === 0) throw new Error()
+                  offset += count
+                }
+                if (!sameNativeState(identity, descriptorIdentity(file))) throw new Error()
+                files.push(content)
+                observed.push({ path, identity })
+                bytes += content.byteLength
+              } finally {
+                backend.library.symbols.close(file)
+              }
+            }
+            if (
+              !sameNativeState(identity, descriptorIdentity(child)) ||
+              !sameNativeState(identity, writer.currentIdentity(descriptor, name, metadataFlags))
+            )
+              throw new Error()
+          } finally {
+            backend.library.symbols.close(child)
+          }
+        }
+        const finalNames = writer.directoryEntries(descriptor, names.length)
+        if (
+          !sameNativeState(before, descriptorIdentity(descriptor)) ||
+          finalNames.length !== names.length ||
+          finalNames.some((name, index) => !name.equals(names[index]!))
+        )
+          throw new Error()
+      }
+      try {
+        await visit(root.fd, [])
+        for (const { path, identity } of observed) {
+          if (path.length === 0) {
+            if (!sameNativeState(identity, descriptorIdentity(root.fd))) throw new Error()
+            continue
+          }
+          const parent = await writer.parent(path, false)
+          try {
+            if (
+              !sameNativeState(
+                identity,
+                writer.currentIdentity(parent.descriptor, path.at(-1)!, metadataFlags),
+              )
+            )
+              throw new Error()
+          } finally {
+            writer.closeParents(parent.opened)
+          }
+        }
+        return files
+      } finally {
+        await root.close()
+      }
+    } catch {
+      // Filesystem errors and caller callbacks can include paths or secret contents.
+      throw new Error('confined file discovery failed')
+    }
+  }
+
   private openExistingDirectory(parent: number, segment: Uint8Array): number {
     const name = confinedSegment(segment)
     const descriptor = this.backend.library.symbols.openat(
