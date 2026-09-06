@@ -11,7 +11,8 @@
     "test": "bun run test/docker.ts"
   },
   "dependencies": {
-    "@factory/contract": "workspace:*"
+    "@factory/contract": "workspace:*",
+    "@factory/repository": "workspace:*"
   },
   "engines": {
     "node": ">=22.13"

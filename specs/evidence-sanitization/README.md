@@ -10,9 +10,9 @@ Status: policy, observations and provider capture implemented; publication closu
 
 The active implementation goal includes both this spec and the
 [choice-audit reviewer](../choice-audit-reviewer/README.md). Finish and verify
-both before marking the goal complete. Typed submission tools and choice
-presentation are running in parallel; coordinate shared contract and acceptance
-files before integrating changes.
+both before marking the goal complete. Typed submission tools, provider wiring,
+and choice presentation are integrated. The active parallel lanes are repository
+admission callers, frozen review/action recovery, and the installed native journey.
 
 You are implementing a clean cutover for an unlaunched product. Continue
 [slice 4](slices/04-publication.md), after reading the target [contract](contract.md)
@@ -20,9 +20,12 @@ and current `SECURITY.md`. There are no migration or compatibility requirements.
 Source, PR and provider preparation are green. The existing private journal now
 freezes the complete publication graph before CAS writes and replays it without
 rediscovery. Its SQLite rows hold compact bindings; complete plans and evidence
-use private CAS and become reclaimable after verified completion. Next integrate
-the parallel review/action preparation pass, then close every remaining writer
-admission surface (including config/init) before installed certification.
+use private CAS and become reclaimable after verified completion. Configuration
+and review/action preparation are integrated; finish their genuine-capability
+consumer cutover and the remaining GitHub/subject/report callers before installed
+certification. Capture capabilities retain the CLI's existing routing authority
+and reject oversized snapshots before copying. The native Linux journey must
+resolve its observed pre-Docker setup failure before it can certify review.
 Invoke write-tests before behavior changes and follow red/green in the owning
 Docker environment. Do not inspect real secrets or alter live provider homes.
 

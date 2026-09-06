@@ -1,5 +1,24 @@
 # Implementation choices
 
+## Sound · high confidence — Frozen capture keeps its worktree authority
+
+When: publication admission integration.
+
+A developer can have two linked worktrees that share one private capture journal.
+If evidence prepared for one checkout could be restored into the other, that
+checkout's env discovery would not have authorized the resulting publication.
+The journal therefore derives the canonical worktree from genuine prepared
+content, refuses a graph mixing different checkouts, and retains that binding
+with the frozen plan. Recovery uses the same worktree and bytes without looking
+up secrets again. The CLI remains the sole owner of Session routing; the journal
+does not infer a destination from hook events, which can span repositories and
+linked worktrees. The repository writer enforces the frozen destination.
+
+The spec required durable replay but did not prescribe how a shared journal binds
+its destination. This choice affects linked-worktree recovery and completion, not
+the portable schema or the user's Git workflow. It is sound because a private
+recovery record must not grant broader publication authority than preparation did.
+
 ## Sound · high confidence — Configuration inspection includes the merged existing fields
 
 When: slice 4 config/init closure.

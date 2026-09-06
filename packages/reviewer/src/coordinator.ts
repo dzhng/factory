@@ -510,7 +510,9 @@ export class ReviewAttemptCoordinator {
         throw new TypeError('prepared review publication requires record capabilities')
       let encodedBytes = 0
       const snapshots = capabilities.map(capability => {
-        const snapshot = snapshotPreparedRecord(capability)
+        const snapshot = snapshotPreparedRecord(capability, {
+          maximumBytes: MAX_PUBLICATION_BYTES - encodedBytes,
+        })
         encodedBytes +=
           4 * Math.ceil(snapshot.bytes.byteLength / 3) + Buffer.byteLength(snapshot.path)
         if (encodedBytes > MAX_PUBLICATION_BYTES)

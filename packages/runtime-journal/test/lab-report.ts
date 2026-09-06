@@ -1,11 +1,10 @@
 import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-
-import { makeOwnedPath } from '@factory/contract'
+import { dirname, join } from 'node:path'
 
 import { openRuntimeJournal, type DurabilityBoundary } from '../src/index.js'
+import { prepareFixtureRecord, turnFixture } from './prepared-fixture'
 
 if (process.env.FACTORY_DOCKER_TEST !== '1') throw new Error('journal lab must run in Docker')
 const output = process.argv[2]
@@ -114,15 +113,13 @@ const stateStop = {
 }
 const firstClaim = (await stateJournal.claimStop(stateStop)).claim
 const recoveredClaim = (await Array.fromAsync(stateJournal.recover()))[0]?.claim
-const turnPath = makeOwnedPath('sessions', [
+const { path: turnPath, bytes: turnBytes } = turnFixture(
   'claude',
   'state-session',
-  'turns',
   'stop-1',
-  'manifest.json',
-])
-const turnBytes = new TextEncoder().encode('verified immutable lab Turn')
-await mkdir(join(stateRoot, '.factory', 'sessions/claude/state-session/turns/stop-1'), {
+  'verified immutable lab Turn',
+)
+await mkdir(dirname(join(stateRoot, '.factory', turnPath)), {
   recursive: true,
 })
 await writeFile(join(stateRoot, '.factory', turnPath), turnBytes, { flag: 'wx' })
@@ -130,7 +127,7 @@ await stateJournal.prepareCapture(
   { kind: 'stop', claim: firstClaim },
   {
     objects: [],
-    records: [{ path: turnPath, bytes: turnBytes }],
+    records: [await prepareFixtureRecord(stateRoot, turnPath, turnBytes)],
     commitPath: turnPath,
     completion: { path: turnPath, sha256: createHash('sha256').update(turnBytes).digest('hex') },
   },
@@ -236,18 +233,13 @@ try {
 const databaseClaimResult = await (
   await openRuntimeJournal({ testRuntimeRoot: databaseStateRoot })
 ).claimStop(databaseStateStop)
-const databaseTurnPath = makeOwnedPath('sessions', [
+const { path: databaseTurnPath, bytes: databaseTurnBytes } = turnFixture(
   'codex',
   'database-state-full',
-  'turns',
   'stop-1',
-  'manifest.json',
-])
-const databaseTurnBytes = new TextEncoder().encode('database full Turn')
-await mkdir(
-  join(databaseStateRoot, '.factory', 'sessions/codex/database-state-full/turns/stop-1'),
-  { recursive: true },
+  'database full Turn',
 )
+await mkdir(dirname(join(databaseStateRoot, '.factory', databaseTurnPath)), { recursive: true })
 await writeFile(join(databaseStateRoot, '.factory', databaseTurnPath), databaseTurnBytes, {
   flag: 'wx',
 })
@@ -263,7 +255,7 @@ await (
   { kind: 'stop', claim: databaseClaimResult.claim },
   {
     objects: [],
-    records: [{ path: databaseTurnPath, bytes: databaseTurnBytes }],
+    records: [await prepareFixtureRecord(databaseStateRoot, databaseTurnPath, databaseTurnBytes)],
     commitPath: databaseTurnPath,
     completion: { path: databaseTurnPath, sha256: databaseTurn.sha256 },
   },

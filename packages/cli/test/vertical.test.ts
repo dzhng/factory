@@ -22,6 +22,8 @@ import { discoverRepositorySanitizer } from '@factory/repository'
 import {
   initializeRepositoryStore,
   openRepositoryStore,
+  snapshotPreparedObject,
+  snapshotPreparedRecord,
   withAdvisoryFileLock,
   type RepositoryStore,
 } from '@factory/repository'
@@ -405,10 +407,12 @@ describe('installed capture vertical', () => {
       const graph = [
         ...prepared.objects.map(item => ({
           path: `objects/sha256/${item.reference.sha256.slice(0, 2)}/${item.reference.sha256.slice(2)}`,
-          bytes: item.bytes,
+          bytes: snapshotPreparedObject(item).bytes,
         })),
-        ...prepared.records.filter(item => item.path !== prepared.commitPath),
-        prepared.records.find(item => item.path === prepared.commitPath)!,
+        ...prepared.records
+          .filter(item => item.path !== prepared.commitPath)
+          .map(item => snapshotPreparedRecord(item)),
+        snapshotPreparedRecord(prepared.records.find(item => item.path === prepared.commitPath)!),
       ]
       const expected = await treeDigest(join(value.repository, '.factory'))
       await unlink(join(value.repository, 'nested', '.env.local'))

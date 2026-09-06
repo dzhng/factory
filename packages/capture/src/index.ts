@@ -24,7 +24,8 @@ import {
 } from '@factory/contract'
 import {
   GitObserver,
-  discoverRepositorySanitizer,
+  snapshotPreparedObject,
+  snapshotPreparedRecord,
   loadCodeManifestObject,
   readConfinedFile,
   type ImmutableGroupRecord,
@@ -743,13 +744,6 @@ export function planTurn(input: StopMaterializationInput): TurnWritePlan | PlanR
   }
 }
 
-type TurnExecutorStore = Pick<RepositoryStore, 'publishImmutableGroup'>
-
-export async function executeTurn(plan: TurnWritePlan, store: TurnExecutorStore): Promise<TurnRef> {
-  await store.publishImmutableGroup(plan.records, plan.triggerPath)
-  return plan.turn
-}
-
 export type RepositoryProjection = {
   sessions: readonly {
     sessionKey: string
@@ -1106,7 +1100,8 @@ export async function materializeStop(
   if (prepared === undefined) {
     const identity = materializationIdentity(options.claim)
     const claimed = await options.journal.readClaimEvents(options.claim)
-    const sanitizer = await discoverRepositorySanitizer(options.repositoryRoot)
+    const preparation = await options.store.preparePublication()
+    const sanitizer = preparation.sanitizer
     for (const locator of [
       options.claim.stop.sessionId,
       options.claim.stop.stopId,
@@ -1122,19 +1117,14 @@ export async function materializeStop(
       totalBytes += bytes.byteLength
       if (totalBytes > 512 * 1024 * 1024 || objects.length >= 100_000)
         throw new SanitizationError('sanitization-limit')
-      const reference: ObjectRef = {
-        algorithm: 'sha256',
-        sha256: sha256(bytes),
-        bytes: bytes.byteLength,
-        ...metadata,
-      }
-      objects.push({ reference, bytes: bytes.slice() })
-      return reference
+      const object = preparation.prepareObject(bytes, metadata)
+      objects.push(object)
+      return object.reference
     }
     const get = async (reference: ObjectRef): Promise<Uint8Array> => {
       const item = objects.find(item => canonicalJson(item.reference) === canonicalJson(reference))
       if (!item) throw new Error('Prepared source dependency is absent')
-      return item.bytes
+      return snapshotPreparedObject(item).bytes
     }
     const events: StopMaterializationEvent[] = []
     for (const item of claimed) {
@@ -1208,7 +1198,7 @@ export async function materializeStop(
     if ('reason' in plan) return { status: 'deferred', reason: plan.reason, detail: plan.detail }
     prepared = {
       objects,
-      records: plan.records,
+      records: plan.records.map(record => preparation.prepareRecord(record.path, record.bytes)),
       commitPath: plan.triggerPath,
       completion: plan.turn,
     }
@@ -1220,17 +1210,12 @@ export async function materializeStop(
     for (const item of prepared.objects) await options.store.getObject(item.reference)
     for (const item of prepared.records) {
       const actual = await options.store.tryReadImmutable(item.path)
-      if (actual === undefined || sha256(actual) !== sha256(item.bytes))
+      if (actual === undefined || sha256(actual) !== sha256(snapshotPreparedRecord(item).bytes))
         throw new Error('Committed capture graph differs from its durable preparation')
     }
   } else {
     for (const item of prepared.objects) {
-      const actual = await options.store.putObject(
-        (async function* () {
-          yield item.bytes
-        })(),
-        item.reference,
-      )
+      const actual = await options.store.putObject(item)
       if (canonicalJson(actual) !== canonicalJson(item.reference))
         throw new Error('Published capture object differs from its durable preparation')
     }
@@ -1282,36 +1267,29 @@ export async function materializeLifecycle(
   const owner = { kind: 'lifecycle' as const, event }
   let prepared = await journal.readCapturePreparation(owner)
   if (prepared === undefined) {
-    const sanitizer = await discoverRepositorySanitizer(store.repositoryRoot)
+    const preparation = await store.preparePublication()
+    const sanitizer = preparation.sanitizer
     if (sanitizer.text(event.sessionId).redacted) throw new SanitizationError('unsupported-content')
     const safe = prepareEvidence(event.provider, 'hook', await journal.readRaw(event), sanitizer)
-    const reference: ObjectRef = {
-      algorithm: 'sha256',
-      sha256: sha256(safe.bytes),
-      bytes: safe.bytes.byteLength,
+    const object = preparation.prepareObject(safe.bytes, {
       mediaType: 'application/json',
       role: 'provider-hook',
-    }
-    const record = planLifecycleRecord(event, reference, safe.transformation)
+    })
+    const record = planLifecycleRecord(event, object.reference, safe.transformation)
     prepared = {
-      objects: [{ reference, bytes: safe.bytes }],
-      records: [record],
+      objects: [object],
+      records: [preparation.prepareRecord(record.path, record.bytes)],
       commitPath: record.path,
       completion: { path: record.path, sha256: sha256(record.bytes) },
     }
     await journal.prepareCapture(owner, prepared)
   }
   for (const item of prepared.objects) {
-    const reference = await store.putObject(
-      (async function* () {
-        yield item.bytes
-      })(),
-      item.reference,
-    )
+    const reference = await store.putObject(item)
     if (canonicalJson(reference) !== canonicalJson(item.reference))
       throw new Error('Lifecycle publication differs from preparation')
   }
-  for (const record of prepared.records) await store.createImmutable(record.path, record.bytes)
+  for (const record of prepared.records) await store.createImmutable(record)
   await journal.completeLifecycle(event, {
     ...prepared.completion,
     repositoryRoot: store.repositoryRoot,

@@ -3,7 +3,7 @@ import { describe, expect, test } from 'bun:test'
 import { canonicalJson, type ObjectRef, type RepositoryObservation } from '@factory/contract'
 import type { DurableCaptureEvent, MaterializationClaim } from '@factory/runtime-journal'
 
-import { executeTurn, planTurn, reduceRepository } from '../src/index'
+import { planTurn, reduceRepository } from '../src/index'
 
 const ref = (sha256: string, bytes: number, role: string): ObjectRef => ({
   algorithm: 'sha256',
@@ -100,22 +100,6 @@ describe('Stop materialization', () => {
         .map(line => JSON.parse(line).sequence),
     ).toEqual([0, 2])
 
-    const calls: string[][] = []
-    const turn = await executeTurn(first, {
-      publishImmutableGroup(records, commitPath) {
-        calls.push(records.map(record => record.path))
-        expect(commitPath).toStartWith('review-triggers/')
-        const bytes = records.find(record => record.path === commitPath)!.bytes
-        return Promise.resolve({
-          path: commitPath,
-          sha256: Bun.CryptoHasher.hash('sha256', bytes, 'hex'),
-          bytes: bytes.byteLength,
-        })
-      },
-    })
-
-    expect(turn.path).toStartWith('sessions/codex/')
-    expect(calls).toHaveLength(1)
     const projection = reduceRepository({
       config: {},
       records: first.records.map(record => ({

@@ -13,9 +13,10 @@ import {
   writeFile,
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 
-import { makeOwnedPath } from '@factory/contract'
+import { canonicalJson, makeOwnedPath } from '@factory/contract'
+import { snapshotPreparedRecord } from '@factory/repository/internal/admission'
 
 import {
   JournalCorruptionError,
@@ -27,6 +28,7 @@ import {
   type RuntimeJournalOptions,
   type RuntimeRecordRef,
 } from '../src/index.js'
+import { prepareFixtureRecord, turnFixture } from './prepared-fixture'
 
 const openedJournals: RuntimeJournal[] = []
 async function openRuntimeJournal(options: RuntimeJournalOptions): Promise<RuntimeJournal> {
@@ -39,6 +41,38 @@ afterEach(async () => {
 })
 
 describe('runtime journal', () => {
+  test('refuses a prepared snapshot beyond the caller byte budget', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'factory-preparation-budget-'))
+    const { path, bytes } = turnFixture('codex', 'session', 'stop', 'bounded copy')
+    const prepared = await prepareFixtureRecord(root, path, bytes)
+    expect(() => snapshotPreparedRecord(prepared, { maximumBytes: bytes.byteLength - 1 })).toThrow(
+      'byte bound',
+    )
+    expect(snapshotPreparedRecord(prepared, { maximumBytes: bytes.byteLength }).bytes).toEqual(
+      bytes,
+    )
+  })
+
+  test('refuses unprepared capture bytes before freezing publication authority', async () => {
+    const root = await preparedStopRoot()
+    const journal = await openRuntimeJournal({ testRuntimeRoot: root })
+    const claim = (await journal.claimStop(crashStop)).claim
+    const path = makeOwnedPath('sessions', ['codex', 'session', 'turns', 'turn', 'manifest.json'])
+    const bytes = new TextEncoder().encode('unprocessed private content')
+    await expect(
+      Reflect.apply(journal.prepareCapture, journal, [
+        { kind: 'stop', claim },
+        {
+          objects: [],
+          records: [{ path, bytes }],
+          commitPath: path,
+          completion: { path, sha256: createHash('sha256').update(bytes).digest('hex') },
+        },
+      ]),
+    ).rejects.toThrow('prepared')
+    expect(await journal.readCapturePreparation({ kind: 'stop', claim })).toBeUndefined()
+  })
+
   test('requires a frozen preparation before retiring a verified Stop', async () => {
     const root = await preparedStopRoot()
     const journal = await openRuntimeJournal({
@@ -52,6 +86,48 @@ describe('runtime journal', () => {
     await prepareTurn(journal, claim, turn)
     await journal.complete(claim, turn)
     expect((await journal.inventory()).orphaned).toContain(turn.sha256)
+  })
+
+  test('refuses a frozen graph mixing preparation from different worktrees', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'factory-preparation-owner-'))
+    const other = await mkdtemp(join(tmpdir(), 'factory-preparation-other-'))
+    const journal = await openRuntimeJournal({ testRuntimeRoot: root })
+    await journal.append({
+      ...capture('owner-stop', 'private original'),
+      eventKind: 'stop',
+      stopId: 'stop-1',
+      worktreePath: root,
+    })
+    const claim = (await journal.claimStop(crashStop)).claim
+    const { path, bytes } = turnFixture('codex', 'session', 'stop', 'prepared for another worktree')
+    const completion = { path, sha256: createHash('sha256').update(bytes).digest('hex') }
+    await expect(
+      journal.prepareCapture(
+        { kind: 'stop', claim },
+        {
+          objects: [],
+          records: [
+            await prepareFixtureRecord(root, path, bytes),
+            await prepareFixtureRecord(other, path, bytes),
+          ],
+          commitPath: path,
+          completion,
+        },
+      ),
+    ).rejects.toThrow('different repositories')
+    expect(await journal.readCapturePreparation({ kind: 'stop', claim })).toBeUndefined()
+    await journal.prepareCapture(
+      { kind: 'stop', claim },
+      {
+        objects: [],
+        records: [await prepareFixtureRecord(root, path, bytes)],
+        commitPath: path,
+        completion,
+      },
+    )
+    const restored = await journal.readCapturePreparation({ kind: 'stop', claim })
+    expect(snapshotPreparedRecord(restored!.records[0]!).repositoryRoot).toBe(root)
+    expect(snapshotPreparedRecord(restored!.records[0]!).bytes).toEqual(bytes)
   })
 
   test('recovers preparation transaction death as absent or exact frozen bytes', async () => {
@@ -70,7 +146,9 @@ describe('runtime journal', () => {
       const recovered = await journal.readCapturePreparation({ kind: 'stop', claim })
       if (boundary === 'preparation-transaction-staged') expect(recovered).toBeUndefined()
       else
-        expect(new TextDecoder().decode(recovered!.records[0]!.bytes)).toBe('prepared before crash')
+        expect(snapshotPreparedRecord(recovered!.records[0]!).bytes).toEqual(
+          new Uint8Array(await readFile(join(root, '.factory', turn.path))),
+        )
       await prepareTurn(journal, claim, turn)
       expect((await journal.readCapturePreparation({ kind: 'stop', claim }))!.completion).toEqual({
         path: turn.path,
@@ -88,11 +166,11 @@ describe('runtime journal', () => {
       stopId: 'stop-1',
     })
     const claim = (await journal.claimStop(crashStop)).claim
-    const path = makeOwnedPath('sessions', ['codex', 'session', 'turns', 'turn', 'manifest.json'])
-    const bytes = new TextEncoder().encode('sanitized prepared bytes')
+    const { path, bytes } = turnFixture('codex', 'session', 'turn', 'sanitized prepared bytes')
+    const expected = bytes.slice()
     const preparation = {
       objects: [],
-      records: [{ path, bytes }],
+      records: [await prepareFixtureRecord(root, path, bytes)],
       commitPath: path,
       completion: { path, sha256: createHash('sha256').update(bytes).digest('hex') },
     }
@@ -101,14 +179,14 @@ describe('runtime journal', () => {
     await journal.close()
     journal = await openRuntimeJournal({ testRuntimeRoot: root })
     const loaded = await journal.readCapturePreparation({ kind: 'stop', claim })
-    expect(new TextDecoder().decode(loaded!.records[0]!.bytes)).toBe('sanitized prepared bytes')
+    expect(snapshotPreparedRecord(loaded!.records[0]!).bytes).toEqual(expected)
     await journal.prepareCapture({ kind: 'stop', claim }, loaded!)
-    loaded!.records[0]!.bytes.fill(1)
+    snapshotPreparedRecord(loaded!.records[0]!).bytes.fill(1)
     expect(
-      new TextDecoder().decode(
-        (await journal.readCapturePreparation({ kind: 'stop', claim }))!.records[0]!.bytes,
-      ),
-    ).toBe('sanitized prepared bytes')
+      snapshotPreparedRecord(
+        (await journal.readCapturePreparation({ kind: 'stop', claim }))!.records[0]!,
+      ).bytes,
+    ).toEqual(expected)
     expect((await journal.inventory()).referenced).toContain(preparation.completion.sha256)
     expect((await journal.inventory()).orphaned).not.toContain(preparation.completion.sha256)
     await journal.close()
@@ -1292,7 +1370,22 @@ describe('runtime journal', () => {
       'lifecycle',
       `event_${'0'.repeat(26)}.json`,
     ])
-    const bytes = new TextEncoder().encode('lifecycle')
+    const bytes = new TextEncoder().encode(
+      canonicalJson({
+        schemaVersion: 1,
+        eventId: `event_${'0'.repeat(26)}`,
+        sessionKey: 'claude-session',
+        providerEvent: 'SessionEnd',
+        observedAt: event.occurredAt,
+        evidence: {
+          algorithm: 'sha256',
+          sha256: event.rawSha256,
+          bytes: event.byteLength,
+          mediaType: 'application/json',
+          role: 'provider-hook',
+        },
+      }),
+    )
     await mkdir(join(root, '.factory', 'sessions', 'claude', 'claude-session', 'lifecycle'), {
       recursive: true,
     })
@@ -1307,7 +1400,7 @@ describe('runtime journal', () => {
       { kind: 'lifecycle', event },
       {
         objects: [],
-        records: [{ path, bytes }],
+        records: [await prepareFixtureRecord(root, path, bytes)],
         commitPath: path,
         completion: { path, sha256: reference.sha256 },
       },
@@ -1431,7 +1524,7 @@ async function prepareTurn(
     { kind: 'stop', claim },
     {
       objects: [],
-      records: [{ path: turn.path, bytes }],
+      records: [await prepareFixtureRecord(turn.repositoryRoot, turn.path, bytes)],
       commitPath: turn.path,
       completion: { path: turn.path, sha256: turn.sha256 },
     },
@@ -1445,9 +1538,8 @@ async function writeTurn(
   stop: string,
   content: string,
 ): Promise<RuntimeRecordRef> {
-  const path = makeOwnedPath('sessions', [provider, session, 'turns', stop, 'manifest.json'])
-  const bytes = new TextEncoder().encode(content)
-  await mkdir(join(root, '.factory', 'sessions', provider, session, 'turns', stop), {
+  const { path, bytes } = turnFixture(provider, session, stop, content)
+  await mkdir(dirname(join(root, '.factory', path)), {
     recursive: true,
   })
   await writeFile(join(root, '.factory', path), bytes, { flag: 'wx' })

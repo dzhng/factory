@@ -39,9 +39,23 @@ export function restorePreparedRecord(
   return capability
 }
 
-export function snapshotPreparedObject(capability: PreparedObject): ObjectSnapshot {
+function assertSnapshotBound(bytes: Uint8Array, bounds?: { maximumBytes: number }): void {
+  if (
+    bounds !== undefined &&
+    (!Number.isSafeInteger(bounds.maximumBytes) ||
+      bounds.maximumBytes < 0 ||
+      bytes.byteLength > bounds.maximumBytes)
+  )
+    throw new TypeError('prepared content exceeds snapshot byte bound')
+}
+
+export function snapshotPreparedObject(
+  capability: PreparedObject,
+  bounds?: { maximumBytes: number },
+): ObjectSnapshot {
   const snapshot = objects.get(capability)
   if (!snapshot) throw new TypeError('object requires a genuine prepared capability')
+  assertSnapshotBound(snapshot.bytes, bounds)
   return {
     ...snapshot,
     reference: { ...snapshot.reference },
@@ -49,8 +63,12 @@ export function snapshotPreparedObject(capability: PreparedObject): ObjectSnapsh
   }
 }
 
-export function snapshotPreparedRecord(capability: PreparedRecord): RecordSnapshot {
+export function snapshotPreparedRecord(
+  capability: PreparedRecord,
+  bounds?: { maximumBytes: number },
+): RecordSnapshot {
   const snapshot = records.get(capability)
   if (!snapshot) throw new TypeError('record requires a genuine prepared capability')
+  assertSnapshotBound(snapshot.bytes, bounds)
   return { ...snapshot, bytes: Uint8Array.from(snapshot.bytes) }
 }

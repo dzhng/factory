@@ -21,6 +21,14 @@ import {
   type ObjectRef,
   type OwnedPath,
 } from '@factory/contract'
+import {
+  snapshotPreparedObject,
+  snapshotPreparedRecord,
+  restorePreparedObject,
+  restorePreparedRecord,
+  type PreparedObject,
+  type PreparedRecord,
+} from '@factory/repository/internal/admission'
 
 export type CaptureProvider = 'codex' | 'claude'
 export type CaptureEventKind = 'session-start' | 'turn' | 'stop' | 'session-end' | 'other'
@@ -85,13 +93,14 @@ export type CapturePreparationOwner =
   | { kind: 'lifecycle'; event: DurableCaptureEvent }
 
 export type CapturePreparation = {
-  objects: readonly { reference: ObjectRef; bytes: Uint8Array }[]
-  records: readonly { path: OwnedPath; bytes: Uint8Array }[]
+  objects: readonly PreparedObject[]
+  records: readonly PreparedRecord[]
   commitPath: OwnedPath
   completion: TurnRef
 }
 
 type StoredCapturePreparation = {
+  repositoryRoot: string
   objects: ObjectRef[]
   records: { path: OwnedPath; rawSha256: string; byteLength: number }[]
   commitPath: OwnedPath
@@ -622,21 +631,35 @@ class SqliteJournal implements RuntimeJournal {
   ): Promise<void> {
     if (preparation.objects.length + preparation.records.length > MAX_JOURNAL_ROWS)
       throw new Error('Capture preparation inventory exceeds its bound')
+    const objects: ReturnType<typeof snapshotPreparedObject>[] = []
+    const records: ReturnType<typeof snapshotPreparedRecord>[] = []
+    let repositoryRoot: string | undefined
     let bytes = 0
-    for (const item of [...preparation.objects, ...preparation.records]) {
+    const admit = (item: { repositoryRoot: string; bytes: Uint8Array }): void => {
+      repositoryRoot ??= item.repositoryRoot
+      if (item.repositoryRoot !== repositoryRoot)
+        throw new Error('Capture prepared content belongs to different repositories')
       bytes += item.bytes.byteLength
-      if (item.bytes.byteLength > MAX_RAW_BYTES || bytes > 512 * 1024 * 1024)
-        throw new Error('Capture preparation bytes exceed their bound')
     }
-    const objects = preparation.objects.map(item => ({
-      reference: { ...item.reference },
-      bytes: item.bytes.slice(),
-    }))
-    const records = preparation.records.map(item => ({
-      path: item.path,
-      bytes: item.bytes.slice(),
-    }))
+    for (const capability of preparation.objects) {
+      const item = snapshotPreparedObject(capability, {
+        maximumBytes: Math.min(MAX_RAW_BYTES, 512 * 1024 * 1024 - bytes),
+      })
+      admit(item)
+      objects.push(item)
+    }
+    for (const capability of preparation.records) {
+      const item = snapshotPreparedRecord(capability, {
+        maximumBytes: Math.min(MAX_RAW_BYTES, 512 * 1024 * 1024 - bytes),
+      })
+      admit(item)
+      records.push(item)
+    }
+    if (repositoryRoot === undefined || records.length === 0)
+      throw new Error('Capture requires a prepared record authority')
+    const preparedRoot = repositoryRoot
     const stored = parseCapturePreparation({
+      repositoryRoot: preparedRoot,
       objects: objects.map(item => item.reference),
       records: records.map(item => ({
         path: item.path,
@@ -651,7 +674,11 @@ class SqliteJournal implements RuntimeJournal {
       throw new Error('Capture preparation metadata exceeds its bound')
     const planBytes = new TextEncoder().encode(encoded)
     const planReference = { rawSha256: digest(planBytes), byteLength: planBytes.byteLength }
-    const binding = canonicalJson({ ...planReference, completion: stored.completion })
+    const binding = canonicalJson({
+      ...planReference,
+      repositoryRoot: preparedRoot,
+      completion: stored.completion,
+    })
     for (const item of objects)
       if (
         item.bytes.byteLength !== item.reference.bytes ||
@@ -727,18 +754,27 @@ class SqliteJournal implements RuntimeJournal {
       })
       if (binding === undefined) return undefined
       const stored = await this.readPreparedPlan(binding)
-      const objects: { reference: ObjectRef; bytes: Uint8Array }[] = []
+      const objects: PreparedObject[] = []
       for (const reference of stored.objects)
-        objects.push({
-          reference,
-          bytes: await this.readRawUnchecked({
-            rawSha256: reference.sha256,
-            byteLength: reference.bytes,
-          }),
-        })
-      const records: { path: OwnedPath; bytes: Uint8Array }[] = []
+        objects.push(
+          restorePreparedObject(
+            stored.repositoryRoot,
+            reference,
+            await this.readRawUnchecked({
+              rawSha256: reference.sha256,
+              byteLength: reference.bytes,
+            }),
+          ),
+        )
+      const records: PreparedRecord[] = []
       for (const item of stored.records)
-        records.push({ path: item.path, bytes: await this.readRawUnchecked(item) })
+        records.push(
+          restorePreparedRecord(
+            stored.repositoryRoot,
+            item.path,
+            await this.readRawUnchecked(item),
+          ),
+        )
       return { objects, records, commitPath: stored.commitPath, completion: stored.completion }
     })
   }
@@ -751,21 +787,25 @@ class SqliteJournal implements RuntimeJournal {
         new TextDecoder('utf-8', { fatal: true }).decode(await this.readRawUnchecked(binding)),
       ),
     )
-    if (canonicalJson(stored.completion) !== canonicalJson(binding.completion))
+    if (
+      stored.repositoryRoot !== binding.repositoryRoot ||
+      canonicalJson(stored.completion) !== canonicalJson(binding.completion)
+    )
       throw new JournalCorruptionError('Capture preparation completion binding differs')
     return stored
   }
 
-  private assertPreparedCompletion(
+  private async assertPreparedCompletion(
     owner: CapturePreparationOwner,
     reference: RuntimeRecordRef,
-  ): void {
+  ): Promise<void> {
     const authority = this.preparationOwner(owner)
     const row = this.preparationRows().find(item => item.owner_key === authority.key)
     if (!row || row.binding !== authority.binding)
       throw new JournalCorruptionError('Completion requires a matching capture preparation')
     const prepared = parsePreparationBinding(JSON.parse(stringField(row, 'preparation_json')))
     if (
+      prepared.repositoryRoot !== (await realpath(reference.repositoryRoot)) ||
       prepared.completion.path !== reference.path ||
       prepared.completion.sha256 !== reference.sha256
     )
@@ -797,7 +837,7 @@ class SqliteJournal implements RuntimeJournal {
           parseClaim(record(claimRow, 'claim row').claim_json, claim.stop),
         )
         if (!sameJson(durable, claim)) throw new Error('Claim does not match the durable claim')
-        this.assertPreparedCompletion({ kind: 'stop', claim }, turn)
+        await this.assertPreparedCompletion({ kind: 'stop', claim }, turn)
         const existingRow = stmt(
           this.db,
           'SELECT completion_json FROM completions WHERE stop_key=?',
@@ -896,7 +936,7 @@ class SqliteJournal implements RuntimeJournal {
       if (digest(bytes) !== reference.sha256)
         throw new JournalCorruptionError('Verified lifecycle bytes do not match the reference')
       await this.transaction(undefined, async () => {
-        this.assertPreparedCompletion({ kind: 'lifecycle', event }, reference)
+        await this.assertPreparedCompletion({ kind: 'lifecycle', event }, reference)
         const existing = stmt(
           this.db,
           'SELECT record_json FROM lifecycle_completions WHERE event_key=?',
@@ -1751,11 +1791,13 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 function parsePreparationBinding(value: unknown): {
+  repositoryRoot: string
   rawSha256: string
   byteLength: number
   completion: TurnRef
 } {
   const row = record(value, 'capture preparation binding')
+  const repositoryRoot = stringField(row, 'repositoryRoot')
   const rawSha256 = stringField(row, 'rawSha256')
   const byteLength = numberField(row, 'byteLength')
   const completion = record(row.completion, 'capture preparation completion')
@@ -1763,17 +1805,27 @@ function parsePreparationBinding(value: unknown): {
   assertOwnedRecordPath(path)
   const sha256 = stringField(completion, 'sha256')
   if (
+    !isAbsolute(repositoryRoot) ||
+    repositoryRoot.includes('\0') ||
+    resolve(repositoryRoot) !== repositoryRoot ||
     !SHA256.test(rawSha256) ||
     !SHA256.test(sha256) ||
     byteLength < 0 ||
     byteLength > 16 * 1024 * 1024
   )
     throw new JournalCorruptionError('Capture preparation binding exceeds its bounds')
-  return { rawSha256, byteLength, completion: { path, sha256 } }
+  return { repositoryRoot, rawSha256, byteLength, completion: { path, sha256 } }
 }
 
 function parseCapturePreparation(value: unknown): StoredCapturePreparation {
   const input = record(value, 'capture preparation')
+  const repositoryRoot = stringField(input, 'repositoryRoot')
+  if (
+    !isAbsolute(repositoryRoot) ||
+    repositoryRoot.includes('\0') ||
+    resolve(repositoryRoot) !== repositoryRoot
+  )
+    throw new JournalCorruptionError('Capture preparation repository is invalid')
   if (
     !Array.isArray(input.objects) ||
     !Array.isArray(input.records) ||
@@ -1823,6 +1875,7 @@ function parseCapturePreparation(value: unknown): StoredCapturePreparation {
   )
     throw new JournalCorruptionError('Capture preparation publication graph is invalid')
   return {
+    repositoryRoot,
     objects,
     records,
     commitPath,

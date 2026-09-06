@@ -16,6 +16,13 @@ and SQLite binds their complete write plan to the durable claim or lifecycle
 event. This preparation is create-once: retries cannot rediscover env values or
 replace already-selected evidence. Completion requires both repository
 verification and an exact match to the preparation's completion reference.
+Only genuine repository-prepared objects and records can create that authority.
+All content in a frozen graph belongs to one canonical worktree, and the
+repository writer checks that binding on publication. The CLI remains the sole
+Session routing owner; neither the first nor latest hook directory can substitute
+for its linked-worktree and first-repository rules.
+Recovery restores capabilities only after verifying the frozen owner's binding
+and exact private bytes. Byte snapshots are copies, never mutable authority.
 The journal stores no secret dictionary. Provider originals and safe publication
 bytes remain different facts even when their contents happen to match.
 

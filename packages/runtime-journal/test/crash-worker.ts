@@ -7,6 +7,7 @@ import {
   type MaterializationClaim,
   type RuntimeRecordRef,
 } from '../src/index.js'
+import { prepareFixtureRecord } from './prepared-fixture'
 
 const [root, operation, crashAt] = process.argv.slice(2)
 if (!root || !operation || !crashAt)
@@ -64,7 +65,7 @@ if (operation === 'append' || operation === 'append-stop') {
     { kind: 'stop', claim },
     {
       objects: [],
-      records: [{ path: turn.path, bytes }],
+      records: [await prepareFixtureRecord(turn.repositoryRoot, turn.path, bytes)],
       commitPath: turn.path,
       completion: { path: turn.path, sha256: turn.sha256 },
     },

@@ -73,6 +73,20 @@ and gates before accepting it.
 
 ## Handoff and freedoms
 
+Capture and journal now consume genuine prepared capabilities at freeze and
+publication. A forged raw record failed its new Docker regression before the
+change and is now refused without a frozen plan. A separate regression rejects
+graphs mixing genuine capabilities from different worktrees.
+The complete journal suite passes 43 tests; both installed provider capture
+journeys replay eleven publication prefixes each after deleting env/transcript
+inputs, with 104 assertions and exact final tree identity. The Node 22.13.1
+journal import probe remains green. Independent review caught redundant journal
+routing inference and pre-copy byte bounds. Both cross-repository and linked
+worktree regressions were reproduced red; removing the redundant routing owner
+restored green. Four combined CLI capture checks pass with 123 assertions.
+Generic caller integration and the combined
+installed certification remain open.
+
 Perform the review skill's shape/diff/docs closeout and independent Codex review.
 Update SECURITY to describe the now-complete boundary without promising universal
 secret detection. Delegate prepared-content API naming and capability representation;

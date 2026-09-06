@@ -47,6 +47,7 @@ import {
 } from './admission'
 import { restorePreparedRecord } from './admission-internal'
 import { withAdvisoryFileLock } from './confined-writer'
+import { discoverRepositorySanitizer } from './git-observer'
 import { validateStructuredRecord } from './record-validation'
 export {
   snapshotPreparedObject,
@@ -545,7 +546,7 @@ export class RepositoryStore {
   private async preparedRecords(records: readonly PreparedRecord[]) {
     const root = await realpath(this.repositoryRoot)
     return records.map(record => {
-      const snapshot = snapshotPreparedRecord(record)
+      const snapshot = snapshotPreparedRecord(record, { maximumBytes: MAX_STRUCTURED_RECORD_BYTES })
       if (snapshot.repositoryRoot !== root)
         throw new TypeError('prepared record belongs to a different repository root')
       return snapshot
@@ -553,12 +554,10 @@ export class RepositoryStore {
   }
 
   async putObject(capability: PreparedObject): Promise<ObjectRef> {
-    const snapshot = snapshotPreparedObject(capability)
+    const snapshot = snapshotPreparedObject(capability, { maximumBytes: this.maxObjectBytes })
     if (snapshot.repositoryRoot !== (await realpath(this.repositoryRoot)))
       throw new TypeError('prepared object belongs to a different repository root')
     const content = snapshot.bytes
-    if (content.byteLength > this.maxObjectBytes)
-      throw new Error(`Factory object exceeds maximum of ${this.maxObjectBytes} bytes`)
     const hash = snapshot.reference.sha256
     const path = objectOwnedPath(hash)
     await this.withMutationLock(async () => {
