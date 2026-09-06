@@ -7,6 +7,11 @@ repository observation, and review trigger.
 Planning is pure. Provider adapters prepare every retained message using the
 shared sanitization policy and reduce recognized tool results without trimming
 ordinary reasoning. Transcript completeness is assessed on original bytes.
+Codex result classification follows its [provider response model](https://github.com/openai/codex/blob/rust-v0.144.0/codex-rs/protocol/src/models.rs):
+function and custom-tool results can carry either text or structured content.
+Their text blocks share one result budget; image and encrypted payloads become
+explicit nontext omissions. Tool-call inputs and unknown record kinds do not
+inherit result classification.
 The private journal freezes the entire prepared graph before the repository
 publishes any of it, with the trigger as its logical commit point. A crash may
 leave an unreferenced safe prefix; recovery replays the frozen bytes even after

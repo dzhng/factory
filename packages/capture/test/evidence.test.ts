@@ -7,6 +7,77 @@ import { claudeCaptureAdapter, codexCaptureAdapter } from '../src'
 const encode = (value: unknown) => new TextEncoder().encode(JSON.stringify(value))
 const decode = (bytes: Uint8Array) => JSON.parse(new TextDecoder().decode(bytes))
 
+test('Codex structured tool outputs share one text budget and omit nontext payloads', () => {
+  for (const type of ['function_call_output', 'custom_tool_call_output']) {
+    const prepared = codexCaptureAdapter.prepareEvidence(
+      'transcript',
+      encode({
+        type: 'response_item',
+        payload: {
+          type,
+          call_id: 'call',
+          output: [
+            { type: 'input_text', text: 'synthetic-' },
+            { type: 'input_text', text: 'private-value' + '😀'.repeat(4001) },
+            { type: 'input_image', image_url: 'data:image/png;base64,cHJpdmF0ZQ==' },
+            { type: 'encrypted_content', encrypted_content: 'opaque-private' },
+          ],
+        },
+      }),
+      createSanitizer(['VALUE=synthetic-private-value']),
+    )
+    expect(decode(prepared.bytes).payload).toEqual({
+      type,
+      call_id: 'call',
+      output: [
+        {
+          type: 'input_text',
+          text:
+            '[REDACTED]' +
+            '😀'.repeat(2990) +
+            '\n[Factory omitted 11 characters]\n' +
+            '😀'.repeat(1000),
+        },
+      ],
+    })
+    expect(prepared.transformation).toEqual({
+      policy: 'evidence-sanitization-1',
+      redacted: true,
+      omittedCharacters: 11,
+      omissionReasons: ['nontext-attachment'],
+    })
+    expect(new TextDecoder().decode(prepared.bytes)).not.toContain('cHJpdmF0ZQ==')
+    expect(new TextDecoder().decode(prepared.bytes)).not.toContain('opaque-private')
+  }
+})
+
+test('Codex custom tool output is reduced without trimming custom tool input', () => {
+  const output = 'x'.repeat(5000)
+  const prepared = codexCaptureAdapter.prepareEvidence(
+    'transcript',
+    encode({
+      type: 'response_item',
+      payload: { type: 'custom_tool_call_output', call_id: 'call', output },
+    }),
+    createSanitizer([]),
+  )
+  expect(decode(prepared.bytes).payload).toEqual({
+    type: 'custom_tool_call_output',
+    call_id: 'call',
+    output: 'x'.repeat(3000) + '\n[Factory omitted 1000 characters]\n' + 'x'.repeat(1000),
+  })
+  expect(prepared.transformation.omittedCharacters).toBe(1000)
+  const input = codexCaptureAdapter.prepareEvidence(
+    'transcript',
+    encode({
+      type: 'response_item',
+      payload: { type: 'custom_tool_call', call_id: 'call', input: output },
+    }),
+    createSanitizer([]),
+  )
+  expect(decode(input.bytes).payload.input).toBe(output)
+})
+
 test('secret collisions redact omission-marker prose without changing structured counts', () => {
   const prepared = codexCaptureAdapter.prepareEvidence(
     'transcript',

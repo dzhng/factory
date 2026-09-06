@@ -56,7 +56,10 @@ export function prepareEvidence(
       if (value.type === 'turn_context') identities(value.payload, ['turn_id'])
       if (
         value.type === 'response_item' &&
-        (value.payload.type === 'function_call' || value.payload.type === 'function_call_output')
+        (value.payload.type === 'function_call' ||
+          value.payload.type === 'function_call_output' ||
+          value.payload.type === 'custom_tool_call' ||
+          value.payload.type === 'custom_tool_call_output')
       )
         identities(value.payload, ['call_id'])
       if (
@@ -119,10 +122,20 @@ export function prepareEvidence(
       kind === 'transcript' &&
       value.type === 'response_item' &&
       object(value.payload) &&
-      value.payload.type === 'function_call_output' &&
-      typeof value.payload.output === 'string'
+      (value.payload.type === 'function_call_output' ||
+        value.payload.type === 'custom_tool_call_output')
     ) {
-      value.payload.output = resultText([value.payload.output])
+      if (typeof value.payload.output === 'string')
+        value.payload.output = resultText([value.payload.output])
+      else if (Array.isArray(value.payload.output)) {
+        const text: string[] = []
+        for (const part of value.payload.output) {
+          if (object(part) && part.type === 'input_text' && typeof part.text === 'string')
+            text.push(part.text)
+          else omit('nontext-attachment')
+        }
+        value.payload.output = [{ type: 'input_text', text: resultText(text) }]
+      }
     }
     if (
       object(value) &&
