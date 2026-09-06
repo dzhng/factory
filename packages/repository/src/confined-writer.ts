@@ -364,7 +364,7 @@ export class ConfinedWriter {
       )
       const writer = new ConfinedWriter(root, backend, {})
       const files: Uint8Array[] = []
-      const observed: { path: Buffer[]; identity: NativeIdentity }[] = []
+      const observed: { path: Buffer[]; identity: NativeIdentity; content?: Buffer }[] = []
       let entries = 0
       let bytes = 0
       // O_EVTONLY | O_SYMLINK on macOS; O_PATH | O_NOFOLLOW on Linux.
@@ -376,19 +376,6 @@ export class ConfinedWriter {
       const visit = async (descriptor: number, prefix: Buffer[]): Promise<void> => {
         const before = descriptorIdentity(descriptor)
         observed.push({ path: prefix, identity: before })
-        if (prefix.length > 0 && bounds.skipNestedRepositories) {
-          const marker = backend.library.symbols.openat(
-            descriptor,
-            backend.ptr(cString(Buffer.from('.git'))),
-            metadataFlags,
-            0,
-          )
-          if (marker >= 0) {
-            backend.library.symbols.close(marker)
-            if (!sameNativeState(before, descriptorIdentity(descriptor))) throw new Error()
-            return
-          }
-        }
         const names = writer.directoryEntries(descriptor, bounds.maximumEntries - entries)
         entries += names.length
         for (const name of names) {
@@ -407,7 +394,23 @@ export class ConfinedWriter {
             // Replacement decoding supports ASCII basename policies on non-UTF-8 names;
             // filesystem operations keep the original bytes, never this display string.
             const label = name.toString('utf8')
-            if (identity.kind === 'directory' && !bounds.skipDirectory(label)) {
+            let included =
+              identity.kind === 'directory'
+                ? !bounds.skipDirectory(label)
+                : identity.kind !== 'symlink' && bounds.includeFile(label)
+            if (identity.kind === 'directory' && included && bounds.skipNestedRepositories) {
+              const marker = backend.library.symbols.openat(
+                child,
+                backend.ptr(cString(Buffer.from('.git'))),
+                metadataFlags,
+                0,
+              )
+              if (marker >= 0) {
+                backend.library.symbols.close(marker)
+                included = false
+              }
+            }
+            if (identity.kind === 'directory' && included) {
               const directory = writer.openExistingDirectory(descriptor, name)
               try {
                 if (!sameNativeState(identity, descriptorIdentity(directory))) throw new Error()
@@ -415,11 +418,7 @@ export class ConfinedWriter {
               } finally {
                 backend.library.symbols.close(directory)
               }
-            } else if (
-              identity.kind !== 'directory' &&
-              identity.kind !== 'symlink' &&
-              bounds.includeFile(label)
-            ) {
+            } else if (included) {
               if (
                 identity.kind !== 'file' ||
                 files.length >= bounds.maximumFiles ||
@@ -445,15 +444,16 @@ export class ConfinedWriter {
                 }
                 if (!sameNativeState(identity, descriptorIdentity(file))) throw new Error()
                 files.push(content)
-                observed.push({ path, identity })
+                observed.push({ path, identity, content })
                 bytes += content.byteLength
               } finally {
                 backend.library.symbols.close(file)
               }
             }
+            const matches = included ? sameNativeState : sameNativeIdentity
             if (
-              !sameNativeState(identity, descriptorIdentity(child)) ||
-              !sameNativeState(identity, writer.currentIdentity(descriptor, name, metadataFlags))
+              !matches(identity, descriptorIdentity(child)) ||
+              !matches(identity, writer.currentIdentity(descriptor, name, metadataFlags))
             )
               throw new Error()
           } finally {
@@ -470,20 +470,55 @@ export class ConfinedWriter {
       }
       try {
         await visit(root.fd, [])
-        for (const { path, identity } of observed) {
+        for (const { path, identity, content } of observed) {
           if (path.length === 0) {
             if (!sameNativeState(identity, descriptorIdentity(root.fd))) throw new Error()
             continue
           }
           const parent = await writer.parent(path, false)
           try {
-            if (
-              !sameNativeState(
-                identity,
-                writer.currentIdentity(parent.descriptor, path.at(-1)!, metadataFlags),
-              )
+            const descriptor = backend.library.symbols.openat(
+              parent.descriptor,
+              backend.ptr(parent.name),
+              content === undefined
+                ? metadataFlags
+                : constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+              0,
             )
-              throw new Error()
+            if (descriptor < 0) throw new Error()
+            try {
+              if (!sameNativeState(identity, descriptorIdentity(descriptor))) throw new Error()
+              if (content !== undefined) {
+                // Coarse filesystem clocks can conceal a same-size overwrite in metadata.
+                const buffer = Buffer.allocUnsafe(Math.min(64 * 1024, content.byteLength))
+                let offset = 0
+                while (offset < content.byteLength) {
+                  const count = readSync(
+                    descriptor,
+                    buffer,
+                    0,
+                    Math.min(buffer.byteLength, content.byteLength - offset),
+                    offset,
+                  )
+                  if (
+                    count === 0 ||
+                    !buffer.subarray(0, count).equals(content.subarray(offset, offset + count))
+                  )
+                    throw new Error()
+                  offset += count
+                }
+              }
+              if (
+                !sameNativeState(identity, descriptorIdentity(descriptor)) ||
+                !sameNativeState(
+                  identity,
+                  writer.currentIdentity(parent.descriptor, path.at(-1)!, metadataFlags),
+                )
+              )
+                throw new Error()
+            } finally {
+              backend.library.symbols.close(descriptor)
+            }
           } finally {
             writer.closeParents(parent.opened)
           }

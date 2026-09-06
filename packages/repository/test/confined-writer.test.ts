@@ -13,6 +13,7 @@ import {
   rm,
   symlink,
   unlink,
+  utimes,
   writeFile,
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -140,6 +141,7 @@ describe('ConfinedWriter', () => {
       await mkdir(join(root, 'nested'), { recursive: true })
       await mkdir(outside)
       await writeFile(join(root, 'nested', '.env'), 'VALUE=before\n')
+      await utimes(join(root, 'nested', '.env'), 1, 1)
       await writeFile(join(outside, '.env'), 'VALUE=outside\n')
       let changed = false
       await expect(
@@ -162,6 +164,7 @@ describe('ConfinedWriter', () => {
               await symlink(join(outside, '.env'), join(root, 'nested', '.env'))
             } else if (race === 'file-mutated') {
               await writeFile(join(root, 'nested', '.env'), 'VALUE=after!\n')
+              await utimes(join(root, 'nested', '.env'), 2, 2)
             } else {
               await writeFile(join(root, '.env.new'), 'VALUE=inserted\n')
             }
@@ -271,6 +274,86 @@ describe('ConfinedWriter', () => {
     await mkdir(join(root, 'unreadable'), { mode: 0 })
     expect(read()).toEqual({ error: 'confined file discovery failed' })
   })
+
+  test('detects late byte changes even when filesystem timestamps and sizes remain equal', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'factory-confined-discovery-'))
+    roots.push(root)
+    await writeFile(join(root, '.env.a'), Buffer.alloc(100_001, 0x61))
+    await writeFile(join(root, '.env.z'), 'end')
+    const result = execFileSync(
+      process.execPath,
+      [
+        '-e',
+        `
+      import { mock } from 'bun:test';
+      import * as fs from 'node:fs';
+      import { open } from 'node:fs/promises';
+      const originalStat = fs.fstatSync;
+      // Model a coarse filesystem clock; all file operations and identities stay real.
+      mock.module('node:fs', () => ({ ...fs, fstatSync: (...args) => {
+        const state = originalStat(...args);
+        state.mtimeNs = 0n;
+        state.ctimeNs = 0n;
+        return state;
+      }}));
+      const { ConfinedWriter } = await import(${JSON.stringify(join(import.meta.dir, '../src/confined-writer.ts'))});
+      try {
+        await ConfinedWriter.readFiles(${JSON.stringify(root)}, {
+          maximumEntries: 2, maximumDepth: 1, maximumFiles: 2,
+          maximumFileBytes: 200000, maximumBytes: 200000,
+          includeFile: name => name.startsWith('.env'), skipDirectory: () => false,
+          afterEntryOpen: async path => {
+            if (Buffer.from(path[0]).toString() === '.env.z') {
+              const file = await open(${JSON.stringify(join(root, '.env.a'))}, 'r+');
+              try { await file.write(Buffer.from('b'), 0, 1, 100000); }
+              finally { await file.close(); }
+            }
+          },
+        });
+        console.log(JSON.stringify({ accepted: true }));
+      } catch (error) { console.log(JSON.stringify({ error: error.message })); }
+    `,
+      ],
+      { encoding: 'utf8', timeout: 5000 },
+    )
+    const changed = Buffer.alloc(100_001, 0x61)
+    changed[100_000] = 0x62
+    expect(await readFile(join(root, '.env.a'))).toEqual(changed)
+    expect(JSON.parse(result)).toEqual({ error: 'confined file discovery failed' })
+  })
+
+  test.each(['callback-directory', 'nested-repository', 'unselected-file'])(
+    'ignores content churn outside discovery policy: %s',
+    async kind => {
+      const root = await mkdtemp(join(tmpdir(), 'factory-confined-discovery-'))
+      roots.push(root)
+      if (kind === 'unselected-file') await writeFile(join(root, 'excluded'), 'unselected')
+      else await mkdir(join(root, 'excluded'))
+      if (kind === 'nested-repository')
+        await writeFile(join(root, 'excluded', '.git'), 'gitdir: synthetic')
+      await utimes(join(root, 'excluded'), 1, 1)
+      await writeFile(join(root, '.env'), 'VALUE=retained\n')
+      const files = await ConfinedWriter.readFiles(root, {
+        maximumEntries: 2,
+        maximumDepth: 1,
+        maximumFiles: 1,
+        maximumFileBytes: 100,
+        maximumBytes: 100,
+        includeFile: name => name.startsWith('.env'),
+        skipDirectory: name => kind === 'callback-directory' && name === 'excluded',
+        skipNestedRepositories: kind === 'nested-repository',
+        afterEntryOpen: async path => {
+          if (Buffer.from(path[0]!).toString() !== 'excluded') return
+          await writeFile(
+            kind === 'unselected-file' ? join(root, 'excluded') : join(root, 'excluded', '.env'),
+            'VALUE=excluded\n',
+          )
+          await utimes(join(root, 'excluded'), 2, 2)
+        },
+      })
+      expect(files.map(bytes => Buffer.from(bytes).toString())).toEqual(['VALUE=retained\n'])
+    },
+  )
 
   test.each(['normal', 'zero-inode'])(
     'does not confuse runtime errno changes with a native directory read failure %s',
