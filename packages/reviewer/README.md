@@ -33,8 +33,20 @@ receives the live bundle path. Only bounded, validated audit submissions can
 cross back into portable history. Provider final text and logs remain diagnostic
 private runtime data, separate from the canonical submission stream. Recovery
 retains both streams until acceptance; final text is never a fallback when
-submissions are absent. The typed submission server and provider tool wiring
-are the next checkpoint in the active choice-audit spec.
+submissions are absent.
+
+The image contains a fixed stdio submission server. It verifies the bundle,
+resolves bundle-local evidence handles, and appends canonical events only after
+the shared contract fold admits them. The journal itself is the OS-released lock
+inode: it is never replaced, acknowledged writes are synced, and restart can
+accept exact retries without overwriting history. Malformed direct journal bytes
+are refused, not repaired. Provider strict tool configuration remains the next
+integration checkpoint.
+
+The server is a bounded JSON-RPC implementation of the MCP stdio lifecycle and
+tool surface. Neither pinned provider package exports a reusable MCP SDK, so no
+runtime dependency or download is introduced. The networkless image build stage
+bundles only workspace runtime dependencies. Fixed errors never echo input prose.
 
 The production image is built from `docker/Dockerfile` and published for Linux
 amd64 and arm64 at `ghcr.io/dzhng/factory-reviewer`. Factory ships an exact

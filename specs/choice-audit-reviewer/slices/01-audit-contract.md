@@ -11,7 +11,7 @@ execution.
 ## API seam
 
 The contract package owns `ChoiceAuditEntry`, `ChoiceAuditSummary`, and their
-strict validators. Review acceptance owns deterministic IDs and aggregate bounds.
+strict validators. The shared contract fold owns deterministic IDs and aggregate bounds.
 Domain owns projection into current decisions and required human attention.
 Remove generic finding/summary/decision variants and stale effects in the same
 pass; no aliases or compatibility parser survive.
@@ -61,7 +61,7 @@ future consequence; corrected/provisional decisions remain separate and explicit
 Its exact accepted ordering can be reproduced from the worktree root:
 
 ```sh
-bun -e 'import {checkpointChoices,writerChoice} from "./packages/test-harness/src/choice-fixtures"; import {acceptAuditDraft} from "./packages/review/src/audit"; console.log(acceptAuditDraft(checkpointChoices(writerChoice.evidence).map(choice=>({kind:"choice",choice})),writerChoice.evidence.map(c=>c.object),"review_00000000000000000000000001").entries)'
+bun -e 'import {checkpointChoices,writerChoice} from "./packages/test-harness/src/choice-fixtures"; import {acceptAuditDraft} from "@factory/contract"; console.log(acceptAuditDraft(checkpointChoices(writerChoice.evidence).map(choice=>({kind:"choice",choice})),writerChoice.evidence.map(c=>c.object),"review_00000000000000000000000001").entries)'
 ```
 
 Verification: full three-verdict acceptance test failed against the original

@@ -359,6 +359,32 @@ function fixture(): {
 }
 
 describe('verified review bundles', () => {
+  test('evidence handles cannot swap exact references even under a recomputed bundle digest', async () => {
+    const value = fixture()
+    const root = await mkdtemp(join(tmpdir(), 'factory-index-'))
+    roots.push(root)
+    const built = await buildBundle(
+      planReview(value.input),
+      { getObject: async ref => value.objects.get(ref.sha256)! },
+      join(root, 'bundle'),
+      'repo_test',
+    )
+    const manifest = JSON.parse(await readFile(join(built.path, 'bundle.json'), 'utf8'))
+    expect(manifest.evidenceIndex.map((item: { object: ObjectRef }) => item.object)).toEqual(
+      manifest.inventory,
+    )
+    const original = await verifyBundle(built.path, built.sha256)
+    expect(original.valid).toBeTrue()
+    manifest.evidenceIndex[0].object = manifest.evidenceIndex[1].object
+    const changed = new TextEncoder().encode(canonicalJson(manifest))
+    await import('node:fs/promises').then(fs => fs.chmod(join(built.path, 'bundle.json'), 0o600))
+    await writeFile(join(built.path, 'bundle.json'), changed)
+    const result = await verifyBundle(built.path, digest(changed))
+    expect(result).toMatchObject({
+      valid: false,
+      reason: 'bundle evidence index differs from exact inventory',
+    })
+  })
   test('incremental acquisition advances past reviewed Sessions at the cap', async () => {
     const value = fixture()
     const first = value.input.candidates[0]!

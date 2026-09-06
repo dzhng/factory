@@ -152,6 +152,13 @@ snapshot, change set, PR and canonical-branch observations, review-policy
 versions, prior ledger, and known limitations. The reviewer must not reach
 outside that bundle for repository state.
 
+The image's Factory submission server uses stdio, opens no listener, and performs
+no network operations. It resolves compact evidence handles only from the verified
+bundle and appends bounded canonical events in the existing output directory.
+Provider processes still share that container and can write the output mount;
+tool schemas are not an additional trust domain. Host acceptance independently
+validates the draft, and the committable sanitization boundary still applies.
+
 ## Hooks are narrow capture adapters
 
 Global Factory hooks receive provider lifecycle events and pass them to the

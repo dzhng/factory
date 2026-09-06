@@ -1,5 +1,55 @@
 # Implementation choices
 
+## Sound · medium confidence — Evidence handles live inside the bundle manifest
+
+When: slice 2 submission tooling.
+
+A model needs to cite a captured object without copying a long digest and all its
+metadata. Factory adds a compact lookup table beside the bundle's existing
+inventory: `e1` refers to the first full reference in canonical order. The model
+submits that handle; the server expands it back to the exact reference. A separate
+index file would need its own path and digest entry, while ordinal-only inference
+would force clients to recreate the ordering rule themselves.
+
+Gap: the plan required a deterministic index but did not choose its representation.
+Reach: manifests grow by a bounded copy of their reference inventory; their
+existing byte ceiling still applies. Handles change when inventory changes and
+never become durable identity. Verdict: sound because one verified manifest
+binds the mapping without another file-publication rule.
+
+## Sound · high confidence — The submission journal is also the lock inode
+
+When: slice 2 durable tool acknowledgement.
+
+Two server processes may start after a provider retry. Both lock the same journal
+file using the existing operating-system lock, then read, validate, append, and
+sync while holding it. The second process sees the first's event and returns
+success without appending a duplicate. The journal is never renamed or replaced;
+process death releases its lock automatically. A separate lock artifact would
+add another allowed output file and its cleanup lifecycle.
+
+Gap: the plan required durable idempotent appends without choosing concurrency
+ownership. Reach: all honest writers must preserve this file identity and use the
+same lock. Exact retries also sync before acknowledgement, covering a predecessor
+that wrote bytes but died before syncing. Verdict: sound because serialization
+and crash release reuse a proven repository primitive without another artifact.
+
+## Sound · high confidence — Corrupt journals remain evidence, not repair targets
+
+When: slice 2 hostile-output handling.
+
+The provider can write its output directory directly and leave a malformed line
+after an acknowledged choice. A restarted tool refuses to append to that file;
+it does not delete the malformed tail or guess what the model meant. Host
+acceptance can still preserve the earlier valid choice as a partial audit.
+Repairing the file inside the tool would hide what happened and might turn an
+incomplete attempt into an apparently clean finish.
+
+Gap: the plan required malicious direct-output tests but did not prescribe
+server-side repair behavior. Reach: a damaged attempt must end as partial or
+failed and be retried as another attempt; its valid history remains available.
+Verdict: sound because only validation, not rewriting evidence, can grant authority.
+
 ## Sound · medium confidence — Failure selection names one verdict
 
 When: slice 1 contract cutover.

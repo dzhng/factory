@@ -22,6 +22,7 @@ const child = Bun.spawn(
     'test',
     '/workspace/packages/reviewer/test/environment-docker.test.ts',
     '/workspace/packages/reviewer/test/isolation-docker.test.ts',
+    '/workspace/packages/reviewer/test/submissions-docker.test.ts',
   ],
   { stdout: 'inherit', stderr: 'inherit' },
 )

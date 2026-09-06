@@ -72,9 +72,9 @@ meaning and requires a non-null assertion. Silence never changes prior history.
 Verdict answers whether the observed choice was a good call; effect answers what
 happened to it. They are independent axes and the UI must not conflate them.
 
-The implementing slice must specify the exact mapping into the existing decision
-fold before changing it. Do not retain generic effects merely because they exist:
-this product has not launched. If explicit later evidence overturns a prior
+The fold's material fingerprint is effect plus assertion; verdict/prose/confidence
+changes are not material changes. Unsound and needs-user independently raise
+attention, including on replays or human-confirmed observations. If explicit later evidence overturns a prior
 choice, use a contract-owned contradiction/supersession event rather than encoding
 history semantics in reviewer prose.
 
@@ -108,6 +108,20 @@ the untrusted draft event stream, folds exact duplicates, validates every
 citation against the verified bundle, derives IDs, and produces the ledger.
 Invalid events are impossible through honest tool use but are still rejected at
 the trust boundary because the provider process shares the container/output mount.
+
+The pure draft reader/fold is contract-owned alongside the validators: both the
+submission process and review acceptance import it directly. Keeping it in review
+would make reviewer depend on its own downstream publication package. Review
+continues to own attempt disposition and publication authority. Closed rejection
+labels provide correctable tool feedback without exposing validation exceptions.
+
+The manifest's evidenceIndex is regenerated from its canonical full-reference
+inventory. Handles are ordinal `e1`, `e2`, and so on within that one bundle; they
+never enter durable citations. The server serializes journal appends with the
+existing OS-released file-lock primitive, using the journal as a stable lock
+inode. It syncs the event and parent directory before acknowledging. Exact retry
+after a restart or finish does not append again. Invalid existing journal bytes
+are refused without rewriting them; acceptance may still retain the valid prefix.
 
 ## Completion and partial results
 

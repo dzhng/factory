@@ -16,7 +16,7 @@ acceptance produces a failed review with a closed reason and no ledger. A
 complete audit requires an explicit finish; an empty completed audit also needs
 a cited explanation of why no undeclared choice was found.
 
-The draft seam admits bounded choice, summary, and finish events. Exact retries
+The contract-owned draft seam admits bounded choice, summary, and finish events. Exact retries
 are idempotent; conflicting reuse of a choice key retains the first submission
 and makes the review partial. Citations must match the full verified object
 reference, not just its digest. Rejected events never enter portable history.

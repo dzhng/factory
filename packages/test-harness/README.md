@@ -5,6 +5,12 @@ Docker environments, crash labs, provider fixtures, release-shaped journeys,
 and sanitized evidence reports. Production packages expose the narrow seams;
 the harness proves those seams against real boundary behavior.
 
+The [audit submission probe](src/run-audit-submissions.ts) builds the reviewer
+image and drives its packaged stdio server without a model. It prints a synthetic
+three-verdict ledger after exercising multiline prose, nested assertions, exact
+evidence handles, and explicit completion. This proves packaging and protocol,
+not either provider's strict tool configuration or real-model judgment quality.
+
 The [sanitization policy probe](src/run-sanitization-policy.ts) makes retained
 reasoning and reduced tool context inspectable using synthetic text only. It
 does not certify the repository publication boundary.

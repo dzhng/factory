@@ -9,6 +9,7 @@ import {
   type ReviewManifest,
   type Sha256,
 } from '@factory/contract'
+import { readAuditDraft } from '@factory/contract'
 import { loadStoredReviews } from '@factory/domain'
 import type { RepositoryStore } from '@factory/repository'
 import {
@@ -19,7 +20,6 @@ import {
   type VerifiedReviewBundle,
 } from '@factory/reviewer'
 
-import { readAuditDraft } from './audit'
 import { appendDecisionObservations } from './decisions'
 
 export type AttemptTermination = import('@factory/reviewer').ReviewerExecutionTermination

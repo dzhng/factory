@@ -1,8 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 
 import { canonicalJson, type ChoiceAuditSubmission, type ObjectRef } from '@factory/contract'
-
-import { acceptAuditDraft, readAuditDraft } from '../src'
+import { acceptAuditDraft, readAuditDraft } from '@factory/contract'
 
 const object: ObjectRef = {
   algorithm: 'sha256',

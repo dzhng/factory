@@ -1,4 +1,12 @@
 import { createHash, randomBytes } from 'node:crypto'
+export { acceptAuditDraft, readAuditDraft, type AcceptedAuditDraft } from './audit'
+import {
+  choiceAuditProperties,
+  auditSummaryProperties,
+  auditSummaryRequired,
+  auditVerdictFields,
+} from './audit-schema'
+export { choiceAuditInputSchema, auditSummaryInputSchema } from './audit-schema'
 
 export const FACTORY_FORMAT_VERSION = 1 as const
 export const FACTORY_READER_VERSION = '0.1.0' as const
@@ -697,26 +705,10 @@ export function validateChoiceAuditSubmission(
   value: unknown,
 ): asserts value is ChoiceAuditSubmission {
   assertRecord(value, 'choice')
-  const required = [
-    'choiceKey',
-    'effect',
-    'assertion',
-    'when',
-    'headline',
-    'scenario',
-    'gap',
-    'reach',
-    'verdict',
-    'rationale',
-    'confidence',
-    'evidence',
-  ]
-  const verdictFields =
-    value.verdict === 'unsound'
-      ? ['correctedDecision']
-      : value.verdict === 'needs-user'
-        ? ['provisionalCall', 'reversal']
-        : []
+  const required = Object.keys(choiceAuditProperties)
+  const verdictFields = Object.hasOwn(auditVerdictFields, value.verdict as string)
+    ? auditVerdictFields[value.verdict as string]!
+    : []
   assertExactKeys(value, [...required, ...verdictFields], 'choice')
   requireFields(value, [...required, ...verdictFields], 'choice')
   auditText(value.choiceKey, 'choice.choiceKey', 256)
@@ -747,12 +739,8 @@ export function validateChoiceAuditEntry(value: unknown): asserts value is Choic
 
 export function validateChoiceAuditSummary(value: unknown): asserts value is ChoiceAuditSummary {
   assertRecord(value, 'audit summary')
-  assertExactKeys(
-    value,
-    ['reviewed', 'trivialDiscretionCount', 'noChoiceRationale', 'evidence'],
-    'audit summary',
-  )
-  requireFields(value, ['reviewed', 'evidence'], 'audit summary')
+  assertExactKeys(value, Object.keys(auditSummaryProperties), 'audit summary')
+  requireFields(value, auditSummaryRequired, 'audit summary')
   auditText(value.reviewed, 'audit summary.reviewed')
   if ('noChoiceRationale' in value)
     auditText(value.noChoiceRationale, 'audit summary.noChoiceRationale')

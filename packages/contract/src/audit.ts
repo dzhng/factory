@@ -9,14 +9,28 @@ import {
   type ChoiceAuditSummary,
   type ObjectRef,
   type RecordId,
-} from '@factory/contract'
+} from './index'
 
 export type AcceptedAuditDraft = {
   entries: readonly ChoiceAuditEntry[]
   summary?: ChoiceAuditSummary
   incomplete: boolean
   submissions: Uint8Array
+  rejections: readonly AuditDraftRejection[]
 }
+
+const auditRejections = [
+  'unfinished audit',
+  'audit is finished',
+  'unknown citation',
+  'conflicting choice key',
+  'choice limit',
+  'ledger byte limit',
+  'conflicting summary',
+  'draft byte limit',
+  'invalid submission',
+] as const
+type AuditDraftRejection = (typeof auditRejections)[number]
 
 function entryId(reviewId: RecordId, value: unknown): RecordId {
   const bytes = createHash('sha256')
@@ -46,6 +60,7 @@ export function acceptAuditDraft(
   let summary: ChoiceAuditSummary | undefined
   let finished = false
   let invalid = false
+  const rejections: AuditDraftRejection[] = []
   let bytes = 0
   let ledgerBytes = Buffer.byteLength(canonicalJson({ schemaVersion: 1, reviewId, entries: [] }))
   for (const event of events) {
@@ -54,6 +69,7 @@ export function acceptAuditDraft(
       bytes += Buffer.byteLength(encoded)
       if (bytes > 1024 * 1024) {
         invalid = true
+        rejections.push('draft byte limit')
         break
       }
       const value: unknown = JSON.parse(encoded)
@@ -101,8 +117,13 @@ export function acceptAuditDraft(
         summary = value.summary
         accepted.push({ kind: 'audit-summary', summary })
       } else throw new TypeError('unknown event')
-    } catch {
+    } catch (error) {
       invalid = true
+      rejections.push(
+        error instanceof Error && auditRejections.includes(error.message as AuditDraftRejection)
+          ? (error.message as AuditDraftRejection)
+          : 'invalid submission',
+      )
     }
   }
   return {
@@ -110,6 +131,7 @@ export function acceptAuditDraft(
     ...(summary ? { summary } : {}),
     incomplete: invalid || !finished,
     submissions: new TextEncoder().encode(accepted.map(event => canonicalJson(event)).join('')),
+    rejections,
   }
 }
 

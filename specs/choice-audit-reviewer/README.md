@@ -7,16 +7,16 @@ Factory tool instead of hand-authoring JSONL.
 
 ## Next Agent Prompt
 
-Status: slice 1 implemented; submission tools and full presentation remain. Last updated: 2026-09-06.
+Status: slices 1–2 implemented; provider wiring and full presentation remain. Last updated: 2026-09-06.
 
-Implement [slice 2](slices/02-submission-tool.md) and [slice 3](slices/03-presentation.md) next. Read this README, the
+Implement [slice 3](slices/03-presentation.md) and the provider wiring in [slice 4](slices/04-integration.md) next. Read this README, the
 [target contract](contract.md), `SECURITY.md`, and the repository's write-tests
 skill before changing behavior. This is a clean cutover for an unlaunched
 product: delete the generic reviewer-output contract as its consumers move; do
 not add compatibility parsing, migration machinery, or dual output modes.
 
 - [x] [1 — Choice-audit semantics and public ledger](slices/01-audit-contract.md)
-- [ ] [2 — Typed reviewer submission tool](slices/02-submission-tool.md)
+- [x] [2 — Typed reviewer submission tool](slices/02-submission-tool.md)
 - [ ] [3 — Human-readable choice presentation](slices/03-presentation.md)
 - [ ] [4 — Provider integration and partial-output journey](slices/04-integration.md)
 
@@ -26,14 +26,15 @@ Factory still validates citations and derives all IDs itself. Update this prompt
 and the owning slice with verification evidence before ending each pass, then
 commit and push each green milestone.
 
-The accepted draft seam is `acceptAuditDraft`/`readAuditDraft` in review; the
-contract exports strict event/submission validators. Public submissions use exact
-ObjectRefs; slice 2 must resolve evidence handles before that boundary. Private
-attempts carry separate `submissions` and `providerOutput` byte streams. Only
-submissions can be accepted. Real providers have no submission server yet and
-therefore fail closed until slice 2 wires it; synthetic fixture providers emit
-events directly and do not prove MCP integration. Preserve the main sanitizer's
-reserved `transformation` metadata when integrating publication.
+Contract owns the shared `acceptAuditDraft`/`readAuditDraft` fold and validators;
+review owns publication. The image packages `/opt/factory/audit-server.js`, invoked
+as `bun <server> <bundle-path> <exact-bundle-sha256> <output>/submissions.jsonl`.
+It verifies the manifest evidenceIndex, resolves handles to exact ObjectRefs,
+and fsyncs canonical events before replying. Private attempts keep submissions
+separate from providerOutput. Real provider strict MCP configuration is not wired
+yet and therefore fails closed. The synthetic packaged-server probe proves stdio
+and image boundaries, not provider integration. Preserve the main sanitizer's
+`transformation` metadata when integrating publication.
 
 Load-bearing choices are banked in [choices.md](choices.md). Effect controls
 presence; verdict adds attention without rewriting lifecycle or human status.

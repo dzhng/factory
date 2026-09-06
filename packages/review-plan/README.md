@@ -16,6 +16,12 @@ content-addressed, so verification in a fresh directory needs neither the live
 checkout nor Git metadata. `@factory/reviewer` may execute only after this
 package returns a verified bundle.
 
+The bundle manifest includes an evidence index derived from its sorted full
+object-reference inventory. Compact handles are convenience locators within one
+bundle, not evidence identities. Verification reconstructs the index exactly;
+a caller cannot change a handle's role, length, or object by recomputing the outer
+digest. Submitted citations are resolved back to full references before acceptance.
+
 Repository discovery, candidate graph loading, planning, and portable bundle
 verification have separate owners under `src/`. Exact review grouping and
 coverage folding belong to the domain package so every consumer sees the same

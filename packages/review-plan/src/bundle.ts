@@ -125,6 +125,7 @@ export type ReviewBundleManifest = {
   repositoryId: string
   plan: ReviewPlanRecord
   inventory: readonly ObjectRef[]
+  evidenceIndex: readonly { evidenceId: string; object: ObjectRef }[]
   files: readonly {
     path: string
     kind: 'record' | 'object'
@@ -140,7 +141,15 @@ function validateReviewBundleManifest(value: unknown): asserts value is ReviewBu
   const keys = Object.keys(record).sort()
   if (
     canonicalJson(keys) !==
-    canonicalJson(['files', 'format', 'inventory', 'plan', 'repositoryId', 'schemaVersion'])
+    canonicalJson([
+      'evidenceIndex',
+      'files',
+      'format',
+      'inventory',
+      'plan',
+      'repositoryId',
+      'schemaVersion',
+    ])
   )
     throw new TypeError('bundle manifest has unknown or missing fields')
   if (
@@ -184,6 +193,20 @@ function validateReviewBundleManifest(value: unknown): asserts value is ReviewBu
   if (plan.subject.kind === 'workspace' && plan.subject.repositoryId !== record.repositoryId)
     throw new TypeError('bundle workspace subject belongs to a different repository')
   ;(record.inventory as unknown[]).forEach(item => validateObjectRef(item as ObjectRef))
+  if (
+    canonicalJson(record.evidenceIndex) !==
+    canonicalJson(bundleEvidenceIndex(record.inventory as ObjectRef[]))
+  )
+    throw new TypeError('bundle evidence index differs from exact inventory')
+}
+
+/** Handles are disposable positions in the canonical full-reference inventory, never identities. */
+export function bundleEvidenceIndex(
+  inventory: readonly ObjectRef[],
+): ReviewBundleManifest['evidenceIndex'] {
+  return [...inventory]
+    .sort(compareCanonical)
+    .map((object, index) => ({ evidenceId: `e${index + 1}`, object }))
 }
 
 export type ReviewPlanRecord = Omit<
@@ -823,6 +846,7 @@ export async function buildBundle(
     repositoryId,
     plan: compactPlan(plan),
     inventory: objects.refs,
+    evidenceIndex: bundleEvidenceIndex(objects.refs),
     files,
   }
   const manifestBytes = new TextEncoder().encode(canonicalJson(manifest))
