@@ -23,18 +23,18 @@ observation, unrecognized formats, and excluded discovery trees remain limits.
 No secret dictionary, per-secret fingerprint, or credential validation request
 belongs in this design.
 
-## Existing seams that constrain the cut
+## Identity constrains preparation order
 
-- Capture's `planTurn` and `verifyMaterializedTurnGraph` currently equate public
-  object identity with private journal raw bytes. Sanitization must replace that
-  contract; a final byte filter would break recovery.
-- The Git observer derives candidate object references before publication and
-  uses its manifest hash as the portable worktree fingerprint. Prepare transformed
-  content before building that manifest. Raw race detection is a separate fact.
-- Review acceptance publishes both model response text and a structured ledger.
-  Both need preparation before content-derived identities are finalized.
-- Repository publication is trigger/manifest-last, but its earlier physical
-  writes still enter Git. Unreferenced objects and staging files are in scope.
+Private raw bytes and portable evidence cannot share an identity after redaction.
+The safe leaf bytes must exist before their references and parent manifests.
+Raw Git race detection remains a separate fact: two source states can sanitize
+identically without proving continuity. Accepted model submissions likewise need
+preparation before their ledger and decision identities are derived; provider
+final prose is not another publication channel.
+
+Trigger/manifest-last publication makes earlier prefixes logically invisible,
+not physically private. Unreferenced objects and temporary publication files can
+still enter Git, so preparation must cover them too.
 
 The relevant owners are the [capture package](../../packages/capture/README.md),
 [journal](../../packages/runtime-journal/README.md),
