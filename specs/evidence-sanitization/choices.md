@@ -99,3 +99,21 @@
   structural fields must use their validated producer contract.
 - **Verdict:** sound; no free bypass for numeric secrets.
 - **Confidence:** high.
+
+### Optional PR source shares the acquisition preparation budget
+
+- **When:** GitHub observation pass.
+- **Choice:** When optional PR source capture prepares files beside GitHub
+  metadata and patches, those safe bytes share the acquisition's existing
+  byte ceiling. A callback cannot keep growing a private in-memory collection
+  indefinitely. This can refuse a large source capture that previously returned
+  only a reference to objects written elsewhere; it does not create an
+  additional storage service or an unlimited second budget.
+- **Gap:** The plan required a complete safe graph and bounded acquisition but
+  did not choose a separate allowance for privately prepared source bytes.
+- **Reach:** Optional source providers must share the caller's sanitizer and
+  object collection. Any future allowance increase should come with a bounded
+  acquisition probe rather than silently bypassing that collection.
+- **Verdict:** sound; a single preparation ceiling keeps transient memory
+  bounded, and preparation failures stop before any committable prefix.
+- **Confidence:** medium.

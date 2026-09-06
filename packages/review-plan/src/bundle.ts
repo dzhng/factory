@@ -1162,7 +1162,7 @@ export async function verifyBundle(
             if (problem.field === 'stagedPatch') return bundledSubject.observation.stagedPatch
             if (problem.field === 'unstagedPatch') return bundledSubject.observation.unstagedPatch
           } else if (problem.field === 'raw') {
-            return bundledSubject.observation.raw.find(
+            return bundledSubject.observation.evidence.find(
               item => canonicalJson(item) === canonicalJson(problem.object),
             )
           }

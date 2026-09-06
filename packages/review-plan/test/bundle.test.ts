@@ -460,7 +460,7 @@ describe('verified review bundles', () => {
         sha: 'b'.repeat(40),
       },
       commits: ['b'.repeat(40)],
-      raw: [raw],
+      evidence: [raw],
       diff,
       codeManifest: value.input.subject.observation.codeManifest,
       limitations: [],

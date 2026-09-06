@@ -842,7 +842,7 @@ describe('review planning', () => {
         sha: 'b'.repeat(40),
       },
       commits: [],
-      raw: [
+      evidence: [
         {
           ...ref('7', 'github-pr-metadata'),
           mediaType: 'application/json',

@@ -426,7 +426,7 @@ async function loadReviewInputsFromReader(
   } else {
     await readSubjectObject(subject.observation.diff)
     subjectObjectRefs.push(subject.observation.diff)
-    for (const reference of subject.observation.raw) {
+    for (const reference of subject.observation.evidence) {
       try {
         await readSubjectObject(reference)
         subjectObjectRefs.push(reference)

@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@factory/contract": "workspace:*",
-    "@factory/repository": "workspace:*"
+    "@factory/repository": "workspace:*",
+    "@factory/sanitization": "workspace:*"
   }
 }

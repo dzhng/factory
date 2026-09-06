@@ -98,9 +98,15 @@ GitHub observation follows the same ownership rule: Factory invokes an
 already-authenticated `gh` executable and never reads, copies, or stores its
 token. GitHub is optional; missing or unauthenticated `gh` produces typed
 unavailability without disabling local capture or workspace review. Commands
-use a fixed argv-only vocabulary with output and time bounds. Successful
-selected response bytes may become plaintext repository evidence under
-`.factory`, but credentials and transient command error output do not.
+use a fixed argv-only vocabulary with output and time bounds. Selected response
+text is sanitized before its content references exist. Source-like patch
+sections for env files, binary payloads, or unsafe/sensitive paths are omitted,
+including quoted paths in Git patch headers and preambles. Operational
+repository locators must remain unchanged, while only schema-validated Git
+object fields retain structural SHA authority. The complete safe acquisition
+is prepared before publication; sanitizer failures publish no prefix. Stored
+evidence remains plaintext, and credentials and transient command error output
+do not belong in it. Detection remains best effort under the shared policy.
 
 Read-only mounting limits accidental mutation; it does not stop software in the
 container from reading a credential. The reviewer container and the selected

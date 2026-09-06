@@ -329,7 +329,7 @@ describe('public repository contract', () => {
           commitMembership: 'complete',
           observedAt: timestamp,
           providerUpdatedAt: timestamp,
-          raw: [{ ...object, mediaType: 'application/json', role: 'github-pr-metadata' }],
+          evidence: [{ ...object, mediaType: 'application/json', role: 'github-pr-metadata' }],
           diff: { ...object, mediaType: 'text/x-diff', role: 'pull-request-diff' },
           limitations: [
             { code: 'unavailable-pull-request-code', detail: 'Fixture has no code manifest' },
@@ -683,7 +683,7 @@ describe('public repository contract', () => {
       hostname: 'github.com',
       base: { repositoryKey, externalId: 'R_base', repository: 'owner/repo' },
       observedAt,
-      raw: [
+      evidence: [
         {
           algorithm: 'sha256',
           sha256: '0'.repeat(64),
@@ -701,13 +701,15 @@ describe('public repository contract', () => {
         head: { repositoryKey, ref: 'feature', sha },
       }),
     ).toThrow('unknown fields')
-    expect(() => validatePublicRecord(path, { ...unavailable, raw: [] })).toThrow('raw GitHub')
+    expect(() => validatePublicRecord(path, { ...unavailable, evidence: [] })).toThrow(
+      'GitHub metadata evidence',
+    )
     expect(() =>
       validatePublicRecord(path, {
         ...unavailable,
-        raw: [{ ...unavailable.raw[0], role: 'wrong' }],
+        evidence: [{ ...unavailable.evidence[0], role: 'wrong' }],
       }),
-    ).toThrow('raw GitHub')
+    ).toThrow('GitHub metadata evidence')
     const inventedKey = githubRepositoryKey('github.com', 'R_invented')
     expect(() =>
       validatePublicRecord(
@@ -757,7 +759,7 @@ describe('public repository contract', () => {
     ).not.toThrow()
   })
 
-  test('binds exact PR evidence to its base repository and semantic raw objects', () => {
+  test('binds exact PR evidence to its base repository and semantic evidence objects', () => {
     const observedAt = '2026-09-04T00:00:00Z'
     const observationId = recordId('pr-observation')
     const repositoryKey = githubRepositoryKey('github.com', 'R_base')
@@ -806,7 +808,7 @@ describe('public repository contract', () => {
       commitMembership: 'complete',
       observedAt,
       providerUpdatedAt: observedAt,
-      raw: [object],
+      evidence: [object],
       diff: { ...object, mediaType: 'text/x-diff', role: 'pull-request-diff' },
       limitations: [
         { code: 'unavailable-pull-request-code', detail: 'Fixture has no code manifest' },
@@ -833,7 +835,7 @@ describe('public repository contract', () => {
         },
       }),
     ).toThrow('base repository')
-    expect(() => validatePublicRecord(path, { ...valid, raw: [] })).toThrow('raw evidence')
+    expect(() => validatePublicRecord(path, { ...valid, evidence: [] })).toThrow('evidence')
     expect(() => validatePublicRecord(path, { ...valid, diff: object })).toThrow('diff semantics')
     for (const url of [
       'https://github.com/other/repo/pull/42',
@@ -942,7 +944,7 @@ describe('public repository contract', () => {
       repository: 'owner/repo',
       url: 'https://github.com/owner/repo',
       observedAt,
-      raw: [raw],
+      evidence: [raw],
     }
     expect(() => validatePublicRecord(mappingPath, mapping)).not.toThrow()
     for (const url of [
@@ -1101,7 +1103,7 @@ describe('public repository contract', () => {
           commitMembership: 'complete',
           observedAt: timestamp,
           providerUpdatedAt: timestamp,
-          raw: [{ ...object, mediaType: 'application/json', role: 'github-pr-metadata' }],
+          evidence: [{ ...object, mediaType: 'application/json', role: 'github-pr-metadata' }],
           diff: { ...object, mediaType: 'text/x-diff', role: 'pull-request-diff' },
           limitations: [
             { code: 'unavailable-pull-request-code', detail: 'Fixture has no code manifest' },

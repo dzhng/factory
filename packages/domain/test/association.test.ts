@@ -33,7 +33,7 @@ const mapping = (
       ? 'https://github.com/owner/repo'
       : 'https://github.com/contributor/repo',
   observedAt: '2026-09-05T00:00:00Z',
-  raw: [
+  evidence: [
     {
       algorithm: 'sha256',
       sha256: digit.repeat(64),
@@ -117,7 +117,7 @@ const observation = {
   commits: [sha('2'), sha('3')] as [string, ...string[]],
   observedAt: '2026-09-05T01:00:00Z',
   providerUpdatedAt: '2026-09-05T00:00:00Z',
-  raw: [
+  evidence: [
     {
       algorithm: 'sha256' as const,
       sha256: 'a'.repeat(64),

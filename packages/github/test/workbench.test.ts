@@ -14,6 +14,7 @@ import {
 } from '../../contract/src/index'
 import { deriveAssociations, verifyAssociationBatch } from '../../domain/src/index'
 import { initializeRepositoryStore, type RepositoryStore } from '../../repository/src/index'
+import { createSanitizer } from '../../sanitization/src/index'
 import {
   GithubPrObserver,
   observeGithubDefaultBranch,
@@ -168,6 +169,7 @@ function observerFor(
         if (!result) throw new Error('unexpected gh call')
         return result
       },
+      sanitizer: createSanitizer([]),
       objects: new MemoryObjects(),
       ...options,
       now: () => new Date('2026-09-05T01:00:00Z'),
@@ -235,7 +237,7 @@ describe('default branch observation', () => {
 })
 
 describe('bounded coherent GitHub observation', () => {
-  test('freezes exact metadata/diff with fork and GHES identities', async () => {
+  test('freezes coherent metadata/diff with fork and GHES identities', async () => {
     const fixture = metadata({ headRepositoryId: 'R_fork' })
     const { observer, calls } = observerFor([
       completed(fixture),
@@ -296,6 +298,7 @@ describe('bounded coherent GitHub observation', () => {
               url: `https://${hostname}/${nameWithOwner}`,
             }),
           ),
+        sanitizer: createSanitizer([]),
         objects: new MemoryObjects(),
         now: () => new Date('2026-09-05T01:00:00Z'),
       })
@@ -324,6 +327,7 @@ describe('bounded coherent GitHub observation', () => {
               url: 'https://github.example.com/owner/repo',
             }),
           ),
+        sanitizer: createSanitizer([]),
         objects: { put: async () => new Promise<ObjectRef>(() => {}) },
         maxAcquisitionDurationMs: 100,
         now: () => new Date('2026-09-05T01:00:00Z'),
@@ -349,6 +353,7 @@ describe('bounded coherent GitHub observation', () => {
         'github.example.com',
         {
           run: async () => completed(JSON.stringify({ id: 'R_stable', ...fixture })),
+          sanitizer: createSanitizer([]),
           objects: new MemoryObjects(),
           now: () => new Date('2026-09-05T01:00:00Z'),
         },
@@ -434,6 +439,7 @@ describe('bounded coherent GitHub observation', () => {
   test('bounds aggregate bytes and wall time across the complete observation', async () => {
     const bytesBound = await new GithubPrObserver({
       run: async () => completed(metadata()),
+      sanitizer: createSanitizer([]),
       objects: new MemoryObjects(),
       maxGhBytes: 64,
     }).observe(ref)
@@ -444,6 +450,7 @@ describe('bounded coherent GitHub observation', () => {
         await new Promise(resolve => setTimeout(resolve, 50))
         return completed(metadata())
       },
+      sanitizer: createSanitizer([]),
       objects: new MemoryObjects(),
       maxAcquisitionDurationMs: 5,
     }).observe(ref)
@@ -454,6 +461,7 @@ describe('bounded coherent GitHub observation', () => {
     const started = Date.now()
     const result = await new GithubPrObserver({
       run: async () => completed(metadata()),
+      sanitizer: createSanitizer([]),
       objects: {
         put: async () => new Promise<ObjectRef>(() => {}),
       },
@@ -470,6 +478,7 @@ describe('bounded coherent GitHub observation', () => {
     const started = Date.now()
     const result = await new GithubPrObserver({
       run: async args => completed(args[0] === 'pr' ? 'diff' : metadata()),
+      sanitizer: createSanitizer([]),
       objects: {
         put: async (bytes, objectMetadata) => {
           puts += 1
@@ -525,6 +534,7 @@ describe('bounded coherent GitHub observation', () => {
     }
     const badManifest = new GithubPrObserver({
       run: async args => completed(args[0] === 'pr' ? 'diff' : metadata()),
+      sanitizer: createSanitizer([]),
       objects: new MemoryObjects(),
       captureCodeManifest: async () => ({
         algorithm: 'sha256',
@@ -545,6 +555,7 @@ describe('bounded coherent GitHub observation', () => {
     let aborted = false
     const hangingManifest = new GithubPrObserver({
       run: async args => completed(args[0] === 'pr' ? 'diff' : metadata()),
+      sanitizer: createSanitizer([]),
       objects: new MemoryObjects(),
       maxAcquisitionDurationMs: 1_000,
       maxCodeCaptureDurationMs: 20,
@@ -644,7 +655,7 @@ describe('bounded coherent GitHub observation', () => {
         externalId: 'R_base',
         repository: 'owner/repo',
       })
-      expect(afterIdentity.record.raw.map(item => [item.mediaType, item.role])).toEqual([
+      expect(afterIdentity.record.evidence.map(item => [item.mediaType, item.role])).toEqual([
         ['application/json', 'github-pr-metadata'],
       ])
     }
@@ -734,7 +745,7 @@ const observation = {
   commits: [sha('2'), sha('3')] as [string, ...string[]],
   observedAt: '2026-09-05T01:00:00Z',
   providerUpdatedAt: '2026-09-05T00:00:00Z',
-  raw: [
+  evidence: [
     {
       algorithm: 'sha256' as const,
       sha256: 'a'.repeat(64),
@@ -782,6 +793,7 @@ test('persists immutable PR evidence through the sole repository writer', async 
   const fixture = metadata()
   const observed = await new GithubPrObserver({
     run: async args => completed(args[0] === 'pr' ? 'diff' : fixture),
+    sanitizer: createSanitizer([]),
     objects,
     now: () => new Date('2026-09-05T01:00:00Z'),
   }).observe(ref)
@@ -822,6 +834,262 @@ test('persists immutable PR evidence through the sole repository writer', async 
   expect(paths.filter(path => path.includes('/batches/'))).toHaveLength(3)
   expect(paths.filter(path => path.endsWith(`${observed.observationId}.json`))).toHaveLength(1)
   expect((await store.verify()).issues).toEqual([])
+})
+
+test('prepares PR metadata and patches before publishing exact evidence objects', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'factory-pr-safe-'))
+  roots.push(root)
+  await mkdir(join(root, '.git'))
+  const store = await initializeRepositoryStore(
+    root,
+    {
+      schemaVersion: 1,
+      format: 'factory-repository',
+      minimumReaderVersion: '0.1.0',
+      repositoryId: 'repo_fixture',
+      createdAt: '2026-09-05T00:00:00Z',
+    },
+    {},
+  )
+  const secret = 'synthetic-pr-credential'
+  const fixture = JSON.parse(metadata())
+  fixture.data.repository.pullRequest.extra = { [secret]: `reason ${secret} ${sha('3')}` }
+  const observed = await new GithubPrObserver({
+    sanitizer: createSanitizer([`VALUE=${secret}\nHASH=${sha('3')}`]),
+    objects: {
+      put: (bytes, metadata) =>
+        store.putObject(
+          (async function* () {
+            yield bytes
+          })(),
+          metadata,
+        ),
+    },
+    run: async args => completed(args[0] === 'pr' ? `+reason ${secret}` : JSON.stringify(fixture)),
+  }).observe(ref)
+  expect(observed.availability).toBe('available')
+  if (observed.availability !== 'available') throw new Error('expected readable PR')
+  expect(observed.head.sha).toBe(sha('3'))
+  const records = await Promise.all(
+    observed.evidence.map(async item => Buffer.from(await store.getObject(item)).toString()),
+  )
+  expect(records.join('\n')).not.toContain(secret)
+  const page = JSON.parse(records.find(text => text.startsWith('{'))!)
+  expect(page.data.repository.pullRequest.headRefOid).toBe(sha('3'))
+  expect(page.data.repository.pullRequest.extra).toEqual({
+    '[REDACTED]': 'reason [REDACTED] [REDACTED]',
+  })
+  expect(records).toContain('+reason [REDACTED]')
+  expect((await store.verify()).issues).toEqual([])
+})
+
+test('refuses a secret-bearing locator without publishing an earlier safe prefix', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'factory-pr-refusal-'))
+  roots.push(root)
+  await mkdir(join(root, '.git'))
+  const store = await initializeRepositoryStore(
+    root,
+    {
+      schemaVersion: 1,
+      format: 'factory-repository',
+      minimumReaderVersion: '0.1.0',
+      repositoryId: 'repo_fixture',
+      createdAt: '2026-09-05T00:00:00Z',
+    },
+    {},
+  )
+  const responses = [metadata(), '+safe patch', metadata({ headRef: 'secret-ref-name' })]
+  const observer = new GithubPrObserver({
+    sanitizer: createSanitizer(['VALUE=secret-ref-name']),
+    objects: {
+      put: (bytes, metadata) =>
+        store.putObject(
+          (async function* () {
+            yield bytes
+          })(),
+          metadata,
+        ),
+    },
+    run: async () => completed(responses.shift()!),
+  })
+  await expect(observer.observe(ref)).rejects.toThrow('unsupported-content')
+  expect((await store.verify()).objectsChecked).toBe(0)
+})
+
+test('omits unavailable PR code whose reference was never prepared in the acquisition', async () => {
+  const observed = await new GithubPrObserver({
+    sanitizer: createSanitizer([]),
+    objects: new MemoryObjects(),
+    run: async args => completed(args[0] === 'pr' ? '+readable patch' : metadata()),
+    captureCodeManifest: async () => ({
+      algorithm: 'sha256',
+      sha256: 'a'.repeat(64),
+      bytes: 17,
+      mediaType: 'application/vnd.factory.code-manifest+json',
+      role: 'workspace-code-manifest',
+    }),
+  }).observe(ref)
+  expect(observed.availability).toBe('available')
+  if (observed.availability !== 'available') throw new Error('expected partial evidence')
+  expect(observed.codeAvailability).toBe('unavailable')
+  expect(observed.codeManifest).toBeUndefined()
+  expect(observed.limitations.map(item => item.code)).toContain('unavailable-pull-request-code')
+})
+
+test('omits colliding opaque metadata while retaining the readable PR patch', async () => {
+  const stored: string[] = []
+  const fixture = JSON.parse(metadata())
+  fixture.data.repository.pullRequest.extra = {
+    'private-value-one': 'first',
+    'private-value-two': 'second',
+  }
+  const observed = await new GithubPrObserver({
+    sanitizer: createSanitizer(['A=private-value-one\nB=private-value-two']),
+    objects: {
+      put: async (bytes, metadata) => {
+        stored.push(Buffer.from(bytes).toString())
+        return new MemoryObjects().put(bytes, metadata)
+      },
+    },
+    run: async args => completed(args[0] === 'pr' ? '+readable patch' : JSON.stringify(fixture)),
+  }).observe(ref)
+  expect(observed.availability).toBe('available')
+  expect(stored.join('\n')).not.toContain('private-value-')
+  expect(stored).toContain('{"omitted":"json-key-collision"}\n')
+  expect(stored).toContain('+readable patch')
+})
+
+test('omits env, binary, and encoded sensitive path patch sections', async () => {
+  const stored: string[] = []
+  const patch = [
+    'diff --git a/src/readme.txt b/src/readme.txt\n--- a/src/readme.txt\n+++ b/src/readme.txt\n@@ -1 +1 @@\n-old\n+readable reasoning\n',
+    'diff --git a/config/.env.test b/config/.env.test\n--- a/config/.env.test\n+++ b/config/.env.test\n@@ -0,0 +1 @@\n+X=abc\n',
+    'diff --git a/image.png b/image.png\nGIT binary patch\nliteral 12\nOPAQUE_ENCODED_PAYLOAD\n',
+    'diff --git "a/private\\055filename" "b/private\\055filename"\n--- "a/private\\055filename"\n+++ "b/private\\055filename"\n@@ -0,0 +1 @@\n+SENSITIVE_PATH_CONTENT\n',
+  ].join('')
+  const observed = await new GithubPrObserver({
+    sanitizer: createSanitizer(['VALUE=private-filename']),
+    objects: {
+      put: async (bytes, metadata) => {
+        stored.push(Buffer.from(bytes).toString())
+        return new MemoryObjects().put(bytes, metadata)
+      },
+    },
+    run: async args => completed(args[0] === 'pr' ? patch : metadata()),
+  }).observe(ref)
+  expect(observed.availability).toBe('available')
+  if (observed.availability !== 'available') throw new Error('expected readable patch')
+  const evidence = stored.join('\n')
+  expect(evidence).toContain('+readable reasoning')
+  for (const forbidden of [
+    'X=abc',
+    'OPAQUE_ENCODED_PAYLOAD',
+    'SENSITIVE_PATH_CONTENT',
+    'private\\055filename',
+  ])
+    expect(evidence).not.toContain(forbidden)
+  expect(observed.transformation?.omissionReasons).toEqual([
+    'env-source',
+    'unsupported-text',
+    'sensitive-path',
+  ])
+  expect(observed.limitations.map(item => item.code)).toContain('excluded-by-limit')
+})
+
+test('does not grant GraphQL SHA exemptions to unknown repository mapping fields', async () => {
+  const stored: string[] = []
+  const fixture = JSON.parse(metadata())
+  Object.assign(fixture, {
+    id: 'R_base',
+    nameWithOwner: 'owner/repo',
+    url: 'https://github.example.com/owner/repo',
+  })
+  const observed = await observeGithubRepositoryMapping('repo_fixture', ref.hostname, {
+    sanitizer: createSanitizer([`VALUE=${sha('3')}`]),
+    objects: {
+      put: async (bytes, metadata) => {
+        stored.push(Buffer.from(bytes).toString())
+        return new MemoryObjects().put(bytes, metadata)
+      },
+    },
+    run: async () => completed(JSON.stringify(fixture)),
+  })
+  expect('availability' in observed).toBe(false)
+  expect(stored.join('\n')).not.toContain(sha('3'))
+})
+
+test('omits encoded sensitive paths from every format-patch preamble', async () => {
+  const stored: string[] = []
+  const commit = (sha: string, path: string) =>
+    `From ${sha} Mon Sep 17 00:00:00 2001\nSubject: retain this explanation\n\n---\n "${path}" | 1 +\n create mode 100644 "${path}"\n\ndiff --git "a/${path}" "b/${path}"\n@@ -0,0 +1 @@\n+readable line\n`
+  const patch = commit(sha('1'), 'safe.txt') + commit(sha('2'), 'private-\\303\\251')
+  await new GithubPrObserver({
+    sanitizer: createSanitizer(['VALUE=private-é']),
+    objects: {
+      put: async (bytes, metadata) => {
+        stored.push(Buffer.from(bytes).toString())
+        return new MemoryObjects().put(bytes, metadata)
+      },
+    },
+    run: async args => completed(args[0] === 'pr' ? patch : metadata()),
+  }).observe(ref)
+  expect(stored.join('\n')).not.toContain('private-\\303\\251')
+  expect(stored.join('\n')).toContain('retain this explanation')
+  expect(stored.join('\n')).toContain('+readable line')
+})
+
+test('preparation expansion failure publishes no earlier object prefix', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'factory-pr-expansion-'))
+  roots.push(root)
+  await mkdir(join(root, '.git'))
+  const store = await initializeRepositoryStore(
+    root,
+    {
+      schemaVersion: 1,
+      format: 'factory-repository',
+      minimumReaderVersion: '0.1.0',
+      repositoryId: 'repo_fixture',
+      createdAt: '2026-09-05T00:00:00Z',
+    },
+    {},
+  )
+  const observer = new GithubPrObserver({
+    sanitizer: createSanitizer(['TOKEN=Q']),
+    maxGhBytes: 8192,
+    objects: {
+      put: (bytes, metadata) =>
+        store.putObject(
+          (async function* () {
+            yield bytes
+          })(),
+          metadata,
+        ),
+    },
+    run: async args => completed(args[0] === 'pr' ? '+Q\n'.repeat(2000) : metadata()),
+  })
+  await expect(observer.observe(ref)).rejects.toThrow('sanitization-limit')
+  expect((await store.verify()).objectsChecked).toBe(0)
+})
+
+test('derives observation identity from prepared metadata rather than private cursors', async () => {
+  const observe = (cursor: string) =>
+    new GithubPrObserver({
+      sanitizer: createSanitizer(['A=cursor-one-private\nB=cursor-two-private']),
+      objects: new MemoryObjects(),
+      maxCommits: 1,
+      now: () => new Date('2026-09-05T01:00:00Z'),
+      run: async args =>
+        completed(
+          args[0] === 'pr'
+            ? '+readable'
+            : metadata({ commits: [sha('2')], hasNextPage: true, cursor }),
+        ),
+    }).observe(ref)
+  const first = await observe('cursor-one-private')
+  const second = await observe('cursor-two-private')
+  expect(first.availability).toBe('available')
+  expect(second.availability).toBe('available')
+  expect(first).toEqual(second)
 })
 
 test('association batches are semantic commit points and retry after every crash prefix', async () => {

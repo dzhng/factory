@@ -1,0 +1,17 @@
+<!doctype html><meta charset="utf-8"><title>Factory PR evidence workbench</title><style>body{font:16px system-ui;max-width:1100px;margin:40px auto;padding:0 24px;color:#18212b}table{border-collapse:collapse;width:100%}th,td{padding:12px;border-bottom:1px solid #ccd4dc;text-align:left}th{width:22%}thead{background:#edf2f7}</style><h1>PR observation and association workbench</h1><p>Only exact Git identity creates an automatic Session association. Every rejection remains visible.</p><table><thead><tr><th>Scenario</th><th>Outcome</th><th>Why</th></tr></thead><tbody><tr><th>sanitized-review-evidence</th><td>retained reasoning; redacted credential; omitted env patch</td><td>env-source</td></tr>
+<tr><th>exact-commit</th><td>associated</td><td>exact-pr-commit</td></tr>
+<tr><th>fork-head</th><td>associated</td><td>exact-pr-head</td></tr>
+<tr><th>ambiguous-context</th><td>not associated</td><td>git-object-not-in-pr</td></tr>
+<tr><th>one-pr-many-sessions</th><td>two exact Sessions associated</td><td>each Session is gated independently against one immutable PR observation</td></tr>
+<tr><th>force-pushed</th><td>history retained; invalidation appended</td><td>old exact SHA absent from new complete set</td></tr>
+<tr><th>base-changed</th><td>association retained; full PR subject changed</td><td>exact contribution commit remains</td></tr>
+<tr><th>renamed-repository</th><td>same identity</td><td>host plus provider repository ID, not owner/name</td></tr>
+<tr><th>GHES</th><td>separate identity</td><td>hostname is part of the identity digest</td></tr>
+<tr><th>unauthenticated</th><td>authentication-required</td><td>no exact fields published</td></tr>
+<tr><th>missing-gh</th><td>gh-missing</td><td>local capture and workspace review remain available</td></tr>
+<tr><th>commit-cap</th><td>partial review remains eligible</td><td>bounded prefix disables commit membership but preserves coherent diff</td></tr>
+<tr><th>deleted-fork</th><td>partial review remains eligible</td><td>readable coherent diff survives missing head repository identity</td></tr>
+<tr><th>deleted-ref</th><td>partial review remains eligible; no automatic association</td><td>the diff remains reviewable while exact head proof is absent</td></tr>
+<tr><th>one-session-many-prs</th><td>two independently scoped associations</td><td>the same exact Git object may contribute to more than one PR</td></tr>
+<tr><th>association-crash-prefix</th><td>orphan ignored; retry committed both batches</td><td>only immutable completion markers publish association evidence</td></tr>
+<tr><th>closed / merged / reopened</th><td>closed / merged / open</td><td>provider state is never rewritten</td></tr></tbody></table>

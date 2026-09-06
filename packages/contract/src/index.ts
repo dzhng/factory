@@ -313,6 +313,7 @@ export type PartialPullRequestGitRef = {
 }
 
 type PullRequestObservationBase = {
+  transformation?: EvidenceTransformation
   schemaVersion: 1
   observationId: RecordId
   provider: 'github'
@@ -329,7 +330,7 @@ type AvailablePullRequestObservationBase = PullRequestObservationBase & {
   url: string
   state: 'open' | 'closed' | 'merged'
   providerUpdatedAt: string
-  raw: readonly ObjectRef[]
+  evidence: readonly ObjectRef[]
   codeAvailability: 'captured' | 'unavailable' | 'not-requested'
   codeManifest?: ObjectRef
   diff: ObjectRef
@@ -358,7 +359,7 @@ export type AvailablePullRequestObservation =
   | CompletePullRequestObservation
   | PartialPullRequestObservation
 
-/** Failed or incoherent reads preserve raw evidence without exposing partial fields as exact. */
+/** Failed or incoherent reads preserve evidence without exposing partial fields as exact. */
 export type PullRequestUnavailableReason =
   | 'gh-missing'
   | 'authentication-required'
@@ -374,7 +375,7 @@ export type UnavailablePullRequestObservation = PullRequestObservationBase & {
   reason: PullRequestUnavailableReason
   hostname: string
   base: Pick<PullRequestGitRef, 'repositoryKey' | 'externalId' | 'repository'>
-  raw: readonly [ObjectRef, ...ObjectRef[]]
+  evidence: readonly [ObjectRef, ...ObjectRef[]]
 }
 
 export type PullRequestObservation =
@@ -383,6 +384,7 @@ export type PullRequestObservation =
 
 /** Provider-derived link from one portable Factory repository to one GitHub repository identity. */
 export type GithubRepositoryMappingObservation = {
+  transformation?: EvidenceTransformation
   schemaVersion: 1
   observationId: RecordId
   provider: 'github'
@@ -393,7 +395,7 @@ export type GithubRepositoryMappingObservation = {
   repository: string
   url: string
   observedAt: string
-  raw: readonly ObjectRef[]
+  evidence: readonly ObjectRef[]
 }
 
 export type AssociationBatch = {
@@ -1140,6 +1142,7 @@ const RECORD_KEYS = {
     'transformation',
   ],
   pullRequestObservation: [
+    'transformation',
     'schemaVersion',
     'observationId',
     'provider',
@@ -1157,7 +1160,7 @@ const RECORD_KEYS = {
     'commits',
     'observedAt',
     'providerUpdatedAt',
-    'raw',
+    'evidence',
     'codeAvailability',
     'codeManifest',
     'diff',
@@ -1165,6 +1168,7 @@ const RECORD_KEYS = {
     'limitations',
   ],
   githubRepositoryMapping: [
+    'transformation',
     'schemaVersion',
     'observationId',
     'provider',
@@ -1175,7 +1179,7 @@ const RECORD_KEYS = {
     'repository',
     'url',
     'observedAt',
-    'raw',
+    'evidence',
   ],
   association: [
     'schemaVersion',
@@ -1811,7 +1815,9 @@ function validateRecordShape(
       'observedAt',
       'limitations',
     ],
-    githubRepositoryMapping: RECORD_KEYS.githubRepositoryMapping,
+    githubRepositoryMapping: RECORD_KEYS.githubRepositoryMapping.filter(
+      key => key !== 'transformation',
+    ),
     association: RECORD_KEYS.association.filter(key => !['invalidates', 'assertion'].includes(key)),
     associationBatch: RECORD_KEYS.associationBatch,
     trigger: RECORD_KEYS.trigger.filter(key => key !== 'repositoryObservationId'),
@@ -1928,6 +1934,7 @@ function validateRecordShape(
       break
     }
     case 'pullRequestObservation': {
+      if ('transformation' in value) parseEvidenceTransformation(value.transformation)
       assertRecordId(value.observationId, 'pullRequestObservation.observationId')
       assertIdentity(value.provider, 'github', 'pullRequestObservation.provider')
       assertString(value.repositoryKey, 'pullRequestObservation.repositoryKey')
@@ -1960,7 +1967,7 @@ function validateRecordShape(
             'completeness',
             'commitMembership',
             'providerUpdatedAt',
-            'raw',
+            'evidence',
             'codeAvailability',
             'diff',
           ],
@@ -2091,16 +2098,16 @@ function validateRecordShape(
           ['captured', 'unavailable', 'not-requested'],
           'pullRequestObservation.codeAvailability',
         )
-        assertObjectRefs(value.raw, 'pullRequestObservation.raw')
-        if ((value.raw as ObjectRef[]).length === 0) {
-          throw new TypeError('pullRequestObservation raw evidence must not be empty')
+        assertObjectRefs(value.evidence, 'pullRequestObservation.evidence')
+        if ((value.evidence as ObjectRef[]).length === 0) {
+          throw new TypeError('pullRequestObservation evidence must not be empty')
         }
         if (
-          !(value.raw as ObjectRef[]).some(
+          !(value.evidence as ObjectRef[]).some(
             ref => ref.mediaType === 'application/json' && ref.role === 'github-pr-metadata',
           )
         ) {
-          throw new TypeError('pullRequestObservation raw evidence lacks GitHub metadata')
+          throw new TypeError('pullRequestObservation evidence lacks GitHub metadata')
         }
         assertOptionalObjectRef(value, 'codeManifest', 'pullRequestObservation')
         if (
@@ -2132,13 +2139,14 @@ function validateRecordShape(
             'hostname',
             'base',
             'observedAt',
-            'raw',
+            'evidence',
             'limitations',
             'association',
+            'transformation',
           ],
           'pullRequestObservation',
         )
-        requireFields(value, ['reason', 'hostname', 'base', 'raw'], 'pullRequestObservation')
+        requireFields(value, ['reason', 'hostname', 'base', 'evidence'], 'pullRequestObservation')
         assertEnum(
           value.reason,
           [
@@ -2180,14 +2188,16 @@ function validateRecordShape(
         ) {
           throw new TypeError('pullRequestObservation.repositoryKey is not canonical')
         }
-        assertObjectRefs(value.raw, 'pullRequestObservation.raw')
+        assertObjectRefs(value.evidence, 'pullRequestObservation.evidence')
         if (
-          (value.raw as ObjectRef[]).length === 0 ||
-          !(value.raw as ObjectRef[]).some(
+          (value.evidence as ObjectRef[]).length === 0 ||
+          !(value.evidence as ObjectRef[]).some(
             ref => ref.mediaType === 'application/json' && ref.role === 'github-pr-metadata',
           )
         ) {
-          throw new TypeError('unavailable pullRequestObservation requires raw GitHub metadata')
+          throw new TypeError(
+            'unavailable pullRequestObservation requires GitHub metadata evidence',
+          )
         }
       }
       assertLimitations(value.limitations, 'pullRequestObservation.limitations')
@@ -2258,6 +2268,7 @@ function validateRecordShape(
       break
     }
     case 'githubRepositoryMapping': {
+      if ('transformation' in value) parseEvidenceTransformation(value.transformation)
       assertRecordId(value.observationId, 'githubRepositoryMapping.observationId')
       assertIdentity(value.provider, 'github', 'githubRepositoryMapping.provider')
       assertString(value.repositoryId, 'githubRepositoryMapping.repositoryId')
@@ -2307,14 +2318,14 @@ function validateRecordShape(
         throw new TypeError('githubRepositoryMapping.repositoryKey is not canonical')
       }
       assertTimestamp(value.observedAt, 'githubRepositoryMapping.observedAt')
-      assertObjectRefs(value.raw, 'githubRepositoryMapping.raw')
+      assertObjectRefs(value.evidence, 'githubRepositoryMapping.evidence')
       if (
-        (value.raw as ObjectRef[]).length === 0 ||
-        !(value.raw as ObjectRef[]).some(
+        (value.evidence as ObjectRef[]).length === 0 ||
+        !(value.evidence as ObjectRef[]).some(
           ref => ref.mediaType === 'application/json' && ref.role === 'github-repository-metadata',
         )
       ) {
-        throw new TypeError('githubRepositoryMapping requires raw repository metadata')
+        throw new TypeError('githubRepositoryMapping requires repository metadata evidence')
       }
       assertIdentity(
         value.repositoryKey,

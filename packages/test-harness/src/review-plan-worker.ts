@@ -481,7 +481,7 @@ const pr: AvailablePullRequestObservation = {
     sha: 'c'.repeat(40),
   },
   commits: ['c'.repeat(40)],
-  raw: [raw],
+  evidence: [raw],
   diff,
   codeManifest: prCode,
   limitations: [],
@@ -572,7 +572,7 @@ const forcePushPr: AvailablePullRequestObservation = {
     sha: 'd'.repeat(40),
   },
   commits: ['d'.repeat(40)],
-  raw: [nextRaw],
+  evidence: [nextRaw],
   diff: nextDiff,
 }
 const forcePushPath = makeOwnedPath('pull-requests', [

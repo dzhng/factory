@@ -69,3 +69,27 @@ proves the original checkout stayed unchanged. Verdict: useful review context.
 The PR counterpart remains in progress. Integrate its preparation, metadata and
 caller context before marking this slice complete. Provider capture and durable
 replay follow; no broader publication-protection claim is made here.
+
+### GitHub checkpoint
+
+GitHub metadata and patches now use one caller-supplied sanitizer per acquisition
+and prepare their complete safe graph before CAS publication. Public PR and
+mapping `raw` fields are `evidence`, with transformation summaries; required
+locators cannot be redirected by redaction. JSON key collisions omit the opaque
+record, and env/binary/sensitive-path patch sections are omitted with fixed
+limitations. Git's quoted paths are inspected in headers and format-patch
+preambles. Optional code capture shares the same sanitizer and bounded private
+collection, which closes when capture ends.
+
+Verification: GitHub Docker regression cycles covered persisted sentinels,
+typed SHA exemptions, unsafe locators, omitted metadata, encoded paths, and
+preparation expansion without a published prefix. The GitHub workbench report
+is under `assets/pr-workbench`; `bun run lab:pr-workbench` includes the Docker
+package suite and shows retained redacted reasoning plus an omitted env patch.
+Contract/domain selected tests and review-plan's pure/Docker suites passed.
+Independent Codex review identified encoded preamble paths and swallowed
+preparation-limit errors; both have red/green regression evidence and fixes.
+
+Integration still must supply the discovered sanitizer at the production
+review-plan acquisition calls. The outer publication admission API and human
+association prose remain slice 4 scope; this is not full boundary certification.

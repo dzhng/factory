@@ -22,6 +22,15 @@ import {
   type SessionPullRequestAssociation,
 } from '@factory/contract'
 import { RepositoryStore } from '@factory/repository'
+import { SanitizationError } from '@factory/sanitization'
+
+import {
+  PreparedPrObjects,
+  prepareMetadata,
+  preparePatch,
+  requireUnchanged,
+  type Sanitizer,
+} from './preparation'
 
 export type PullRequestRef = {
   hostname: string
@@ -97,6 +106,7 @@ async function settleWithinDeadline<T>(
 }
 
 export type GithubPrObserverOptions = {
+  sanitizer: Sanitizer
   run?: GhCommandRunner['run']
   objects: PrObjectStore
   maxCommandBytes?: number
@@ -108,6 +118,8 @@ export type GithubPrObserverOptions = {
   maxCommitPages?: number
   /** Optional exact-SHA snapshot seam; requested failures remain explicit limitations. */
   captureCodeManifest?: (input: {
+    sanitizer: Sanitizer
+    objects: PrObjectStore
     pullRequest: {
       hostname: string
       number: number
@@ -143,7 +155,7 @@ export type PrUnavailable = {
   reason: PullRequestUnavailableReason
   requested: PullRequestRef
   observedAt: string
-  raw: readonly ObjectRef[]
+  evidence: readonly ObjectRef[]
   detail: string
   /** Persistable only after GitHub returned its stable repository identity. */
   record?: Extract<PullRequestObservation, { availability: 'unavailable' }>
@@ -570,6 +582,35 @@ export class GithubPrObserver {
   }
 
   async observe(ref: PullRequestRef): Promise<AvailablePullRequestObservation | PrUnavailable> {
+    const prepared = new PreparedPrObjects(this.maxGhBytes)
+    const deadline = performance.now() + this.maxAcquisitionDurationMs
+    try {
+      const observation = await this.prepare(ref, prepared, deadline)
+      const result = await settleWithinDeadline(
+        () => prepared.publish(this.options.objects, deadline),
+        deadline,
+      )
+      if (result.kind !== 'completed')
+        return {
+          availability: 'unavailable',
+          reason: result.kind === 'timeout' ? 'command-timeout' : 'command-failed',
+          requested: ref,
+          observedAt: observation.observedAt,
+          evidence: [],
+          detail: 'Prepared GitHub evidence could not be published',
+        }
+      return observation
+    } finally {
+      prepared.close()
+    }
+  }
+
+  private async prepare(
+    ref: PullRequestRef,
+    prepared: PreparedPrObjects,
+    deadline: number,
+  ): Promise<AvailablePullRequestObservation | PrUnavailable> {
+    requireUnchanged(this.options.sanitizer, [ref.hostname, ref.owner, ref.name])
     if (!Number.isSafeInteger(ref.number) || ref.number < 1)
       throw new TypeError('PR number is invalid')
     githubRepositoryKey(ref.hostname, 'validate')
@@ -580,20 +621,19 @@ export class GithubPrObserver {
       if (!/^[A-Za-z0-9_.-]{1,100}$/.test(value)) throw new TypeError(`GitHub ${label} is invalid`)
     }
     const observedAt = this.now().toISOString()
-    const raw: ObjectRef[] = []
+    const evidence: ObjectRef[] = []
     const startedAt = performance.now()
-    const deadline = startedAt + this.maxAcquisitionDurationMs
     let ghBytes = 0
     const putBounded = async (
       bytes: Uint8Array,
       metadata: { mediaType: string; role: string },
-    ): Promise<{ kind: 'stored'; object: ObjectRef } | { kind: 'timeout' | 'failed' }> => {
-      const result = await settleWithinDeadline(
-        () => this.options.objects.put(bytes, metadata),
-        deadline,
-      )
-      if (result.kind === 'completed') return { kind: 'stored', object: result.value }
-      return result
+    ): Promise<{ kind: 'stored'; object: ObjectRef } | { kind: 'timeout' }> => {
+      const safe =
+        metadata.mediaType === 'application/json'
+          ? prepareMetadata(bytes, this.options.sanitizer, prepared.transformation, true)
+          : preparePatch(bytes, this.options.sanitizer, prepared.transformation)
+      if (performance.now() >= deadline) return { kind: 'timeout' }
+      return { kind: 'stored', object: await prepared.put(safe, metadata) }
     }
     const execute = async (args: readonly string[]): Promise<GhCommandResult> => {
       const remaining = this.maxAcquisitionDurationMs - (performance.now() - startedAt)
@@ -638,13 +678,13 @@ export class GithubPrObserver {
     let baseIdentity: { externalId: string; repository: string } | undefined
     const unavailable = (reason: PullRequestUnavailableReason, detail: string): PrUnavailable => {
       let record: Extract<PullRequestObservation, { availability: 'unavailable' }> | undefined
-      if (repositoryKey !== undefined && baseIdentity !== undefined && raw.length > 0) {
+      if (repositoryKey !== undefined && baseIdentity !== undefined && evidence.length > 0) {
         record = {
           schemaVersion: 1,
           observationId: recordId(
             'pr-observation',
             observedAt,
-            `${repositoryKey}\0${ref.number}\0${reason}\0${raw.map(item => item.sha256).join()}`,
+            `${repositoryKey}\0${ref.number}\0${reason}\0${evidence.map(item => item.sha256).join()}`,
           ),
           provider: 'github',
           repositoryKey,
@@ -658,7 +698,8 @@ export class GithubPrObserver {
             repository: baseIdentity.repository,
           },
           observedAt,
-          raw: raw as [ObjectRef, ...ObjectRef[]],
+          evidence: evidence as [ObjectRef, ...ObjectRef[]],
+          transformation: prepared.transformation,
           limitations: [{ code: 'unavailable-pull-request', detail }],
         }
         validatePublicRecord(
@@ -677,7 +718,7 @@ export class GithubPrObserver {
         reason,
         requested: ref,
         observedAt,
-        raw,
+        evidence,
         detail,
         ...(record === undefined ? {} : { record }),
       }
@@ -746,6 +787,17 @@ export class GithubPrObserver {
             detail: 'GitHub returned malformed pull-request metadata',
           }
         }
+        requireUnchanged(this.options.sanitizer, [
+          page.repositoryId,
+          page.repository,
+          page.repositoryUrl,
+          page.externalId,
+          page.url,
+          page.baseRef,
+          page.headRepositoryId,
+          page.headRepository,
+          page.headRef,
+        ])
         const metadataObject = await putBounded(result.stdout, {
           mediaType: 'application/json',
           role: 'github-pr-metadata',
@@ -753,11 +805,11 @@ export class GithubPrObserver {
         if (metadataObject.kind !== 'stored') {
           return {
             kind: 'unavailable',
-            reason: metadataObject.kind === 'timeout' ? 'command-timeout' : 'command-failed',
+            reason: 'command-timeout',
             detail: 'GitHub metadata evidence could not be stored within the acquisition bound',
           }
         }
-        raw.push(metadataObject.object)
+        evidence.push(metadataObject.object)
         const pageRepositoryKey = githubRepositoryKey(ref.hostname, page.repositoryId)
         if (repositoryKey === undefined) {
           repositoryKey = pageRepositoryKey
@@ -855,12 +907,12 @@ export class GithubPrObserver {
     })
     if (diffStored.kind !== 'stored') {
       return unavailable(
-        diffStored.kind === 'timeout' ? 'command-timeout' : 'command-failed',
+        'command-timeout',
         'GitHub pull-request diff evidence could not be stored within the acquisition bound',
       )
     }
     const diff = diffStored.object
-    raw.push(diff)
+    evidence.push(diff)
     const secondRead = await readSnapshot()
     if (secondRead.kind === 'unavailable') return unavailable(secondRead.reason, secondRead.detail)
     const second = secondRead.metadata
@@ -893,6 +945,13 @@ export class GithubPrObserver {
           })
           codeManifest = await Promise.race([
             this.options.captureCodeManifest({
+              sanitizer: this.options.sanitizer,
+              objects: {
+                put: (bytes, metadata) => {
+                  if (controller.signal.aborted) throw new Error('PR code acquisition ended')
+                  return prepared.put(bytes, metadata)
+                },
+              },
               pullRequest: {
                 hostname: ref.hostname.toLowerCase(),
                 number: ref.number,
@@ -918,15 +977,18 @@ export class GithubPrObserver {
             timeout,
           ])
         }
-      } catch {
+      } catch (error) {
+        if (error instanceof SanitizationError) throw error
         codeManifest = undefined
       } finally {
+        controller.abort()
         if (captureTimer !== undefined) clearTimeout(captureTimer)
       }
     }
     if (codeManifest !== undefined) {
       try {
         validateObjectRef(codeManifest)
+        prepared.verifyCodeManifest(codeManifest)
         if (
           codeManifest.mediaType !== 'application/vnd.factory.code-manifest+json' ||
           codeManifest.role !== 'workspace-code-manifest'
@@ -945,16 +1007,8 @@ export class GithubPrObserver {
       first.headRef !== undefined &&
       first.headSha !== undefined
     const complete = first.commitsComplete && refsComplete
-    const identity = canonicalJson({
-      baseRepositoryKey,
-      headRepositoryKey: headRepositoryKey ?? null,
-      first,
-      diff: diff.sha256,
-      codeManifest: codeManifest?.sha256 ?? null,
-    })
     const common = {
       schemaVersion: 1 as const,
-      observationId: recordId('pr-observation', observedAt, identity),
       provider: 'github' as const,
       repositoryKey: baseRepositoryKey,
       number: ref.number,
@@ -984,7 +1038,8 @@ export class GithubPrObserver {
       commits: first.commits,
       observedAt,
       providerUpdatedAt: first.updatedAt,
-      raw,
+      evidence,
+      transformation: prepared.transformation,
       codeAvailability:
         codeManifest !== undefined
           ? ('captured' as const)
@@ -994,6 +1049,14 @@ export class GithubPrObserver {
       ...(codeManifest === undefined ? {} : { codeManifest }),
       diff,
       limitations: [
+        ...(prepared.transformation.omissionReasons.length
+          ? [
+              {
+                code: 'excluded-by-limit' as const,
+                detail: 'Some GitHub evidence was omitted by the evidence sanitization policy',
+              },
+            ]
+          : []),
         ...(first.commitsComplete
           ? []
           : [
@@ -1020,9 +1083,11 @@ export class GithubPrObserver {
           : []),
       ],
     }
+    const observationId = recordId('pr-observation', observedAt, canonicalJson(common))
     const observation: AvailablePullRequestObservation = complete
       ? {
           ...common,
+          observationId,
           completeness: 'complete',
           commitMembership: 'complete',
           base: common.base as Extract<
@@ -1037,6 +1102,7 @@ export class GithubPrObserver {
         }
       : {
           ...common,
+          observationId,
           completeness: 'partial',
           commitMembership: first.commitsComplete ? 'complete' : 'prefix',
         }
@@ -1062,6 +1128,7 @@ export class GithubPrObserver {
 }
 
 export type GithubRepositoryMapperOptions = {
+  sanitizer: Sanitizer
   run?: GhCommandRunner['run']
   objects: PrObjectStore
   maxCommandBytes?: number
@@ -1090,6 +1157,7 @@ export async function observeGithubRepositoryMapping(
     throw new TypeError('Factory repository identity is invalid')
   }
   githubRepositoryKey(hostname, 'validate')
+  requireUnchanged(options.sanitizer, [hostname])
   const maximumBytes = options.maxCommandBytes ?? 1024 * 1024
   const maximumDurationMs = options.maxCommandDurationMs ?? 30_000
   const maximumAcquisitionDurationMs = options.maxAcquisitionDurationMs ?? 60_000
@@ -1181,6 +1249,7 @@ export async function observeGithubRepositoryMapping(
       nameWithOwner: parsed.nameWithOwner,
       url: parsed.url,
     }
+    requireUnchanged(options.sanitizer, [metadata.id, metadata.nameWithOwner, metadata.url])
   } catch {
     return {
       availability: 'unavailable',
@@ -1190,32 +1259,35 @@ export async function observeGithubRepositoryMapping(
       detail: 'GitHub returned malformed repository metadata',
     }
   }
-  const stored = await settleWithinDeadline(
-    () =>
-      options.objects.put(result.stdout, {
-        mediaType: 'application/json',
-        role: 'github-repository-metadata',
-      }),
-    deadline,
-  )
-  if (stored.kind !== 'completed') {
+  const prepared = new PreparedPrObjects(maximumBytes * 2)
+  let evidenceBytes: Uint8Array
+  try {
+    evidenceBytes = prepareMetadata(
+      result.stdout,
+      options.sanitizer,
+      prepared.transformation,
+      false,
+    )
+  } catch {
     return {
       availability: 'unavailable',
-      reason: stored.kind === 'timeout' ? 'command-timeout' : 'command-failed',
+      reason: 'invalid-response',
       repositoryId,
       observedAt,
-      detail:
-        'GitHub repository identity evidence could not be stored within the acquisition bound',
+      detail: 'GitHub repository metadata could not be prepared',
     }
   }
-  const raw = stored.value
+  const evidence = await prepared.put(evidenceBytes, {
+    mediaType: 'application/json',
+    role: 'github-repository-metadata',
+  })
   const repositoryKey = githubRepositoryKey(hostname, metadata.id)
   const observation: GithubRepositoryMappingObservation = {
     schemaVersion: 1,
     observationId: recordId(
       'github-repository-mapping',
       observedAt,
-      canonicalJson({ repositoryId, repositoryKey, metadata, raw: raw.sha256 }),
+      canonicalJson({ repositoryId, repositoryKey, metadata, evidence: evidence.sha256 }),
     ),
     provider: 'github',
     repositoryId,
@@ -1225,7 +1297,8 @@ export async function observeGithubRepositoryMapping(
     repository: metadata.nameWithOwner,
     url: metadata.url,
     observedAt,
-    raw: [raw],
+    evidence: [evidence],
+    transformation: prepared.transformation,
   }
   validatePublicRecord(
     makeOwnedPath('pull-requests', [
@@ -1237,6 +1310,18 @@ export async function observeGithubRepositoryMapping(
     ]),
     observation,
   )
+  const publication = await settleWithinDeadline(
+    () => prepared.publish(options.objects, deadline),
+    deadline,
+  )
+  if (publication.kind !== 'completed')
+    return {
+      availability: 'unavailable',
+      reason: publication.kind === 'timeout' ? 'command-timeout' : 'command-failed',
+      repositoryId,
+      observedAt,
+      detail: 'Prepared GitHub repository evidence could not be published',
+    }
   return observation
 }
 

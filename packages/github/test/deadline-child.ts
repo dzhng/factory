@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 
 import type { ObjectRef, RepositoryId } from '../../contract/src/index'
+import { createSanitizer } from '../../sanitization/src/index'
 import {
   GithubPrObserver,
   observeGithubRepositoryMapping,
@@ -63,6 +64,7 @@ if (mode === 'mapping-store') {
     'repo_fixture' as RepositoryId,
     'github.example.com',
     {
+      sanitizer: createSanitizer([]),
       run: async () =>
         completed(
           JSON.stringify({
@@ -79,6 +81,7 @@ if (mode === 'mapping-store') {
   console.log(JSON.stringify(result))
 } else {
   const result = await new GithubPrObserver({
+    sanitizer: createSanitizer([]),
     run: async args => completed(args[0] === 'pr' ? 'diff' : metadata),
     objects: mode === 'pr-store' ? hanging : memory,
     maxAcquisitionDurationMs: mode === 'capture' ? 1_000 : 20,

@@ -18,9 +18,10 @@ import {
   type GhCommandResult,
   type PrObjectStore,
 } from '@factory/github'
+import { createSanitizer } from '@factory/sanitization'
 
 const repositoryRoot = resolve(import.meta.dir, '../../..')
-const evidenceRoot = resolve(repositoryRoot, 'specs/done/factory-v1/assets/pr-workbench')
+const evidenceRoot = resolve(repositoryRoot, 'specs/evidence-sanitization/assets/pr-workbench')
 const tests = Bun.spawn(['bun', 'run', '--cwd', 'packages/github', 'test'], {
   cwd: repositoryRoot,
   stdout: 'inherit',
@@ -98,7 +99,7 @@ const observation: AvailablePullRequestObservation = {
   commits: ['2'.repeat(40), head],
   observedAt: '2026-09-05T01:00:00Z',
   providerUpdatedAt: '2026-09-05T00:00:00Z',
-  raw: [
+  evidence: [
     {
       algorithm: 'sha256',
       sha256: 'a'.repeat(64),
@@ -183,6 +184,7 @@ const metadata = (
   })
 const observe = async (results: GhCommandResult[], maxCommits = 250) =>
   new GithubPrObserver({
+    sanitizer: createSanitizer([]),
     run: async () => {
       const next = results.shift()
       if (!next) throw new Error('workbench exhausted gh fixture')
@@ -343,6 +345,7 @@ const lifecycle = await Promise.all([
 ])
 const mapping = (hostname: string, repository: string) =>
   observeGithubRepositoryMapping(localRepositoryId, hostname, {
+    sanitizer: createSanitizer([]),
     run: async () =>
       complete(
         JSON.stringify({
@@ -359,7 +362,33 @@ const [stableBefore, stableAfter, enterprise] = await Promise.all([
   mapping('github.com', 'renamed/repo'),
   mapping('github.example.com', 'owner/repo'),
 ])
+const sanitizedEvidence: string[] = []
+const sanitized = await new GithubPrObserver({
+  sanitizer: createSanitizer(['VALUE=synthetic-report-credential']),
+  objects: {
+    put: async (bytes, metadata) => {
+      sanitizedEvidence.push(Buffer.from(bytes).toString())
+      return objects.put(bytes, metadata)
+    },
+  },
+  run: async args =>
+    complete(
+      args[0] === 'pr'
+        ? 'diff --git a/reason.txt b/reason.txt\n--- a/reason.txt\n+++ b/reason.txt\n@@ -0,0 +1 @@\n+Retain reasoning synthetic-report-credential\ndiff --git a/.env b/.env\n+X=abc\n'
+        : metadata(),
+    ),
+}).observe({ hostname: 'github.com', owner: 'owner', name: 'repo', number: 42 })
+if (
+  sanitized.availability !== 'available' ||
+  sanitizedEvidence.join('').includes('synthetic-report-credential')
+)
+  throw new Error('sanitized PR report did not preserve safe readable evidence')
 const scenarios = [
+  {
+    scenario: 'sanitized-review-evidence',
+    result: 'retained reasoning; redacted credential; omitted env patch',
+    reason: sanitized.transformation?.omissionReasons.join(', ') ?? 'FAILED',
+  },
   ...explanations.map(item => ({
     scenario: item.sessionKey,
     result: item.accepted ? 'associated' : 'not associated',
@@ -475,7 +504,7 @@ await rm(evidenceRoot, { recursive: true, force: true })
 await mkdir(evidenceRoot, { recursive: true })
 await writeFile(
   resolve(evidenceRoot, 'report.json'),
-  `${JSON.stringify({ schemaVersion: 1, scenarios }, null, 2)}\n`,
+  `${JSON.stringify({ schemaVersion: 1, scenarios, sanitizedEvidence }, null, 2)}\n`,
 )
 const rows = scenarios
   .map(item => `<tr><th>${item.scenario}</th><td>${item.result}</td><td>${item.reason}</td></tr>`)

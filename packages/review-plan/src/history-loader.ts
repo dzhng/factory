@@ -265,7 +265,7 @@ export async function loadReviewHistoryFromRequest(
           if (problem.field === 'stagedPatch') return subject.observation.stagedPatch
           if (problem.field === 'unstagedPatch') return subject.observation.unstagedPatch
         } else if (problem.field === 'raw') {
-          return subject.observation.raw.find(
+          return subject.observation.evidence.find(
             reference => canonicalJson(reference) === canonicalJson(problem.object),
           )
         }
