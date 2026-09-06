@@ -45,3 +45,27 @@ names, not content identity or omission policy. A requirement for executable
 snapshots rather than review snapshots would change this slice and needs explicit
 direction. Commit/push green; portable provider/review output remains unfinished
 until its owning slices land.
+
+## Source checkpoint
+
+GitObserver now prepares source before deriving object references, retains the
+original-byte race authority, and rejects sensitive branch locators. Source
+entries and their manifest/observation carry contract-owned transformation
+metadata. Reconstruction never discovers env values or rewrites stored bytes.
+
+The Docker source suite passes 41 tests. New evidence covers actual interrupted
+repository-store prefixes, unchanged checkout bytes, matching sanitized snapshots
+with distinct original state, sensitive encoded paths, omitted binary/env source,
+and unchanged symlink targets. Independent review found two P2s: BOM removal in
+symlink decoding and omitted unstaged env change detection. Both were reproduced
+with failing regressions and fixed. Type/lint gates and the owning repository
+suite pass; the contract's existing tests remain green.
+
+Run `bun run lab:git-observation` for the synthetic
+[source report](../assets/git-observation-workbench/report.json). It reconstructs
+retained reasoning with a redaction marker, reports env/binary omissions, and
+proves the original checkout stayed unchanged. Verdict: useful review context.
+
+The PR counterpart remains in progress. Integrate its preparation, metadata and
+caller context before marking this slice complete. Provider capture and durable
+replay follow; no broader publication-protection claim is made here.

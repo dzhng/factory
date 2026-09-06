@@ -8,6 +8,7 @@ import {
   mkdtemp,
   readFile,
   readlink,
+  readdir,
   rename,
   rm,
   symlink,
@@ -20,6 +21,7 @@ import { join } from 'node:path'
 
 import { canonicalJson, decodeGitPath } from '../../contract/src/index'
 import { GitObserver, reconstructCodeManifest } from '../src/git-observer'
+import { initializeRepositoryStore } from '../src/index'
 import { MemoryGitObjectStore } from './git-object-store'
 
 if (process.env.FACTORY_DOCKER_TEST !== '1') {
@@ -93,7 +95,162 @@ afterEach(async () => {
 })
 
 describe.serial('safe Git observation', () => {
-  test('reconstructs tracked and untracked bytes and executable modes without mutating Git', async () => {
+  test('publishes sanitized source bytes without changing the checkout', async () => {
+    const root = await repository()
+    await writeFile(join(root, '.env'), 'TOKEN=synthetic-source-secret\n')
+    await writeFile(join(root, 'source.txt'), 'Decision context: synthetic-source-secret\n')
+    await run(root, ['add', '-A'])
+    await run(root, ['commit', '--quiet', '-m', 'synthetic source'])
+    const objects = new MemoryGitObjectStore()
+    const result = await new GitObserver(root, objects, { repositoryId: 'repo_test' }).observe()
+    if (result.kind !== 'observed') throw new Error(`unexpected result: ${result.kind}`)
+    const manifest = await objects.readJson(result.observation.codeManifest!)
+    expect(manifest.entries.map(entry => entry.path.display)).toEqual(['source.txt'])
+    const entry = manifest.entries[0]!
+    if (entry.kind === 'gitlink') throw new Error('expected source file')
+    expect(new TextDecoder().decode(await objects.get(entry.object))).toBe(
+      'Decision context: [REDACTED]\n',
+    )
+    expect(entry).toMatchObject({
+      transformation: {
+        policy: 'evidence-sanitization-1',
+        redacted: true,
+        omittedCharacters: 0,
+        omissionReasons: [],
+      },
+    })
+    expect(await readFile(join(root, 'source.txt'), 'utf8')).toBe(
+      'Decision context: synthetic-source-secret\n',
+    )
+  })
+
+  test('omits sensitive decoded paths and symlink targets without retaining encoded names', async () => {
+    const root = await repository()
+    await writeFile(join(root, '.env'), 'TOKEN=synthetic-path-secret\n')
+    await writeFile(join(root, 'synthetic-path-secret.txt'), 'readable source\n')
+    await symlink('synthetic-path-secret.txt', join(root, 'secret-link'))
+    await writeFile(join(root, 'safe.txt'), 'useful context\n')
+    const objects = new MemoryGitObjectStore()
+    const result = await new GitObserver(root, objects, { repositoryId: 'repo_test' }).observe()
+    if (result.kind !== 'observed') throw new Error(`unexpected result: ${result.kind}`)
+    const manifest = await objects.readJson(result.observation.codeManifest!)
+    expect(manifest.entries.map(entry => entry.path.display)).toEqual(['safe.txt'])
+    const portable = canonicalJson({ manifest, observation: result.observation })
+    expect(portable).not.toContain('synthetic-path-secret')
+    expect(portable).not.toContain(Buffer.from('synthetic-path-secret.txt').toString('base64'))
+  })
+
+  test('refuses a sensitive branch locator before publishing any objects', async () => {
+    const root = await repository()
+    await writeFile(join(root, '.env'), 'TOKEN=synthetic-branch-secret\n')
+    await run(root, ['checkout', '-b', 'synthetic-branch-secret'])
+    const objects = new MemoryGitObjectStore()
+    const writes = spyOn(objects, 'put')
+    const result = await new GitObserver(root, objects, { repositoryId: 'repo_test' }).observe()
+    expect(result).toEqual({
+      kind: 'unavailable',
+      reason: { code: 'sanitization-unavailable', detail: 'evidence preparation unavailable' },
+    })
+    expect(writes).not.toHaveBeenCalled()
+    writes.mockRestore()
+  })
+
+  test('keeps different original code states distinct when their sanitized snapshots match', async () => {
+    const root = await repository()
+    await writeFile(join(root, '.env'), 'TOKEN=first-secret-value\nTOKEN=other-secret-value\n')
+    await writeFile(join(root, 'source.txt'), 'first-secret-value\n')
+    const objects = new MemoryGitObjectStore()
+    const observer = new GitObserver(root, objects, { repositoryId: 'repo_test' })
+    const first = await observer.observe()
+    await writeFile(join(root, 'source.txt'), 'other-secret-value\n')
+    const second = await observer.observe()
+    if (first.kind !== 'observed' || second.kind !== 'observed')
+      throw new Error('expected stable observations')
+    expect(second.observation.codeManifest).toEqual(first.observation.codeManifest)
+    expect(second.observation.startState).not.toBe(first.observation.startState)
+    expect(second.observation.endState).not.toBe(first.observation.endState)
+  })
+
+  test('every interrupted physical source object prefix is already sanitized', async () => {
+    for (const failAfter of [1, 2, 3]) {
+      const root = await repository()
+      await writeFile(join(root, '.env'), 'TOKEN=synthetic-orphan-secret\n')
+      await writeFile(join(root, 'a.txt'), 'first synthetic-orphan-secret\n')
+      await writeFile(join(root, 'b.txt'), 'second synthetic-orphan-secret\n')
+      const store = await initializeRepositoryStore(
+        root,
+        {
+          schemaVersion: 1,
+          format: 'factory-repository',
+          minimumReaderVersion: '0.1.0',
+          repositoryId: 'repo_test',
+          createdAt: '2026-09-06T00:00:00Z',
+        },
+        {},
+      )
+      let writes = 0
+      const result = await new GitObserver(
+        root,
+        {
+          get: ref => store.getObject(ref),
+          put: async (bytes, metadata) => {
+            const ref = await store.putObject(
+              (async function* () {
+                yield bytes
+              })(),
+              metadata,
+            )
+            expect(Buffer.from(await store.getObject(ref))).toEqual(Buffer.from(bytes))
+            if (++writes === failAfter) throw new Error('synthetic interruption')
+            return ref
+          },
+        },
+        { repositoryId: 'repo_test' },
+      ).observe()
+      expect(result.kind).toBe('unavailable')
+      expect(writes).toBe(failAfter)
+      for (const path of await readdir(join(root, '.factory'), { recursive: true })) {
+        const absolute = join(root, '.factory', path)
+        if ((await lstat(absolute)).isFile())
+          expect(await readFile(absolute, 'utf8')).not.toContain('synthetic-orphan-secret')
+      }
+    }
+  })
+
+  test('preserves a leading byte-order mark in an unchanged symlink target', async () => {
+    const root = await repository()
+    await writeFile(join(root, '\uFEFFtarget'), 'intended destination\n')
+    await symlink('\uFEFFtarget', join(root, 'link'))
+    const objects = new MemoryGitObjectStore()
+    const observer = new GitObserver(root, objects, { repositoryId: 'repo_test' })
+    const result = await observer.observe()
+    if (result.kind !== 'observed') throw new Error('expected observation')
+    const manifest = await objects.readJson(result.observation.codeManifest!)
+    const destination = await mkdtemp(join(tmpdir(), 'factory-bom-link-'))
+    roots.push(destination)
+    await observer.reconstruct(manifest, destination)
+    expect(await readlink(join(destination, 'link'))).toBe('\uFEFFtarget')
+    expect(await readFile(join(destination, 'link'), 'utf8')).toBe('intended destination\n')
+  })
+
+  test('tracks unstaged env edits and deletions while omitting their contents', async () => {
+    const root = await repository()
+    await writeFile(join(root, '.env'), 'VALUE=first-env-value\n')
+    await run(root, ['add', '.env'])
+    await run(root, ['commit', '--quiet', '-m', 'env fixture'])
+    const objects = new MemoryGitObjectStore()
+    const observer = new GitObserver(root, objects, { repositoryId: 'repo_test' })
+    for (const state of ['modified', 'deleted']) {
+      if (state === 'modified') await writeFile(join(root, '.env'), 'VALUE=other-env-value\n')
+      else await unlink(join(root, '.env'))
+      const result = await observer.observe()
+      if (result.kind !== 'observed') throw new Error('expected stable observation')
+      expect(result.observation.changedPaths.map(path => path.display)).toEqual(['.env'])
+      expect((await objects.readJson(result.observation.codeManifest!)).entries).toEqual([])
+    }
+  })
+
+  test('reconstructs supported text and executable modes while omitting binary source', async () => {
     const root = await repository()
     await writeFile(join(root, 'tracked.bin'), new Uint8Array([0, 255, 10]))
     await writeFile(join(root, 'run.sh'), '#!/bin/sh\nexit 0\n')
@@ -131,21 +288,21 @@ describe.serial('safe Git observation', () => {
       objects.get(reference),
     )
 
-    expect(await readFile(join(destination, 'tracked.bin'))).toEqual(Buffer.from([0, 255, 10]))
+    await expect(lstat(join(destination, 'tracked.bin'))).rejects.toThrow()
     expect(await readFile(join(destination, 'untracked.txt'), 'utf8')).toBe('untracked\n')
     expect((await lstat(join(destination, 'run.sh'))).mode & 0o111).not.toBe(0)
     expect((await lstat(join(destination, 'other-exec.txt'))).mode & 0o777).toBe(0o644)
     expect((await lstat(join(destination, 'other-exec-2.txt'))).mode & 0o777).toBe(0o644)
-    expect((await lstat(join(destination, 'tracked.bin'))).mode & 0o777).toBe(0o644)
     expect(await fixtureSentinel(root, fixturePaths)).toBe(before)
     await expect(lstat(join(destination, '.git'))).rejects.toThrow()
-    expect(await readFile(join(portableDestination, 'tracked.bin'))).toEqual(
-      Buffer.from([0, 255, 10]),
-    )
+    await expect(lstat(join(portableDestination, 'tracked.bin'))).rejects.toThrow()
     await expect(lstat(join(portableDestination, '.git'))).rejects.toThrow()
     expect(
       manifest.entries.map(entry => Buffer.from(decodeGitPath(entry.path)).toString()),
-    ).toEqual(['other-exec-2.txt', 'other-exec.txt', 'run.sh', 'tracked.bin', 'untracked.txt'])
+    ).toEqual(['other-exec-2.txt', 'other-exec.txt', 'run.sh', 'untracked.txt'])
+    expect(manifest.limitations).toContainEqual(
+      expect.objectContaining({ detail: 'unsupported source text omitted' }),
+    )
   })
 
   test('keeps non-UTF-8 path bytes authoritative and excludes ignored files visibly', async () => {
@@ -196,7 +353,7 @@ describe.serial('safe Git observation', () => {
     }
   })
 
-  test('preserves safe links but rejects escaping and cyclic reconstruction', async () => {
+  test('preserves safe links and omits escaping or cyclic targets from review snapshots', async () => {
     const root = await repository()
     await writeFile(join(root, 'target.txt'), 'target\n')
     await symlink('target.txt', join(root, 'safe-link'))
@@ -215,7 +372,9 @@ describe.serial('safe Git observation', () => {
     const result = await observer.observe()
     if (result.kind !== 'observed') throw new Error(`unexpected result: ${result.kind}`)
     const manifest = await objects.readJson(result.observation.codeManifest!)
-    expect(manifest.entries.filter(entry => entry.kind === 'symlink')).toHaveLength(7)
+    expect(
+      manifest.entries.filter(entry => entry.kind === 'symlink').map(entry => entry.path.display),
+    ).toEqual(['safe-link'])
     expect(manifest.limitations.map(item => item.detail)).toEqual(
       expect.arrayContaining([
         expect.stringContaining('unsafe symlink'),
@@ -224,27 +383,19 @@ describe.serial('safe Git observation', () => {
     )
     const destination = await mkdtemp(join(tmpdir(), 'factory-links-'))
     roots.push(destination)
-    await expect(observer.reconstruct(manifest, destination)).rejects.toThrow('cyclic symlink')
+    await observer.reconstruct(manifest, destination)
 
-    const safeManifest = {
-      ...manifest,
-      entries: manifest.entries.filter(entry =>
-        ['safe-link', 'target.txt'].includes(entry.path.display ?? ''),
-      ),
-      limitations: [],
-    }
-    await observer.reconstruct(safeManifest, destination)
     expect(await readlink(join(destination, 'safe-link'))).toBe('target.txt')
     const empty = await mkdtemp(join(tmpdir(), 'factory-link-destination-'))
     roots.push(empty)
     const destinationLink = join(root, 'reconstruction-link')
     await symlink(empty, destinationLink)
-    await expect(observer.reconstruct(safeManifest, destinationLink)).rejects.toThrow(
+    await expect(observer.reconstruct(manifest, destinationLink)).rejects.toThrow(
       'destination cannot be a symbolic link',
     )
     const metadataDestination = join(root, '.git', 'factory-reconstruction-test')
     await mkdir(metadataDestination)
-    await expect(observer.reconstruct(safeManifest, metadataDestination)).rejects.toThrow(
+    await expect(observer.reconstruct(manifest, metadataDestination)).rejects.toThrow(
       'cannot enter Git metadata',
     )
   })
@@ -772,8 +923,8 @@ describe.serial('safe Git observation', () => {
 
   test('bounds the aggregate captured workspace instead of accumulating without limit', async () => {
     const root = await repository()
-    await writeFile(join(root, 'a.bin'), new Uint8Array(8))
-    await writeFile(join(root, 'b.bin'), new Uint8Array(8))
+    await writeFile(join(root, 'a.bin'), 'abcdefgh')
+    await writeFile(join(root, 'b.bin'), 'ijklmnop')
     await run(root, ['add', '-A'])
     await run(root, ['commit', '--quiet', '-m', 'aggregate'])
     const objects = new MemoryGitObjectStore()
@@ -913,7 +1064,7 @@ describe.serial('safe Git observation', () => {
       'lfs-pointer',
     )
     expect(manifest.entries.find(entry => entry.path.display === 'fake.dat')?.kind).toBe('file')
-    expect(manifest.entries.find(entry => entry.path.display === 'high-bit.dat')?.kind).toBe('file')
+    expect(manifest.entries.some(entry => entry.path.display === 'high-bit.dat')).toBe(false)
     expect(manifest.entries.find(entry => entry.path.display === 'vendor/child')).toMatchObject({
       kind: 'gitlink',
       mode: '160000',

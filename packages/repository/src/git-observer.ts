@@ -17,7 +17,9 @@ import {
   type RepositoryId,
   type RepositoryObservation,
   type RecordId,
+  type EvidenceTransformation,
 } from '@factory/contract'
+import { discoverSanitizer, SanitizationError } from '@factory/sanitization'
 
 import { ConfinedWriter } from './confined-writer'
 
@@ -34,6 +36,7 @@ export type ObservationUnavailable = {
     | 'git-command-timeout'
     | 'git-output-limit'
     | 'checkout-moved'
+    | 'sanitization-unavailable'
   detail: string
 }
 
@@ -54,6 +57,7 @@ export interface GitObjectStore {
 
 export type GitObserverOptions = {
   repositoryId: RepositoryId
+  sanitizer?: Awaited<ReturnType<typeof discoverSanitizer>>
   maxFileBytes?: number
   maxObservationBytes?: number
   maxGitOutputBytes?: number
@@ -725,10 +729,10 @@ export class GitObserver {
     let resolved: string
     try {
       resolved = await realpath(this.repositoryRoot)
-    } catch (error) {
+    } catch {
       return {
         kind: 'unavailable',
-        reason: { code: 'checkout-moved', detail: (error as Error).message },
+        reason: { code: 'checkout-moved', detail: 'checkout unavailable' },
       }
     }
     if (resolved !== this.repositoryRoot) {
@@ -754,13 +758,12 @@ export class GitObserver {
       }
       return {
         kind: 'unavailable',
-        reason: { code: 'git-command-failed', detail: (error as Error).message },
+        reason: { code: 'git-command-failed', detail: 'Git checkout unavailable' },
       }
     }
     try {
       await this.git('rev-parse', ['--git-dir'])
     } catch (error) {
-      const detail = (error as Error).message
       return {
         kind: 'unavailable',
         reason: {
@@ -770,16 +773,26 @@ export class GitObserver {
               : error instanceof GitTimeoutError
                 ? 'git-command-timeout'
                 : 'git-command-failed',
-          detail,
+          detail: 'Git observation command unavailable',
         },
       }
     }
 
     try {
+      const sanitizer =
+        this.options.sanitizer ??
+        (await discoverSanitizer(bounds => ConfinedWriter.readFiles(this.repositoryRoot, bounds)))
+      const safePath = (path: Uint8Array) =>
+        !sanitizer.text(Buffer.from(path).toString('utf8')).redacted
+      const pathLabel = (path: Uint8Array) => (safePath(path) ? pathKey(path) : 'omitted path')
       const observedAt = this.now().toISOString()
       const start = await this.sentinel()
       const headBytes = await this.git('rev-parse', ['--verify', '-q', 'HEAD'], [1])
       const branchBytes = await this.git('symbolic-ref', ['--short', '-q', 'HEAD'], [1])
+      const head = decodeUtf8(headBytes, 'Git HEAD').trim() || undefined
+      const branch = decodeUtf8(branchBytes, 'Git branch').trim() || undefined
+      if (branch && sanitizer.text(branch).redacted)
+        throw new SanitizationError('unsupported-content')
       const objectFormatBytes = await this.git('rev-parse', ['--show-object-format'])
       const indexEntries = await this.git('ls-files', ['--cached', '--stage', '-z'])
       const headEntries =
@@ -800,6 +813,13 @@ export class GitObserver {
         throw new Error(`unsupported Git object format: ${objectFormat}`)
       }
       const limitations: Limitation[] = []
+      const transformation: EvidenceTransformation = {
+        policy: 'evidence-sanitization-1',
+        redacted: false,
+        omittedCharacters: 0,
+        omissionReasons: [],
+      }
+      const omissions = new Set<EvidenceTransformation['omissionReasons'][number]>()
       const ignoredPaths = splitNull(ignored).filter(path => !isFactoryPath(path))
       if (ignoredPaths.length > 0) {
         limitations.push({
@@ -841,7 +861,7 @@ export class GitObserver {
             conflicted.set(pathKey(path), path)
             limitations.push({
               code: 'unavailable-git-state',
-              detail: `unmerged index state: ${pathKey(path)}`,
+              detail: `unmerged index state: ${pathLabel(path)}`,
             })
           }
           continue
@@ -865,7 +885,11 @@ export class GitObserver {
 
       const pendingEntries: Array<
         | CodeManifestEntry
-        | ({ path: CodeManifestEntry['path']; bytes: Uint8Array } & (
+        | ({
+            path: CodeManifestEntry['path']
+            bytes: Uint8Array
+            transformation: EvidenceTransformation
+          } & (
             | { mode: '100644' | '100755'; kind: 'file' | 'lfs-pointer' }
             | { mode: '120000'; kind: 'symlink' }
           ))
@@ -903,6 +927,14 @@ export class GitObserver {
         Buffer.compare(left.path, right.path),
       )) {
         validateRelativePath(candidate.path)
+        if (!safePath(candidate.path)) {
+          omissions.add('sensitive-path')
+          limitations.push({
+            code: 'unavailable-git-state',
+            detail: 'sensitive source path omitted',
+          })
+          continue
+        }
         if (candidate.mode === '160000') {
           if (candidate.oid === undefined) throw new Error('Gitlink has no object identity')
           pendingEntries.push({
@@ -974,14 +1006,40 @@ export class GitObserver {
             changedPathMap.set(pathKey(candidate.path), candidate.path)
           }
         }
-        const bytes = captured.bytes
-        if (bytes === undefined) {
+        if (candidate.path.toString('utf8').split('/').at(-1)!.startsWith('.env')) {
+          omissions.add('env-source')
+          limitations.push({ code: 'unavailable-git-state', detail: 'env source omitted' })
+          continue
+        }
+        if (captured.bytes === undefined) {
           limitations.push({
             code: 'excluded-by-limit',
             detail: `file exceeds ${this.maxFileBytes} bytes: ${pathKey(candidate.path)}`,
           })
           continue
         }
+        let source: string
+        try {
+          source = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(captured.bytes)
+          if (source.includes('\0')) throw new Error('binary source')
+        } catch {
+          omissions.add('unsupported-text')
+          limitations.push({
+            code: 'unavailable-git-state',
+            detail: 'unsupported source text omitted',
+          })
+          continue
+        }
+        const transformed = sanitizer.text(source)
+        if (captured.kind === 'symlink' && transformed.redacted) {
+          omissions.add('unsafe-symlink')
+          limitations.push({
+            code: 'unavailable-git-state',
+            detail: 'sensitive symlink target omitted',
+          })
+          continue
+        }
+        const bytes = new TextEncoder().encode(transformed.text)
         if (observationBytes + bytes.byteLength > this.maxObservationBytes) {
           limitations.push({
             code: 'excluded-by-limit',
@@ -992,20 +1050,39 @@ export class GitObserver {
         observationBytes += bytes.byteLength
         const isLink = captured.kind === 'symlink'
         const path = encodeGitPath(candidate.path, displayPath(candidate.path))
+        transformation.redacted ||= transformed.redacted
+        const sourceTransformation: EvidenceTransformation = {
+          policy: 'evidence-sanitization-1',
+          redacted: transformed.redacted,
+          omittedCharacters: 0,
+          omissionReasons: [],
+        }
         if (isLink) {
-          pendingEntries.push({ path, mode: '120000', kind: 'symlink', bytes })
+          pendingEntries.push({
+            path,
+            mode: '120000',
+            kind: 'symlink',
+            bytes,
+            transformation: sourceTransformation,
+          })
         } else {
           pendingEntries.push({
             path,
             mode: (captured.mode & 0o100) !== 0 ? '100755' : '100644',
             kind: isGitLfsPointer(bytes) ? 'lfs-pointer' : 'file',
             bytes,
+            transformation: sourceTransformation,
           })
         }
         if (isLink) symlinkTargets.set(pathKey(candidate.path), resolveLink(candidate.path, bytes))
       }
+      const omittedLinks = new Set<string>()
       for (const key of symlinkTargets.keys()) {
         const issue = linkGraphIssue(key, symlinkTargets)
+        if (issue !== undefined) {
+          omissions.add('unsafe-symlink')
+          omittedLinks.add(key)
+        }
         if (issue === 'unsafe')
           limitations.push({
             code: 'unavailable-git-state',
@@ -1018,6 +1095,7 @@ export class GitObserver {
           })
       }
       const changedPaths = [...changedPathMap.values()]
+        .filter(safePath)
         .sort(Buffer.compare)
         .map(path => encodeGitPath(path, displayPath(path)))
       await this.options.afterCapture?.()
@@ -1025,49 +1103,27 @@ export class GitObserver {
       for (const [key, captured] of capturedPathStates) {
         if (end.pathStates.get(key) !== captured) pathRace = true
       }
-      parseCodeManifest({
-        schemaVersion: 1,
-        entries: pendingEntries.map(pending => {
-          if (!('bytes' in pending)) return pending
-          const object: ObjectRef = {
-            algorithm: 'sha256',
-            sha256: hash(pending.bytes),
-            bytes: pending.bytes.byteLength,
-            mediaType:
-              pending.kind === 'symlink'
-                ? 'application/vnd.factory.symlink-target'
-                : 'application/octet-stream',
-            role: pending.kind === 'lfs-pointer' ? 'git-lfs-pointer' : 'workspace-file',
-          }
-          return pending.kind === 'symlink'
-            ? { path: pending.path, mode: '120000', kind: 'symlink', object }
-            : { path: pending.path, mode: pending.mode, kind: pending.kind, object }
-        }),
-        limitations,
-      })
       const entries: CodeManifestEntry[] = []
+      const prepared: { bytes: Uint8Array; object: ObjectRef }[] = []
       for (const pending of pendingEntries) {
+        if (omittedLinks.has(pending.path.bytes)) continue
         if (!('bytes' in pending)) {
           entries.push(pending)
           continue
         }
-        const object = await this.objects.put(pending.bytes, {
+        const { bytes, ...entry } = pending
+        const object: ObjectRef = {
+          algorithm: 'sha256',
+          sha256: hash(bytes),
+          bytes: bytes.byteLength,
           mediaType:
             pending.kind === 'symlink'
               ? 'application/vnd.factory.symlink-target'
               : 'application/octet-stream',
           role: pending.kind === 'lfs-pointer' ? 'git-lfs-pointer' : 'workspace-file',
-        })
-        entries.push(
-          pending.kind === 'symlink'
-            ? { path: pending.path, mode: '120000', kind: 'symlink', object }
-            : {
-                path: pending.path,
-                mode: pending.mode,
-                kind: pending.kind,
-                object,
-              },
-        )
+        }
+        prepared.push({ bytes, object })
+        entries.push({ ...entry, object })
         if (pending.kind === 'lfs-pointer') {
           limitations.push({
             code: 'unavailable-git-state',
@@ -1076,8 +1132,17 @@ export class GitObserver {
           })
         }
       }
-      const manifest: CodeManifest = { schemaVersion: 1, entries, limitations }
+      transformation.omissionReasons = [...omissions].sort()
+      const manifest: CodeManifest = { schemaVersion: 1, entries, limitations, transformation }
       parseCodeManifest(manifest)
+      for (const { bytes, object } of prepared) {
+        const written = await this.objects.put(bytes, {
+          mediaType: object.mediaType,
+          role: object.role,
+        })
+        if (canonicalJson(written) !== canonicalJson(object))
+          throw new Error('object store returned a different reference')
+      }
       const codeManifest = await this.objects.put(
         new TextEncoder().encode(canonicalJson(manifest)),
         {
@@ -1085,11 +1150,10 @@ export class GitObserver {
           role: 'workspace-code-manifest',
         },
       )
-      const head = decodeUtf8(headBytes, 'Git HEAD').trim() || undefined
-      const branch = decodeUtf8(branchBytes, 'Git branch').trim() || undefined
       const observation: RepositoryObservation = {
         schemaVersion: 1,
         observationId: this.options.observationId ?? newRecordId('observation'),
+        transformation,
         repositoryId: this.options.repositoryId,
         observedAt,
         completedAt: this.now().toISOString(),
@@ -1128,12 +1192,17 @@ export class GitObserver {
         kind: 'unavailable',
         reason: {
           code:
-            error instanceof GitOutputLimitError
-              ? 'git-output-limit'
-              : error instanceof GitTimeoutError
-                ? 'git-command-timeout'
-                : 'git-command-failed',
-          detail: (error as Error).message,
+            error instanceof SanitizationError
+              ? 'sanitization-unavailable'
+              : error instanceof GitOutputLimitError
+                ? 'git-output-limit'
+                : error instanceof GitTimeoutError
+                  ? 'git-command-timeout'
+                  : 'git-command-failed',
+          detail:
+            error instanceof SanitizationError
+              ? 'evidence preparation unavailable'
+              : 'Git observation unavailable',
         },
       }
     }

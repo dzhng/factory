@@ -75,7 +75,11 @@ async function fixture(): Promise<string> {
 const ordinaryRoot = await fixture()
 const racedRoot = await fixture()
 try {
-  await writeFile(join(ordinaryRoot, 'README.txt'), 'ordinary fixture\n')
+  await writeFile(join(ordinaryRoot, '.env'), 'TOKEN=synthetic-workbench-secret\n')
+  await writeFile(
+    join(ordinaryRoot, 'README.txt'),
+    'Reasoning remains; synthetic-workbench-secret is removed.\n',
+  )
   await writeFile(join(ordinaryRoot, 'run.sh'), '#!/bin/sh\nexit 0\n')
   await chmod(join(ordinaryRoot, 'run.sh'), 0o755)
   await symlink('README.txt', join(ordinaryRoot, 'readme-link'))
@@ -140,6 +144,8 @@ try {
           entry => entry.path.display ?? `base64:${entry.path.bytes}`,
         ),
         limitations: ordinaryManifest.limitations,
+        transformation: ordinaryManifest.transformation,
+        sanitizedSource: await readFile(join(reconstruction, 'README.txt'), 'utf8'),
         reconstruction: reconstructed,
         sentinel: {
           observationStable: ordinary.observation.startState === ordinary.observation.endState,
@@ -161,6 +167,12 @@ try {
     ) {
       throw new Error('ordinary Git observation mutated its subject')
     }
+    if (
+      report.ordinary.sanitizedSource !== 'Reasoning remains; [REDACTED] is removed.\n' ||
+      report.ordinary.paths.includes('.env') ||
+      report.ordinary.paths.includes('new.bin')
+    )
+      throw new Error('source evidence did not follow the sanitization contract')
     await mkdir(outputRoot, { recursive: true })
     await writeFile(join(outputRoot, 'report.json'), canonicalJson(report))
     const escaped = canonicalJson(report)

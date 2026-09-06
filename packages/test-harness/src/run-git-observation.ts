@@ -2,7 +2,7 @@ import { mkdir } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 
 const repositoryRoot = fileURLToPath(new URL('../../..', import.meta.url)).replace(/\/$/, '')
-const outputRoot = `${repositoryRoot}/specs/done/factory-v1/assets/git-observation-workbench`
+const outputRoot = `${repositoryRoot}/specs/evidence-sanitization/assets/git-observation-workbench`
 const image = 'factory-git-observation-test:local'
 await mkdir(outputRoot, { recursive: true })
 

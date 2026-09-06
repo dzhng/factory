@@ -102,6 +102,23 @@ export type Limitation = {
   object?: ObjectRef
 }
 
+export const EVIDENCE_OMISSION_REASONS = [
+  'env-source',
+  'unsupported-text',
+  'sensitive-path',
+  'unsafe-symlink',
+  'nontext-attachment',
+  'malformed-record',
+  'json-key-collision',
+] as const
+
+export type EvidenceTransformation = {
+  policy: 'evidence-sanitization-1'
+  redacted: boolean
+  omittedCharacters: number
+  omissionReasons: readonly (typeof EVIDENCE_OMISSION_REASONS)[number][]
+}
+
 export type RepositoryManifest = {
   schemaVersion: 1
   format: 'factory-repository'
@@ -242,17 +259,25 @@ export type RepositoryObservation = {
   limitations: readonly Limitation[]
   startState: Sha256
   endState: Sha256
+  transformation?: EvidenceTransformation
 }
 
-/** Exact workspace bytes captured without Git worktree conversion. */
+/** Review source bytes, captured without Git worktree conversion. */
 export type CodeManifestEntry =
   | {
       path: EncodedGitPath
       mode: '100644' | '100755'
       kind: 'file' | 'lfs-pointer'
       object: ObjectRef
+      transformation?: EvidenceTransformation
     }
-  | { path: EncodedGitPath; mode: '120000'; kind: 'symlink'; object: ObjectRef }
+  | {
+      path: EncodedGitPath
+      mode: '120000'
+      kind: 'symlink'
+      object: ObjectRef
+      transformation?: EvidenceTransformation
+    }
   | {
       path: EncodedGitPath
       mode: '160000'
@@ -266,6 +291,7 @@ export type CodeManifest = {
   schemaVersion: 1
   entries: readonly CodeManifestEntry[]
   limitations: readonly Limitation[]
+  transformation?: EvidenceTransformation
 }
 
 export type PullRequestGitRef = {
@@ -982,6 +1008,7 @@ const RECORD_KEYS = {
     'limitations',
     'startState',
     'endState',
+    'transformation',
   ],
   pullRequestObservation: [
     'schemaVersion',
@@ -1459,10 +1486,31 @@ function assertLimitations(value: unknown, label: string): asserts value is Limi
   })
 }
 
+export function parseEvidenceTransformation(value: unknown): EvidenceTransformation {
+  assertRecord(value, 'evidence transformation')
+  const keys = ['policy', 'redacted', 'omittedCharacters', 'omissionReasons']
+  assertExactKeys(value, keys, 'evidence transformation')
+  requireFields(value, keys, 'evidence transformation')
+  assertEnum(value.policy, ['evidence-sanitization-1'], 'evidence transformation policy')
+  if (typeof value.redacted !== 'boolean')
+    throw new TypeError('evidence transformation redacted must be boolean')
+  if (!Number.isSafeInteger(value.omittedCharacters) || (value.omittedCharacters as number) < 0)
+    throw new TypeError('evidence transformation omittedCharacters must be nonnegative')
+  assertArray(value.omissionReasons, 'evidence transformation omissionReasons')
+  for (const reason of value.omissionReasons)
+    assertEnum(reason, EVIDENCE_OMISSION_REASONS, 'evidence transformation omission reason')
+  return value as EvidenceTransformation
+}
+
 /** Validate the canonical object payload used to reconstruct a workspace. */
 export function parseCodeManifest(value: unknown): CodeManifest {
   assertRecord(value, 'code manifest')
-  assertExactKeys(value, ['schemaVersion', 'entries', 'limitations'], 'code manifest')
+  assertExactKeys(
+    value,
+    ['schemaVersion', 'entries', 'limitations', 'transformation'],
+    'code manifest',
+  )
+  if ('transformation' in value) parseEvidenceTransformation(value.transformation)
   requireFields(value, ['schemaVersion', 'entries', 'limitations'], 'code manifest')
   if (value.schemaVersion !== 1) throw new TypeError('code manifest schemaVersion must be 1')
   assertArray(value.entries, 'code manifest entries')
@@ -1471,7 +1519,7 @@ export function parseCodeManifest(value: unknown): CodeManifest {
   value.entries.forEach((entry, index) => {
     const label = `code manifest entries[${index}]`
     assertRecord(entry, label)
-    assertExactKeys(entry, ['path', 'mode', 'kind', 'object', 'gitObject'], label)
+    assertExactKeys(entry, ['path', 'mode', 'kind', 'object', 'gitObject', 'transformation'], label)
     requireFields(entry, ['path', 'mode', 'kind'], label)
     assertRecord(entry.path, `${label}.path`)
     assertExactKeys(entry.path, ['encoding', 'bytes', 'display'], `${label}.path`)
@@ -1504,7 +1552,12 @@ export function parseCodeManifest(value: unknown): CodeManifest {
     assertEnum(entry.mode, ['100644', '100755', '120000', '160000'], `${label}.mode`)
     assertEnum(entry.kind, ['file', 'symlink', 'gitlink', 'lfs-pointer'], `${label}.kind`)
     if (entry.kind === 'gitlink') {
-      if (entry.mode !== '160000' || 'object' in entry || !('gitObject' in entry)) {
+      if (
+        entry.mode !== '160000' ||
+        'object' in entry ||
+        'transformation' in entry ||
+        !('gitObject' in entry)
+      ) {
         throw new TypeError(`${label} gitlink shape is invalid`)
       }
       if (
@@ -1514,6 +1567,7 @@ export function parseCodeManifest(value: unknown): CodeManifest {
         throw new TypeError(`${label}.gitObject is invalid`)
       }
     } else {
+      if ('transformation' in entry) parseEvidenceTransformation(entry.transformation)
       if (!('object' in entry) || 'gitObject' in entry)
         throw new TypeError(`${label} object shape is invalid`)
       assertObjectRef(entry.object, `${label}.object`)
@@ -1604,7 +1658,7 @@ function validateRecordShape(
         ].includes(key),
     ),
     repositoryObservation: RECORD_KEYS.repositoryObservation.filter(
-      key => !['codeManifest', 'stagedPatch', 'unstagedPatch'].includes(key),
+      key => !['codeManifest', 'stagedPatch', 'unstagedPatch', 'transformation'].includes(key),
     ),
     pullRequestObservation: [
       'schemaVersion',
@@ -1694,6 +1748,7 @@ function validateRecordShape(
       break
     }
     case 'repositoryObservation': {
+      if ('transformation' in value) parseEvidenceTransformation(value.transformation)
       assertRecordId(value.observationId, 'repositoryObservation.observationId')
       assertString(value.repositoryId, 'repositoryObservation.repositoryId')
       if (!/^repo_[A-Za-z0-9_-]+$/.test(value.repositoryId))

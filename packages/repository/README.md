@@ -9,7 +9,14 @@ state remains outside this boundary; object and record verification must be
 reproducible from the committed tree alone.
 
 The Git observer reads a checkout through a fixed read-only command vocabulary
-and byte-preserving filesystem operations. It derives worktree changes from
+and byte-preserving filesystem operations. Its portable source snapshots are
+sanitized UTF-8 review context, not runnable or original-byte copies. Env files,
+unsupported binary data, sensitive paths and unsafe symlink targets are omitted;
+ordinary source text uses the shared sanitization policy before object identities
+are derived. A sensitive branch locator is refused, never silently renamed.
+Transformation metadata describes retained source and omitted content.
+
+It derives worktree changes from
 raw bytes and index identities instead of asking Git to inspect live files,
 because status-shaped commands can execute configured clean filters. Git
 stdout and stderr are bounded, and every command has a deadline. Its
@@ -27,9 +34,10 @@ inventories that bound directory before and after writing, rejects any tree
 that is not exactly the manifest, and bounds final content hashing by the
 manifest's per-file and aggregate byte counts. A failed destination is
 disposable: Factory does not remove any pathname because POSIX cannot make an
-identity check and unlink atomic against a concurrent replacement. Observation
-remains importable without Bun FFI. Reconstruction reports an explicit
-capability error unless it can load the supported native descriptor backend.
+identity check and unlink atomic against a concurrent replacement. Env discovery
+and reconstruction use the supported native descriptor backend. The shared
+discovery context can be supplied by an acquisition owner so source and provider
+evidence use the same preparation-time dictionary.
 The same descriptor-rooted primitive inventories already materialized trees
 for bundle verification, so a pathname swap cannot hide an undeclared file or
 redirect a read outside the verified root.

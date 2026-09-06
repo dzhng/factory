@@ -6,7 +6,7 @@ is hashed or written, not just before the reviewer sees it.
 
 ## Next Agent Prompt
 
-Status: shared policy complete; implementing source/PR observations. Last updated: 2026-09-06.
+Status: policy and source checkpoints complete; PR observations in progress. Last updated: 2026-09-06.
 
 The active implementation goal includes both this spec and the
 [choice-audit reviewer](../choice-audit-reviewer/README.md). Finish and verify
@@ -17,6 +17,10 @@ contract and acceptance files before integrating changes.
 You are implementing a clean cutover for an unlaunched product. Continue
 [slice 2](slices/02-observations.md), after reading the target [contract](contract.md)
 and current `SECURITY.md`. There are no migration or compatibility requirements.
+Source preparation is green. Integrate the parallel GitHub pass and wire its
+required sanitizer context through acquisition callers next. Provider adapter
+preparation is independently underway; durable capture/journal integration
+follows the safe observation seams.
 Invoke write-tests before behavior changes and follow red/green in the owning
 Docker environment. Do not inspect real secrets or alter live provider homes.
 

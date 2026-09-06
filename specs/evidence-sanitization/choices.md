@@ -20,6 +20,23 @@
 - **Verdict:** sound; a fixed explicit failure preserves the publication boundary.
 - **Confidence:** medium.
 
+### Treat invalid UTF-8 and NUL-bearing source as unsupported text
+
+- **When:** source observation pass.
+- **Choice:** A binary file can contain text-like fragments, but Factory does not
+  try to redact those fragments and publish the surrounding opaque bytes. A file
+  that cannot decode strictly as UTF-8, or contains a NUL character, is omitted
+  with a fixed reason. Other UTF-8 source remains reviewable, without relying on
+  filename extensions. Leading byte-order marks remain part of retained text.
+- **Gap:** The plan required omission of unsupported binary source without naming
+  a text-classification rule.
+- **Reach:** Some unusual NUL-bearing text is omitted rather than transformed;
+  binary formats are not promised redaction support. This is a bounded text
+  policy, not a general file-type detector.
+- **Verdict:** sound; it avoids copying opaque source payloads while retaining
+  common source encodings.
+- **Confidence:** medium.
+
 ### Supplement Docker with isolated native platform probes
 
 - **When:** policy/discovery pass.

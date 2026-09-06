@@ -23,12 +23,23 @@ pretends to protect a developer from a repository they have chosen to execute.
 branch as the code. Session events, transcripts, review inputs, and review
 outputs are stored as inspectable plaintext or content-addressed objects.
 
-Factory does not silently redact, prune, stage, commit, amend, or change
-branches. A repository's Git workflow decides what is published and who can
+Factory does not stage, commit, amend, or change branches. A repository's Git
+workflow decides what is published and who can
 read it. Anyone who can read the Git history may be able to read prompts, tool
 inputs and outputs, source snapshots, and other captured evidence. Users must
 not put secrets into agent conversations if those secrets cannot enter the
 repository history.
+
+Source snapshots are prepared using the shared evidence-sanitization policy
+before entering the object store. It discovers repository env assignments
+without executing files or following symlinks and redacts known values and
+recognizable credentials. Env source files, unsupported binary data, sensitive
+paths and unsafe symlink targets are omitted. These are UTF-8 review snapshots,
+not promises of executable or byte-identical source. Original Git race state
+remains separate from sanitized object identity. Discovery or preparation failure
+does not authorize raw source publication. Detection remains best effort, not an
+anonymization guarantee. Provider capture and reviewer output are separate
+publication boundaries still being converted by the active sanitization plan.
 
 Credentials, transient locks, live databases, operational machine-specific
 paths, and temporary files never belong in `.factory`. Runtime-only state lives
