@@ -74,9 +74,18 @@ export async function replayProvider(
   repository: string,
   home: string,
   environment: NodeJS.ProcessEnv,
-  continuing = false,
-  fixtureRoot = resolve(import.meta.dir, '../fixtures/providers', provider),
+  options: {
+    continuing?: boolean
+    fixtureRoot?: string
+    assistantMessage?: string
+    deliverStop?: (deliver: () => Promise<void>) => Promise<void>
+  } = {},
 ): Promise<void> {
+  const {
+    continuing = false,
+    fixtureRoot = resolve(import.meta.dir, '../fixtures/providers', provider),
+    assistantMessage = 'Stale transcript answer.',
+  } = options
   const transcript = join(
     home,
     provider === 'codex'
@@ -127,26 +136,135 @@ export async function replayProvider(
     }
     row.cwd = repository
     if (row.transcript_path !== undefined) row.transcript_path = transcript
-    if (row.last_assistant_message !== undefined)
-      row.last_assistant_message = 'Stale transcript answer.'
+    if (row.last_assistant_message !== undefined) row.last_assistant_message = assistantMessage
     const hook = config.hooks[String(row.hook_event_name)].at(-1).hooks[0]
-    const result =
-      provider === 'codex'
-        ? await command(
-            '/bin/sh',
-            ['-c', hook.command],
-            repository,
-            environment,
-            `${JSON.stringify(row)}\n`,
-          )
-        : await command(
-            hook.command,
-            hook.args,
-            repository,
-            environment,
-            `${JSON.stringify(row)}\n`,
-          )
-    if (result.code !== 0 || result.stdout !== '{}\n')
-      throw new Error(`${provider} installed hook failed through ${executable}`)
+    const deliver = async () => {
+      const result =
+        provider === 'codex'
+          ? await command(
+              '/bin/sh',
+              ['-c', hook.command],
+              repository,
+              environment,
+              `${JSON.stringify(row)}\n`,
+            )
+          : await command(
+              hook.command,
+              hook.args,
+              repository,
+              environment,
+              `${JSON.stringify(row)}\n`,
+            )
+      if (result.code !== 0 || result.stdout !== '{}\n')
+        throw new Error(`${provider} installed hook failed through ${executable}`)
+    }
+    if (row.hook_event_name === 'Stop' && options.deliverStop !== undefined)
+      await options.deliverStop(deliver)
+    else await deliver()
+  }
+}
+
+export async function openAndConfirmDecision(
+  executable: string,
+  repository: string,
+  environment: NodeJS.ProcessEnv,
+  options: {
+    note?: string
+    acceptCoverageReviewId?: string
+    beforeDecisionRetry?: () => Promise<void>
+  } = {},
+): Promise<void> {
+  const child = Bun.spawn([executable, 'open'], {
+    cwd: repository,
+    env: environment,
+    stdout: 'pipe',
+    stderr: 'pipe',
+  })
+  const reader = child.stdout.getReader()
+  try {
+    let output = ''
+    let origin: string | undefined
+    const deadline = Date.now() + 10_000
+    while (origin === undefined && Date.now() < deadline) {
+      const remaining = deadline - Date.now()
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const next = await Promise.race([
+        reader.read(),
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => reject(new Error('factory open startup timed out')), remaining)
+        }),
+      ]).finally(() => {
+        if (timer !== undefined) clearTimeout(timer)
+      })
+      if (next.done) break
+      output += new TextDecoder().decode(next.value)
+      if (Buffer.byteLength(output) > 64 * 1024)
+        throw new Error('factory open startup output exceeded its bound')
+      origin = output.split('\n').find(line => /^http:\/\/127\.0\.0\.1:\d+$/.test(line))
+    }
+    if (origin === undefined) throw new Error('factory open did not publish its loopback origin')
+    const signal = AbortSignal.timeout(5_000)
+    const snapshot = (await (await fetch(`${origin}/api/snapshot`, { signal })).json()) as {
+      state: string
+      decisions: {
+        stateFingerprint: string
+        groups: {
+          choices: { humanStatus: string; observation: { observationId: string } }[]
+        }[]
+      }
+    }
+    if (snapshot.state !== 'ready')
+      throw new Error('factory open did not render a ready projection')
+    const decision = snapshot.decisions.groups
+      .flatMap(group => group.choices)
+      .find(observation => observation.humanStatus === 'unconfirmed')
+    if (decision === undefined) throw new Error('review decision was not visible in factory open')
+    const session = (await (await fetch(`${origin}/api/session`, { signal })).json()) as {
+      csrfToken: string
+    }
+    const request = {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: origin,
+        'X-Factory-CSRF': session.csrfToken,
+      },
+      body: JSON.stringify({
+        actionId: 'action_00000000000000000000000031',
+        kind: 'confirm',
+        ...(options.note === undefined ? {} : { note: options.note }),
+        targetObservationId: decision.observation.observationId,
+        expectedStateFingerprint: snapshot.decisions.stateFingerprint,
+      }),
+      signal,
+    }
+    const response = await fetch(`${origin}/api/actions/decision`, request)
+    if (response.status !== 201) throw new Error('factory open rejected the decision action')
+    if (options.beforeDecisionRetry !== undefined) {
+      await options.beforeDecisionRetry()
+      const retry = await fetch(`${origin}/api/actions/decision`, request)
+      assert.equal(
+        retry.status,
+        201,
+        'exact action retry must preserve its frozen semantics after env rotation',
+      )
+    }
+    if (options.acceptCoverageReviewId !== undefined) {
+      const coverage = await fetch(`${origin}/api/actions/coverage`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Origin: origin,
+          'X-Factory-CSRF': session.csrfToken,
+        },
+        body: JSON.stringify({ reviewId: options.acceptCoverageReviewId }),
+        signal,
+      })
+      assert.equal(coverage.status, 201, 'localhost must accept the exact partial review')
+    }
+  } finally {
+    child.kill()
+    await child.exited.catch(() => undefined)
+    reader.releaseLock()
   }
 }

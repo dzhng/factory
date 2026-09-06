@@ -241,3 +241,29 @@ production mount allowlist and never receives the socket.
 The spec left this test topology open. This is sound because it verifies native
 behavior without touching live provider configuration or replacing Docker with
 a fake command. It is test-only authority, not a new product capability.
+
+### Preserve partial-coverage authority in the installed journey
+
+When: installed verification.
+
+Trimming a tool result can leave evidence partial even when the reviewer finishes.
+The installed test therefore accepts that exact partial review through the real
+localhost user action before checking that an unchanged command skips Docker.
+It does not relabel reduced evidence complete just to obtain a no-op.
+
+The plan did not specify this ordering. This is sound because it tests the user's
+actual coverage transition without conflating model completion with evidence
+completeness.
+
+### Exercise private credential ownership with synthetic values
+
+When: installed verification.
+
+The disposable CLI owns a synthetic credential with private file permissions.
+The real reviewer owner selects that file's validated numeric user for its
+container. A public fixture would instead exercise the special test identity.
+Neither fixture authenticates a model.
+
+The plan required synthetic credentials but left permissions open. This is sound
+because the test exercises private-file ownership without reading developer
+credentials or changing their permissions.

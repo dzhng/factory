@@ -32,6 +32,16 @@ through the real isolated reviewer and repository publication owners. The outer
 test container alone receives the Docker socket; shared scratch paths retain
 their host spelling so sibling reviewer mounts resolve to the same bytes.
 Its report names the checks actually exercised, not real-model judgment quality.
+Publication refusal is a native recovery probe: a selected CAS write is blocked,
+then the env and transcript inputs disappear before the same installed Stop is
+delivered again. Earlier safe object prefixes may exist; a completed Turn may
+not. The separate crash labs own SIGKILL and all-prefix authority. A host-shared
+mount journey does not certify concurrent filesystem locking.
+
+Committed-history verification checks out only `.factory` in a fresh clone and
+rebuilds source, citations, and the interface projection without env files or a
+runtime journal. PR review uses the CLI's patch-and-metadata boundary; it does
+not claim the optional exact-SHA PR source-capture seam was invoked.
 
 Provider fixtures preserve raw bytes and provider-native vocabulary. They are
 observations, not a shared provider schema. Empirical oracle evidence informs

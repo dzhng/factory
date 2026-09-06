@@ -29,7 +29,7 @@ import {
   reviewerImageIdentity,
 } from '@factory/reviewer'
 
-import { succeed, replayProvider } from './release-fixtures'
+import { succeed, replayProvider, openAndConfirmDecision } from './release-fixtures'
 type Journey = { name: string; status: 'passed'; detail: string }
 
 function option(name: string): string | undefined {
@@ -41,82 +41,6 @@ function required(name: string): string {
   const value = option(name)
   if (value === undefined || value.length === 0) throw new Error(`${name} is required`)
   return resolve(value)
-}
-
-async function openAndConfirmDecision(
-  executable: string,
-  repository: string,
-  environment: NodeJS.ProcessEnv,
-): Promise<void> {
-  const child = Bun.spawn([executable, 'open'], {
-    cwd: repository,
-    env: environment,
-    stdout: 'pipe',
-    stderr: 'pipe',
-  })
-  const reader = child.stdout.getReader()
-  try {
-    let output = ''
-    let origin: string | undefined
-    const deadline = Date.now() + 10_000
-    while (origin === undefined && Date.now() < deadline) {
-      const remaining = deadline - Date.now()
-      let timer: ReturnType<typeof setTimeout> | undefined
-      const next = await Promise.race([
-        reader.read(),
-        new Promise<never>((_resolve, reject) => {
-          timer = setTimeout(() => reject(new Error('factory open startup timed out')), remaining)
-        }),
-      ]).finally(() => {
-        if (timer !== undefined) clearTimeout(timer)
-      })
-      if (next.done) break
-      output += new TextDecoder().decode(next.value)
-      if (Buffer.byteLength(output) > 64 * 1024)
-        throw new Error('factory open startup output exceeded its bound')
-      origin = output.split('\n').find(line => /^http:\/\/127\.0\.0\.1:\d+$/.test(line))
-    }
-    if (origin === undefined) throw new Error('factory open did not publish its loopback origin')
-    const signal = AbortSignal.timeout(5_000)
-    const snapshot = (await (await fetch(`${origin}/api/snapshot`, { signal })).json()) as {
-      state: string
-      decisions: {
-        stateFingerprint: string
-        groups: {
-          choices: { humanStatus: string; observation: { observationId: string } }[]
-        }[]
-      }
-    }
-    if (snapshot.state !== 'ready')
-      throw new Error('factory open did not render a ready projection')
-    const decision = snapshot.decisions.groups
-      .flatMap(group => group.choices)
-      .find(observation => observation.humanStatus === 'unconfirmed')
-    if (decision === undefined) throw new Error('review decision was not visible in factory open')
-    const session = (await (await fetch(`${origin}/api/session`, { signal })).json()) as {
-      csrfToken: string
-    }
-    const response = await fetch(`${origin}/api/actions/decision`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Origin: origin,
-        'X-Factory-CSRF': session.csrfToken,
-      },
-      body: JSON.stringify({
-        actionId: 'action_00000000000000000000000031',
-        kind: 'confirm',
-        targetObservationId: decision.observation.observationId,
-        expectedStateFingerprint: snapshot.decisions.stateFingerprint,
-      }),
-      signal,
-    })
-    if (response.status !== 201) throw new Error('factory open rejected the decision action')
-  } finally {
-    child.kill()
-    await child.exited.catch(() => undefined)
-    reader.releaseLock()
-  }
 }
 
 function digest(bytes: Uint8Array): string {
@@ -296,7 +220,7 @@ try {
   const firstLedgerBytes = await readFile(join(repository, '.factory', reviewResult.paths.ledger))
   const triggerDirectory = join(repository, '.factory', 'review-triggers')
   const originalTriggerFiles = await readdir(triggerDirectory)
-  await replayProvider('codex', executable, repository, home, environment, true)
+  await replayProvider('codex', executable, repository, home, environment, { continuing: true })
   const addedTriggerFiles = (await readdir(triggerDirectory)).filter(
     name => !originalTriggerFiles.includes(name),
   )
