@@ -873,7 +873,7 @@ describe('verified review bundles', () => {
     expect((await verifyBundle(built.path, digest(legacy))).valid).toBe(false)
   })
 
-  test('history limitation problems must name an object owned by the exact code manifest', async () => {
+  test('history limitation problems resolve exact objects alongside objectless source omissions', async () => {
     const value = fixture()
     if (value.input.subject.kind !== 'workspace') throw new Error('expected workspace fixture')
     const initial = planReview({ ...value.input, candidates: [] })
@@ -972,8 +972,9 @@ describe('verified review bundles', () => {
         value.objects.get(value.input.subject.observation.codeManifest!.sha256),
       ),
     )
+    const sourceOmission = { code: 'unavailable-git-state' as const, detail: 'env source omitted' }
     const historicalCodeBytes = new TextEncoder().encode(
-      canonicalJson({ ...originalCode, limitations: [limitation] }),
+      canonicalJson({ ...originalCode, limitations: [sourceOmission, limitation] }),
     )
     const historicalCode = object(
       historicalCodeBytes,
@@ -986,6 +987,7 @@ describe('verified review bundles', () => {
       observationId: newRecordId('observation', 3, new Uint8Array(10)),
       codeManifest: historicalCode,
       worktreeFingerprint: historicalCode.sha256,
+      limitations: [sourceOmission],
     }
     const historicalPlan = planReview({
       ...value.input,

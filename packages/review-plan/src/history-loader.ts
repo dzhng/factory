@@ -272,7 +272,11 @@ export async function loadReviewHistoryFromRequest(
         if (problem.field === 'limitation') {
           return subject.observation.limitations
             .map(limitation => limitation.object)
-            .find(reference => canonicalJson(reference) === canonicalJson(problem.object))
+            .find(
+              reference =>
+                reference !== undefined &&
+                canonicalJson(reference) === canonicalJson(problem.object),
+            )
         }
         return undefined
       })()
@@ -296,7 +300,9 @@ export async function loadReviewHistoryFromRequest(
         )
         if (
           !codeManifest.limitations.some(
-            limitation => canonicalJson(limitation.object) === canonicalJson(problem.object),
+            limitation =>
+              limitation.object !== undefined &&
+              canonicalJson(limitation.object) === canonicalJson(problem.object),
           )
         )
           throw new TypeError('history limitation object is not owned by its code manifest')

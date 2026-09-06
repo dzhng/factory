@@ -1154,7 +1154,9 @@ export async function verifyBundle(
         | undefined
       if (historicalSubject === undefined) continue
       const directLimitationRefs = new Set(
-        historicalSubject.limitations.map(limitation => canonicalJson(limitation.object)),
+        historicalSubject.limitations.flatMap(limitation =>
+          limitation.object === undefined ? [] : [canonicalJson(limitation.object)],
+        ),
       )
       if (
         historicalManifest.inputProblems.some(
@@ -1196,7 +1198,9 @@ export async function verifyBundle(
               ...(bundledCodeManifest?.limitations ?? []),
             ]
               .map(limitation => limitation.object)
-              .find(item => canonicalJson(item) === canonicalJson(problem.object))
+              .find(
+                item => item !== undefined && canonicalJson(item) === canonicalJson(problem.object),
+              )
           return undefined
         })()
         if (
