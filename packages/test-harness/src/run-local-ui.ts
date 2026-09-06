@@ -119,7 +119,10 @@ try {
           await page.getByText('State · pending-supersession', { exact: true }).waitFor()
           await page.getByText('Human · confirmed', { exact: true }).waitFor()
           assertions.push('canonical confirmation and pending change labels')
-          await page.getByRole('button', { name: 'Confirm', exact: true }).first().click()
+          await page
+            .getByRole('button', { name: 'Confirm recorded choice', exact: true })
+            .first()
+            .click()
           await page.getByText('Action recorded in append-only Factory history.').waitFor()
           if (
             decisionActions.length !== 1 ||

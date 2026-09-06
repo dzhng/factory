@@ -10,10 +10,16 @@ import { choicePresentationFixture, presentationDecisions } from './choice-prese
 const output = resolve(process.argv[2] ?? '/tmp/choice-presentation')
 await mkdir(output, { recursive: true })
 let snapshot = choicePresentationFixture()
+let confirmedObservation: string | undefined
 const server = await serveLocalUi({
   host: '127.0.0.1',
   snapshot: async () => snapshot,
-  actions: { appendDecision: async () => {}, acceptCoverage: async () => {} },
+  actions: {
+    appendDecision: async action => {
+      if (action.kind === 'confirm') confirmedObservation = action.targetObservationId
+    },
+    acceptCoverage: async () => {},
+  },
 })
 const browser = await chromium.launch({ headless: true })
 try {
@@ -34,6 +40,20 @@ try {
     await page.goto(server.origin)
     await page.locator('#app[data-ready]').waitFor()
     if (process.argv.includes('--assert')) {
+      for (const index of [0, 2]) {
+        confirmedObservation = undefined
+        await page
+          .locator(`[data-choice="presentation.choice-${index}"]`)
+          .getByRole('button', { name: 'Confirm recorded choice', exact: true })
+          .click()
+        await page.getByText('Action recorded in append-only Factory history.').waitFor()
+        if (
+          confirmedObservation !==
+          presentationDecisions().lineages[index]!.observations[0]!.observation.observationId
+        )
+          throw Error('confirmation did not target the recorded choice')
+        await page.locator('.status').evaluate(node => node.remove())
+      }
       await page
         .getByText('Keep receipts for 90 days while the owner chooses a retention policy.', {
           exact: true,
