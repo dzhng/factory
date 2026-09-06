@@ -25,7 +25,6 @@ import {
   parseRepositoryConfig,
   parseRepositoryManifest,
   validateObjectRef,
-  validatePublicRecord,
   type JsonValue,
   type CoverageAction,
   type DecisionAction,
@@ -38,8 +37,23 @@ import {
 } from '@factory/contract'
 import { SanitizationError } from '@factory/sanitization'
 
+import {
+  preparePublication,
+  snapshotPreparedObject,
+  snapshotPreparedRecord,
+  type PreparedObject,
+  type PreparedRecord,
+} from './admission'
 import { withAdvisoryFileLock } from './confined-writer'
 import { discoverRepositorySanitizer } from './git-observer'
+import { validateStructuredRecord } from './record-validation'
+export {
+  snapshotPreparedObject,
+  snapshotPreparedRecord,
+  type PreparedObject,
+  type PreparedRecord,
+  type PublicationPreparation,
+} from './admission'
 
 export {
   inventoryConfinedTree,
@@ -303,30 +317,6 @@ async function ensureOwnedParent(factoryRoot: string, path: OwnedPath): Promise<
   return join(factoryRoot, path)
 }
 
-function validateStructuredRecord(path: OwnedPath, bytes: Uint8Array): void {
-  const text = decodeUtf8(bytes)
-  if (path.endsWith('.json')) {
-    const value = JSON.parse(text) as JsonValue
-    if (canonicalJson(value) !== text) throw new TypeError(`${path} is not canonical JSON`)
-    validatePublicRecord(path, value)
-    return
-  }
-  if (path.endsWith('.jsonl')) {
-    if (text.length === 0) return
-    if (!text.endsWith('\n')) throw new TypeError(`${path} must end with a newline`)
-    for (const line of text.slice(0, -1).split('\n')) {
-      if (line.length === 0) throw new TypeError(`${path} contains an empty JSONL record`)
-      const value = JSON.parse(line) as JsonValue
-      if (canonicalJson(value) !== `${line}\n`) {
-        throw new TypeError(`${path} contains a non-canonical JSONL record`)
-      }
-      validatePublicRecord(path, value)
-    }
-    return
-  }
-  validatePublicRecord(path, text)
-}
-
 async function syncFile(path: string): Promise<void> {
   const handle = await open(path, constants.O_RDONLY)
   try {
@@ -547,33 +537,34 @@ export class RepositoryStore {
     )
   }
 
-  async putObject(
-    source: AsyncIterable<Uint8Array>,
-    metadata: { mediaType?: string; role?: string } = {},
-  ): Promise<ObjectRef> {
-    const chunks: Uint8Array[] = []
-    let bytes = 0
-    for await (const chunk of source) {
-      bytes += chunk.byteLength
-      if (bytes > this.maxObjectBytes) {
-        throw new Error(`Factory object exceeds maximum of ${this.maxObjectBytes} bytes`)
-      }
-      chunks.push(chunk.slice())
-    }
-    const content = Buffer.concat(chunks)
-    const hash = sha256(content)
+  async preparePublication() {
+    return await preparePublication(this.repositoryRoot)
+  }
+
+  private async preparedRecords(records: readonly PreparedRecord[]) {
+    const root = await realpath(this.repositoryRoot)
+    return records.map(record => {
+      const snapshot = snapshotPreparedRecord(record)
+      if (snapshot.repositoryRoot !== root)
+        throw new TypeError('prepared record belongs to a different repository root')
+      return snapshot
+    })
+  }
+
+  async putObject(capability: PreparedObject): Promise<ObjectRef> {
+    const snapshot = snapshotPreparedObject(capability)
+    if (snapshot.repositoryRoot !== (await realpath(this.repositoryRoot)))
+      throw new TypeError('prepared object belongs to a different repository root')
+    const content = snapshot.bytes
+    if (content.byteLength > this.maxObjectBytes)
+      throw new Error(`Factory object exceeds maximum of ${this.maxObjectBytes} bytes`)
+    const hash = snapshot.reference.sha256
     const path = objectOwnedPath(hash)
     await this.withMutationLock(async () => {
       const destination = await ensureOwnedParent(this.factoryRoot, path)
       await atomicCreate(destination, path, content, this.stagingRoot)
     })
-    return {
-      algorithm: 'sha256',
-      sha256: hash,
-      bytes,
-      mediaType: metadata.mediaType ?? 'application/octet-stream',
-      role: metadata.role ?? 'raw',
-    }
+    return snapshot.reference
   }
 
   /** Read exact CAS bytes only after verifying their public reference. */
@@ -616,10 +607,10 @@ export class RepositoryStore {
    * on recovery because every path is create-only with exact-byte comparison.
    */
   async publishImmutableGroup(
-    records: readonly ImmutableGroupRecord[],
+    records: readonly PreparedRecord[],
     commitPath: OwnedPath,
   ): Promise<RecordRef> {
-    const snapshots = records.map(record => ({ path: record.path, bytes: record.bytes.slice() }))
+    const snapshots = await this.preparedRecords(records)
     if (snapshots.length === 0) throw new TypeError('immutable group must not be empty')
     const triggerCommit = /^review-triggers\/[^/]+\.json$/.test(commitPath)
     const reviewCommit =
@@ -678,10 +669,10 @@ export class RepositoryStore {
   /** Verify a bundle's repository authority and publish its review under one mutation lock. */
   async publishReview(
     authority: ReviewPublicationAuthority,
-    records: readonly ImmutableGroupRecord[],
+    records: readonly PreparedRecord[],
     commitPath: OwnedPath,
   ): Promise<RecordRef> {
-    const snapshots = records.map(record => ({ path: record.path, bytes: record.bytes.slice() }))
+    const snapshots = await this.preparedRecords(records)
     const reviewCommit =
       /^reviews\/workspace\/[^/]+\/manifest\.json$/.test(commitPath) ||
       /^reviews\/pull-requests\/github\/[^/]+\/[1-9]\d*\/[^/]+\/manifest\.json$/.test(commitPath)
@@ -803,7 +794,8 @@ export class RepositoryStore {
     return { config: await this.readConfig(), records }
   }
 
-  async createImmutable(path: OwnedPath, bytes: Uint8Array): Promise<RecordRef> {
+  async createImmutable(capability: PreparedRecord): Promise<RecordRef> {
+    const { path, bytes } = (await this.preparedRecords([capability]))[0]!
     if (path === makeOwnedPath('manifest') || path === makeOwnedPath('config')) {
       throw new TypeError('manifest and config use their dedicated repository operations')
     }

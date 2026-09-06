@@ -15,6 +15,19 @@ is refused rather than silently redirecting a branch or model. Initialization
 preflights before its first committable byte; an update preserves existing bytes
 on refusal and holds mutation ownership while checking the merged result.
 
+Publication accepts repository-bound prepared capabilities, never arbitrary bytes.
+Preparation owns one confined env discovery context, sanitizes object leaves
+before hashing, and refuses completed records with unprocessed free text rather
+than rewriting their identities. Closed-schema identity fields remain structural;
+opaque assertion and provider payloads do not inherit those exemptions.
+Capabilities own their bytes independently of caller buffers and snapshots.
+
+The internal admission package subpath is a friend-infrastructure boundary for
+verified journal/attempt replay and reconstruction from verified immutable graphs.
+Only those owners may restore frozen publication authority after validating the
+durable owner, exact bytes and graph bindings. It is not a public trust-bytes API
+or a defense against malicious code already executing inside this repository.
+
 The Git observer reads a checkout through a fixed read-only command vocabulary
 and byte-preserving filesystem operations. Its portable source snapshots are
 sanitized UTF-8 review context, not runnable or original-byte copies. Env files,

@@ -23,6 +23,7 @@ import {
   ImmutableRecordConflictError,
   initializeRepositoryStore,
   openRepositoryStore,
+  snapshotPreparedObject,
 } from '../src/index'
 
 if (process.env.FACTORY_DOCKER_TEST !== '1') {
@@ -117,6 +118,61 @@ const trigger = {
   materialization: 'complete' as const,
   limitations: [],
 }
+
+test('publication admission discovers secrets before CAS identity and refuses forged capabilities', async () => {
+  const root = await fixtureRoot()
+  const store = await initializeRepositoryStore(root, manifest, {})
+  await writeFile(join(root, '.env'), 'API_TOKEN=publication-secret-123\n')
+  const preparation = await store.preparePublication()
+  const object = preparation.prepareObject(Buffer.from('before publication-secret-123 after'), {
+    mediaType: 'text/plain',
+    role: 'test-evidence',
+  })
+  const reference = await store.putObject(object)
+  expect(Buffer.from(await store.getObject(reference)).toString()).toBe('before [REDACTED] after')
+  await expect(store.putObject({ ...object } as typeof object)).rejects.toThrow('prepared')
+})
+
+test('publication admission preserves typed hashes but rejects the same value as review prose', async () => {
+  const root = await fixtureRoot()
+  const store = await initializeRepositoryStore(root, manifest, {})
+  const hash = 'a'.repeat(64)
+  await writeFile(join(root, '.env'), `API_TOKEN=${hash}\n`)
+  const preparation = await store.preparePublication()
+  const graph = reviewRecords(recordId('review'))
+  const manifestRecord = graph.records.at(-1)!
+  await store.createImmutable(preparation.prepareRecord(manifestRecord.path, manifestRecord.bytes))
+  expect(Buffer.from(await store.readImmutable(manifestRecord.path)).toString()).toContain(hash)
+  const value = JSON.parse(Buffer.from(manifestRecord.bytes).toString())
+  value.reviewer.model = hash
+  expect(() =>
+    preparation.prepareRecord(manifestRecord.path, Buffer.from(canonicalJson(value))),
+  ).toThrow('unprocessed')
+  const submissionPath = graph.records[0]!.path
+  const submission = { kind: 'choice', choice: { ...writerChoice, assertion: { sha256: hash } } }
+  expect(() =>
+    preparation.prepareRecord(submissionPath, Buffer.from(canonicalJson(submission))),
+  ).toThrow()
+})
+
+test('publication admission owns bytes independently of Buffer input and snapshots', async () => {
+  const root = await fixtureRoot()
+  const store = await initializeRepositoryStore(root, manifest, {})
+  const preparation = await store.preparePublication()
+  const capability = preparation.prepareObject(Buffer.from('safe'), {
+    mediaType: 'text/plain',
+    role: 'test',
+  })
+  snapshotPreparedObject(capability).bytes[0] = 88
+  const reference = await store.putObject(capability)
+  expect(Buffer.from(await store.getObject(reference)).toString()).toBe('safe')
+  const path = makeOwnedPath('review-triggers', [`${trigger.triggerId}.json`])
+  const bytes = Buffer.from(canonicalJson(trigger))
+  const record = preparation.prepareRecord(path, bytes)
+  bytes.fill(88)
+  await store.createImmutable(record)
+  expect(Buffer.from(await store.readImmutable(path)).toString()).toBe(canonicalJson(trigger))
+})
 
 function reviewRecords(id: string, disposition: 'complete' | 'failed' = 'complete') {
   const hash = 'a'.repeat(64)
