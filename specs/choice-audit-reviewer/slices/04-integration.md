@@ -34,6 +34,12 @@ required because serialization is the tested external boundary.
 
 ## Must remain green and delegated choices
 
+The [combined installed report](../../evidence-sanitization/assets/installed-audit/README.md)
+now certifies both provider submissions, retained unfinished prefixes, all three
+verdicts and attention, sanitized actions, committed-only citations and interface
+projection, no-op execution avoidance, and native default-image selection on
+clean revision `33ea517`. Real-model judgment is not its authority.
+
 Run reviewer/review/domain/web workspaces, reviewer isolation, local UI, review
 CLI/PR journeys, repository-wide build/format/lint/types/tests, and supported-
 platform release gates. Update `SECURITY.md`, public format rationale, and package

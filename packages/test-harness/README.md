@@ -32,6 +32,9 @@ through the real isolated reviewer and repository publication owners. The outer
 test container alone receives the Docker socket; shared scratch paths retain
 their host spelling so sibling reviewer mounts resolve to the same bytes.
 Its report names the checks actually exercised, not real-model judgment quality.
+Default-image selection is checked separately by removing the image override
+and refusing the recorded Docker pull before execution. The published image's
+own probe, not this trap, certifies its packaged submission server.
 Publication refusal is a native recovery probe: a selected CAS write is blocked,
 then the env and transcript inputs disappear before the same installed Stop is
 delivered again. Earlier safe object prefixes may exist; a completed Turn may

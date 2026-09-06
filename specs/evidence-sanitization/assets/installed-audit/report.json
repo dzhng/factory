@@ -1,0 +1,262 @@
+{
+  "status": "passed",
+  "release": {
+    "version": "0.1.0-audit",
+    "revision": "33ea517a94afc54f627c0fa1ec439e4a3d76b366",
+    "manifestSha256": "5f7023c87d43d829c97e18ffbf68eb92e072a829a091a47e93156d23032d6919",
+    "executableSha256": "a2a1ce7e495840f3bf632bbf1bb5ad85430910eed1878c0ff7796f5f2dfc0c68"
+  },
+  "authority": {
+    "execution": "Verified native installed CLI; real isolated MCP/repository owners; no Bun on consumer PATH",
+    "providers": "Synthetic executables and private-mode synthetic credentials; no authenticated model judgment",
+    "defaultImage": "Installed CLI default selection captured at external Docker pull; execution intentionally refused. Actual published image/server authority belongs to its separate packaged-image probe",
+    "pullRequest": "Synthetic gh patch and metadata through the real adapter; optional exact-SHA PR code capture is not requested by the CLI",
+    "recovery": "Selected-CAS publication refusal and frozen native Stop replay without env/transcript; earlier safe object prefixes are allowed. SIGKILL/all-prefix recovery and concurrent serialization require their separate Docker gates"
+  },
+  "checks": [
+    "verified-native-release-artifact",
+    "both-provider-native-capture-originals-prose-result-budget-source-omissions",
+    "native-refused-cas-publication-frozen-stop-replay-without-env-or-transcript",
+    "codex-complete-submission-three-redacted-verdicts",
+    "localhost-secret-note-env-rotation-retry-and-partial-coverage-acceptance",
+    "unchanged-review-no-docker-trap",
+    "claude-complete-submission-three-redacted-verdicts",
+    "claude-unfinished-prefix-three-redacted-verdicts",
+    "codex-complete-submission-three-redacted-verdicts",
+    "codex-unfinished-prefix-three-redacted-verdicts",
+    "pull-request-native-review",
+    "scanner-negative-controls-unreferenced-escaped-json-key-and-encoded-path",
+    "committed-clone-without-env-journal-source-reconstruction-citations-ui-projection",
+    "installed-default-image-selection-without-override-pull-trap",
+    "all-physical-factory-files-and-decoded-json-paths"
+  ],
+  "commands": [
+    ["init", "--canonical-branch", "main"],
+    ["install"],
+    ["review"],
+    ["review"],
+    ["configure", "--repo", "--reviewer", "claude"],
+    ["review", "--force"],
+    ["review", "--force"],
+    ["configure", "--repo", "--reviewer", "codex"],
+    ["review", "--force"],
+    ["review", "--force"],
+    ["review", "--pr", "42", "--force"],
+    ["review", "--force"]
+  ],
+  "physicalFiles": 92,
+  "reviews": [
+    {
+      "reviewId": "review_01M1VXQ3DXTQZPT6TMB0SC5T2D",
+      "reviewer": {
+        "effort": "high",
+        "model": "gpt-test",
+        "provider": "codex",
+        "version": "codex-fake/1"
+      },
+      "disposition": "partial",
+      "executionFailed": false,
+      "paths": {
+        "ledger": "reviews/workspace/review_01M1VXQ3DXTQZPT6TMB0SC5T2D/ledger.json",
+        "manifest": "reviews/workspace/review_01M1VXQ3DXTQZPT6TMB0SC5T2D/manifest.json",
+        "submissions": "reviews/workspace/review_01M1VXQ3DXTQZPT6TMB0SC5T2D/submissions.jsonl"
+      }
+    },
+    {
+      "reviewId": "review_01M1VXQFDCSHWGB2MAMW3SRKRH",
+      "reviewer": {
+        "effort": "high",
+        "model": "claude-test",
+        "provider": "claude",
+        "version": "claude-fake/1"
+      },
+      "disposition": "partial",
+      "executionFailed": false,
+      "paths": {
+        "ledger": "reviews/workspace/review_01M1VXQFDCSHWGB2MAMW3SRKRH/ledger.json",
+        "manifest": "reviews/workspace/review_01M1VXQFDCSHWGB2MAMW3SRKRH/manifest.json",
+        "submissions": "reviews/workspace/review_01M1VXQFDCSHWGB2MAMW3SRKRH/submissions.jsonl"
+      }
+    },
+    {
+      "reviewId": "review_01M1VXQM0YB69T91P6VAR03KJJ",
+      "reviewer": {
+        "effort": "high",
+        "model": "claude-test",
+        "provider": "claude",
+        "version": null
+      },
+      "disposition": "partial",
+      "executionFailed": true,
+      "paths": {
+        "ledger": "reviews/workspace/review_01M1VXQM0YB69T91P6VAR03KJJ/ledger.json",
+        "manifest": "reviews/workspace/review_01M1VXQM0YB69T91P6VAR03KJJ/manifest.json",
+        "submissions": "reviews/workspace/review_01M1VXQM0YB69T91P6VAR03KJJ/submissions.jsonl"
+      }
+    },
+    {
+      "reviewId": "review_01M1VXQS6QPC8GS0QRN55W747E",
+      "reviewer": {
+        "effort": "high",
+        "model": "gpt-test",
+        "provider": "codex",
+        "version": "codex-fake/1"
+      },
+      "disposition": "partial",
+      "executionFailed": false,
+      "paths": {
+        "ledger": "reviews/workspace/review_01M1VXQS6QPC8GS0QRN55W747E/ledger.json",
+        "manifest": "reviews/workspace/review_01M1VXQS6QPC8GS0QRN55W747E/manifest.json",
+        "submissions": "reviews/workspace/review_01M1VXQS6QPC8GS0QRN55W747E/submissions.jsonl"
+      }
+    },
+    {
+      "reviewId": "review_01M1VXQZ8TTR24FP7M1TFDFJKZ",
+      "reviewer": {
+        "effort": "high",
+        "model": "gpt-test",
+        "provider": "codex",
+        "version": null
+      },
+      "disposition": "partial",
+      "executionFailed": true,
+      "paths": {
+        "ledger": "reviews/workspace/review_01M1VXQZ8TTR24FP7M1TFDFJKZ/ledger.json",
+        "manifest": "reviews/workspace/review_01M1VXQZ8TTR24FP7M1TFDFJKZ/manifest.json",
+        "submissions": "reviews/workspace/review_01M1VXQZ8TTR24FP7M1TFDFJKZ/submissions.jsonl"
+      }
+    },
+    {
+      "reviewId": "review_01M1VXR4D02DVMQANPF8VE9FC2",
+      "reviewer": {
+        "effort": "high",
+        "model": "gpt-test",
+        "provider": "codex",
+        "version": "codex-fake/1"
+      },
+      "disposition": "partial",
+      "executionFailed": false,
+      "paths": {
+        "ledger": "reviews/pull-requests/github/ghr_b962f53edeb3bf083a73cdbb76bc0c30ecb10d31af6a7fee749dedda9851325b/42/review_01M1VXR4D02DVMQANPF8VE9FC2/ledger.json",
+        "manifest": "reviews/pull-requests/github/ghr_b962f53edeb3bf083a73cdbb76bc0c30ecb10d31af6a7fee749dedda9851325b/42/review_01M1VXR4D02DVMQANPF8VE9FC2/manifest.json",
+        "submissions": "reviews/pull-requests/github/ghr_b962f53edeb3bf083a73cdbb76bc0c30ecb10d31af6a7fee749dedda9851325b/42/review_01M1VXR4D02DVMQANPF8VE9FC2/submissions.jsonl"
+      }
+    }
+  ],
+  "ledger": {
+    "entries": [
+      {
+        "assertion": {
+          "nested": {
+            "explanation": "Context [REDACTED] [REDACTED]",
+            "retained": true
+          },
+          "verdict": "needs-user"
+        },
+        "choiceKey": "fixture.needs-user",
+        "confidence": "high",
+        "effect": "assert",
+        "entryId": "entry_5N0SQXEASAYJBPEXKQ8D7HTMGF",
+        "evidence": [
+          {
+            "object": {
+              "algorithm": "sha256",
+              "bytes": 1126,
+              "mediaType": "application/vnd.factory.code-manifest+json",
+              "role": "workspace-code-manifest",
+              "sha256": "85202b23f7a0b0e3b5f8871ff493478db1361ee7323fc0caccd4188dbb8b42a4"
+            }
+          }
+        ],
+        "gap": "The user did not select this fixture behavior.",
+        "headline": "needs-user synthetic decision [REDACTED] [REDACTED]",
+        "provisionalCall": "Keep the reversible fixture default.",
+        "rationale": "This fixture pins the typed boundary, not a real model judgment.",
+        "reach": "Future releases inherit it.",
+        "reversal": "Select the user-preferred behavior before release.",
+        "scenario": "A release author selects a behavior without explicit direction.\nThe next release inherits it; a different choice would change certification.",
+        "verdict": "needs-user",
+        "when": "When synthetic provider behavior was specified"
+      },
+      {
+        "assertion": {
+          "nested": {
+            "explanation": "Context [REDACTED] [REDACTED]",
+            "retained": true
+          },
+          "verdict": "unsound"
+        },
+        "choiceKey": "fixture.unsound",
+        "confidence": "high",
+        "correctedDecision": "Specify the certification boundary first.",
+        "effect": "assert",
+        "entryId": "entry_5BBQBW6CGT2QZGY50H7271SRJQ",
+        "evidence": [
+          {
+            "object": {
+              "algorithm": "sha256",
+              "bytes": 1126,
+              "mediaType": "application/vnd.factory.code-manifest+json",
+              "role": "workspace-code-manifest",
+              "sha256": "85202b23f7a0b0e3b5f8871ff493478db1361ee7323fc0caccd4188dbb8b42a4"
+            }
+          }
+        ],
+        "gap": "The user did not select this fixture behavior.",
+        "headline": "unsound synthetic decision [REDACTED] [REDACTED]",
+        "rationale": "This fixture pins the typed boundary, not a real model judgment.",
+        "reach": "Future releases inherit it.",
+        "scenario": "A release author selects a behavior without explicit direction.\nThe next release inherits it; a different choice would change certification.",
+        "verdict": "unsound",
+        "when": "When synthetic provider behavior was specified"
+      },
+      {
+        "assertion": {
+          "nested": {
+            "explanation": "Context [REDACTED] [REDACTED]",
+            "retained": true
+          },
+          "verdict": "sound"
+        },
+        "choiceKey": "fixture.sound",
+        "confidence": "high",
+        "effect": "assert",
+        "entryId": "entry_2WTZRPFNRW61F6YT4YAHTT5QYJ",
+        "evidence": [
+          {
+            "object": {
+              "algorithm": "sha256",
+              "bytes": 1126,
+              "mediaType": "application/vnd.factory.code-manifest+json",
+              "role": "workspace-code-manifest",
+              "sha256": "85202b23f7a0b0e3b5f8871ff493478db1361ee7323fc0caccd4188dbb8b42a4"
+            }
+          }
+        ],
+        "gap": "The user did not select this fixture behavior.",
+        "headline": "sound synthetic decision [REDACTED] [REDACTED]",
+        "rationale": "This fixture pins the typed boundary, not a real model judgment.",
+        "reach": "Future releases inherit it.",
+        "scenario": "A release author selects a behavior without explicit direction.\nThe next release inherits it; a different choice would change certification.",
+        "verdict": "sound",
+        "when": "When synthetic provider behavior was specified"
+      }
+    ],
+    "reviewId": "review_01M1VXQ3DXTQZPT6TMB0SC5T2D",
+    "schemaVersion": 1,
+    "summary": {
+      "evidence": [
+        {
+          "object": {
+            "algorithm": "sha256",
+            "bytes": 1126,
+            "mediaType": "application/vnd.factory.code-manifest+json",
+            "role": "workspace-code-manifest",
+            "sha256": "85202b23f7a0b0e3b5f8871ff493478db1361ee7323fc0caccd4188dbb8b42a4"
+          }
+        }
+      ],
+      "reviewed": "Inspected the synthetic release implementation and its explicit specification. [REDACTED] [REDACTED]"
+    }
+  }
+}

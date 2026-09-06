@@ -806,6 +806,28 @@ if (!process.argv.includes('--inside')) {
   await checked('scanner-negative-controls-unreferenced-escaped-json-key-and-encoded-path')
   await verifyPortableClone(repository, scratch, environment)
   await checked('committed-clone-without-env-journal-source-reconstruction-citations-ui-projection')
+  await writeFile(
+    dockerTrap,
+    '#!/bin/sh\nif [ "$1" = pull ]; then printf "%s\\n" "$@" > "$0.pull"; exit 77; fi\nexec /usr/bin/docker "$@"\n',
+    { mode: 0o755 },
+  )
+  const defaultEnvironment: NodeJS.ProcessEnv = { ...reviewEnvironment }
+  delete defaultEnvironment.FACTORY_REVIEWER_IMAGE
+  commands.push(['review', '--force'])
+  const defaultSelection = await command(
+    executable,
+    ['review', '--force'],
+    repository,
+    defaultEnvironment,
+  )
+  assert.notEqual(defaultSelection.code, 0)
+  const selectedImage = (await readFile(`${dockerTrap}.pull`, 'utf8')).trimEnd().split('\n')
+  assert.deepEqual(selectedImage, [
+    'pull',
+    'ghcr.io/dzhng/factory-reviewer@sha256:0ecb58ccbec9b1bafa64f403ebc56963a41dec3f905edf37355d6fca9bbc25ee',
+  ])
+  await unlink(dockerTrap)
+  await checked('installed-default-image-selection-without-override-pull-trap')
   const physicalFiles = await scanPortableTree(join(repository, '.factory'))
   await checked('all-physical-factory-files-and-decoded-json-paths')
   await writeFile(
@@ -824,6 +846,8 @@ if (!process.argv.includes('--inside')) {
             'Verified native installed CLI; real isolated MCP/repository owners; no Bun on consumer PATH',
           providers:
             'Synthetic executables and private-mode synthetic credentials; no authenticated model judgment',
+          defaultImage:
+            'Installed CLI default selection captured at external Docker pull; execution intentionally refused. Actual published image/server authority belongs to its separate packaged-image probe',
           pullRequest:
             'Synthetic gh patch and metadata through the real adapter; optional exact-SHA PR code capture is not requested by the CLI',
           recovery:

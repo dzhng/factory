@@ -37,6 +37,11 @@ not a synthetic pass. No real provider configuration may be changed by tests.
 
 ## Handoff and freedoms
 
+The [combined installed report](../assets/installed-audit/README.md) passed on
+clean revision `33ea517`, including both providers, frozen native Stop replay,
+portable reconstruction, and the corrected default-image selection. Its report
+separates synthetic model, PR patch, published-image, and platform authority.
+
 Reconcile docs and stale lossless-evidence claims, run review and independent
 Codex review, then commit/push the green milestone. Delegate fixture organization
 and runner naming. Do not delegate the installed boundary or replace it with
