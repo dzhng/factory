@@ -1,0 +1,40 @@
+import { createHash } from 'node:crypto'
+import { validateObjectRef, type ObjectRef, type OwnedPath } from '@factory/contract'
+
+declare const prepared: unique symbol
+export type PreparedObject = { readonly reference: ObjectRef; readonly [prepared]: true }
+export type PreparedRecord = { readonly path: OwnedPath; readonly [prepared]: true }
+type ObjectSnapshot = { repositoryRoot: string; reference: ObjectRef; bytes: Uint8Array }
+type RecordSnapshot = { repositoryRoot: string; path: OwnedPath; bytes: Uint8Array }
+const objects = new WeakMap<PreparedObject, ObjectSnapshot>()
+const records = new WeakMap<PreparedRecord, RecordSnapshot>()
+
+// Internal mint: only preparation and verified private journal/attempt readers may
+// restore authority. Never export these functions from the repository API.
+export function restorePreparedObject(repositoryRoot: string, reference: ObjectRef, bytes: Uint8Array): PreparedObject {
+  validateObjectRef(reference)
+  if (reference.bytes !== bytes.byteLength || reference.sha256 !== createHash('sha256').update(bytes).digest('hex'))
+    throw new TypeError('prepared object identity differs from bytes')
+  const copy = Object.freeze({ ...reference })
+  const capability = Object.freeze({ reference: copy }) as PreparedObject
+  objects.set(capability, { repositoryRoot, reference: copy, bytes: bytes.slice() })
+  return capability
+}
+
+export function restorePreparedRecord(repositoryRoot: string, path: OwnedPath, bytes: Uint8Array): PreparedRecord {
+  const capability = Object.freeze({ path }) as PreparedRecord
+  records.set(capability, { repositoryRoot, path, bytes: bytes.slice() })
+  return capability
+}
+
+export function snapshotPreparedObject(capability: PreparedObject): ObjectSnapshot {
+  const snapshot = objects.get(capability)
+  if (!snapshot) throw new TypeError('object requires a genuine prepared capability')
+  return { ...snapshot, reference: { ...snapshot.reference }, bytes: snapshot.bytes.slice() }
+}
+
+export function snapshotPreparedRecord(capability: PreparedRecord): RecordSnapshot {
+  const snapshot = records.get(capability)
+  if (!snapshot) throw new TypeError('record requires a genuine prepared capability')
+  return { ...snapshot, bytes: snapshot.bytes.slice() }
+}
