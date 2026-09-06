@@ -7,6 +7,22 @@ import { claudeCaptureAdapter, codexCaptureAdapter } from '../src'
 const encode = (value: unknown) => new TextEncoder().encode(JSON.stringify(value))
 const decode = (bytes: Uint8Array) => JSON.parse(new TextDecoder().decode(bytes))
 
+test('secret collisions redact omission-marker prose without changing structured counts', () => {
+  const prepared = codexCaptureAdapter.prepareEvidence(
+    'transcript',
+    encode({
+      type: 'response_item',
+      payload: { type: 'function_call_output', call_id: 'call', output: 'x'.repeat(5000) },
+    }),
+    createSanitizer(['TOKEN=1000']),
+  )
+  expect(decode(prepared.bytes).payload.output).toBe(
+    'x'.repeat(3000) + '\n[Factory omitted [REDACTED] characters]\n' + 'x'.repeat(1000),
+  )
+  expect(prepared.transformation.omittedCharacters).toBe(1000)
+  expect(prepared.transformation.redacted).toBe(true)
+})
+
 test('Codex native attachments are omitted while opaque image_url fields remain readable', () => {
   for (const type of ['input_image', 'image', 'image_url']) {
     const prepared = codexCaptureAdapter.prepareEvidence(

@@ -39,6 +39,35 @@ limits remain the policy owner; no second config secret catalogue is introduced.
 
 ## Sound
 
+### Absent Git identities retain their typed null representation
+
+- **When:** publication admission integration.
+- **Choice:** A deleted PR head can report a null Git identity. Even when
+  `TOKEN=null`, preparation preserves that absence at the validated optional
+  Git identity fields while redacting null in unknown metadata.
+- **Gap:** Structural Git identities were protected, but their absence sentinel
+  was not explicitly covered by the preparation policy.
+- **Reach:** Repeated preparation accepts deleted-head evidence without granting
+  a blanket exemption to null values or unknown fields.
+- **Verdict:** sound; the typed field owns its meaning, including absence.
+- **Confidence:** high.
+
+### Secret redaction takes precedence over generated marker prose
+
+- **When:** publication admission integration.
+- **Choice:** With `TOKEN=1000`, a 5,000-character tool result retains its first
+  3,000 and last 1,000 characters, but its visible omission count is redacted.
+  The structured transformation summary still records exactly 1,000 omitted
+  characters. Generated marker text receives no trusted-span exemption.
+- **Gap:** The contract specified both all-message redaction and an explicit
+  count marker without resolving a collision between them. The user selected
+  redaction precedence during integration review.
+- **Reach:** Consumers use structured counts, not marker parsing. A reviewer
+  can still recognize omitted content without learning a matching secret.
+- **Verdict:** sound; it preserves the existing authority boundary without
+  introducing trusted prose provenance to satisfy an unused parsing contract.
+- **Confidence:** high.
+
 ### Bound the whole prepared capture, not just each leaf
 
 - **When:** durable capture pass.

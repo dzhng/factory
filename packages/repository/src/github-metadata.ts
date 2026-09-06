@@ -44,10 +44,13 @@ export function prepareGithubMetadata(
     for (const node of commits.nodes)
       assertSha(object(object(node).commit).oid, 'commit evidence oid')
   }
-  const preserved: { index?: number; key: string; value: string }[] = []
+  const preserved: { index?: number; key: string; value: string | null }[] = []
   const keep = (parent: Record<string, unknown>, key: string, index?: number) => {
     const value = parent[key]
-    if (typeof value === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(value)) {
+    if (
+      value === null ||
+      (typeof value === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(value))
+    ) {
       preserved.push({ index, key, value })
       parent[key] = null
     }

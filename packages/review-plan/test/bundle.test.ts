@@ -182,6 +182,29 @@ test('production PR admission accepts sanitized provider timestamps and numeric 
   expect(evidence.data.repository.pullRequest.numericToken).toBe('[REDACTED]')
 })
 
+test('production PR admission preserves absent Git identities while redacting opaque null values', async () => {
+  const { root, store, environment, secret } = await subjectFixture()
+  await writeFile(join(root, '.env'), `VALUE=${secret}\nTOKEN=null\n`)
+  const inputPath = join(root, 'github-fixture.json')
+  const input = JSON.parse(await readFile(inputPath, 'utf8'))
+  Object.assign(input.metadata.data.repository.pullRequest, {
+    headRefOid: null,
+    headRefName: null,
+    headRepository: null,
+    explanation: null,
+  })
+  await writeFile(inputPath, JSON.stringify(input))
+  const subjectPath = await observeReviewSubject(root, store, 42, environment)
+  const observation = JSON.parse(
+    Buffer.from(await store.readImmutable(subjectPath)).toString(),
+  ) as AvailablePullRequestObservation
+  expect(observation.head.sha).toBeUndefined()
+  const metadata = observation.evidence.find(reference => reference.role === 'github-pr-metadata')!
+  const evidence = JSON.parse(Buffer.from(await store.getObject(metadata)).toString())
+  expect(evidence.data.repository.pullRequest.headRefOid).toBeNull()
+  expect(evidence.data.repository.pullRequest.explanation).toBe('[REDACTED]')
+})
+
 test('manual PR assertions publish prepared prose and return the matching association', async () => {
   const { root, store, environment, secret } = await subjectFixture()
   const value = fixture()

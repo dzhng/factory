@@ -75,6 +75,10 @@ Redact decoded text before truncation. A recognized tool result has a retained
 text budget of 4,000 Unicode code points, excluding the explicit omission marker.
 If longer, retain the first 3,000 and last 1,000, separated by
 `\n[Factory omitted N characters]\n`, where N counts removed sanitized characters.
+Marker prose remains subject to secret redaction: if N matches a known secret,
+the visible count becomes `[REDACTED]`. The owning transformation summary's
+`omittedCharacters` remains the authoritative exact count; marker text grants no
+redaction exemption.
 For a result containing multiple text blocks, apply one budget across their
 ordered concatenated text, retaining the provider's envelope and result identity.
 Do not grant each array element another budget. Nontext attachments are omitted
