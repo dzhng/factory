@@ -6,26 +6,23 @@ is hashed or written, not just before the reviewer sees it.
 
 ## Next Agent Prompt
 
-Status: policy, observations and provider capture implemented; publication closure in progress. Last updated: 2026-09-06.
+Status: all publication owners implemented; combined certification in progress. Last updated: 2026-09-07.
 
 The active implementation goal includes both this spec and the
 [choice-audit reviewer](../choice-audit-reviewer/README.md). Finish and verify
 both before marking the goal complete. Typed submission tools, provider wiring,
-and choice presentation are integrated. The active parallel lanes are repository
-admission callers, frozen review/action recovery, and the installed native journey.
+and choice presentation are integrated. The remaining parallel work is the
+installed native journey, whole-feature review, and final documentation.
 
-You are implementing a clean cutover for an unlaunched product. Continue
-[slice 4](slices/04-publication.md), after reading the target [contract](contract.md)
-and current `SECURITY.md`. There are no migration or compatibility requirements.
-Source, PR and provider preparation are green. The existing private journal now
-freezes the complete publication graph before CAS writes and replays it without
-rediscovery. Its SQLite rows hold compact bindings; complete plans and evidence
-use private CAS and become reclaimable after verified completion. Configuration
-and review/action preparation are integrated; finish their genuine-capability
-consumer cutover and the remaining GitHub/subject/report callers before installed
-certification. Capture capabilities retain the CLI's existing routing authority
-and reject oversized snapshots before copying. The native Linux journey must
-resolve its observed pre-Docker setup failure before it can certify review.
+Continue [installed certification](slices/05-certification.md), then run global
+and supported-platform gates and archive both specs. Read the [contract](contract.md)
+and `SECURITY.md`; this unlaunched cutover has no migration or compatibility work.
+All repository, capture, review, action, GitHub, subject, and report callers use
+prepared publication authority. Private recovery retains exact safe graphs, not
+secret dictionaries. Merged types and owning Docker suites are green. The native
+journey passes capture, first review, UI actions, unchanged no-op, and fresh-clone
+reconstruction. Its second-review failure from objectless source omissions is
+fixed; finish both-provider partial-output and PR coverage against that candidate.
 Invoke write-tests before behavior changes and follow red/green in the owning
 Docker environment. Do not inspect real secrets or alter live provider homes.
 

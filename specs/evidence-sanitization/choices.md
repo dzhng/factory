@@ -1,296 +1,243 @@
 # Implementation choices
 
-## Sound · high confidence — Frozen capture keeps its worktree authority
+Review the resource ceilings, binary-text rule, and internal recovery interface
+first: these are sound choices with medium confidence about the user's preferred
+tradeoff. No unresolved user-only or unsound choices remain in this ledger.
 
-When: publication admission integration.
+## Sound — medium confidence
 
-A developer can have two linked worktrees that share one private capture journal.
-If evidence prepared for one checkout could be restored into the other, that
-checkout's env discovery would not have authorized the resulting publication.
-The journal therefore derives the canonical worktree from genuine prepared
-content, refuses a graph mixing different checkouts, and retains that binding
-with the frozen plan. Recovery uses the same worktree and bytes without looking
-up secrets again. The CLI remains the sole owner of Session routing; the journal
-does not infer a destination from hook events, which can span repositories and
-linked worktrees. The repository writer enforces the frozen destination.
+### Bound the complete preparation, not just each file
 
-The spec required durable replay but did not prescribe how a shared journal binds
-its destination. This choice affects linked-worktree recovery and completion, not
-the portable schema or the user's Git workflow. It is sound because a private
-recovery record must not grant broader publication authority than preparation did.
+When: capture, PR acquisition, and review publication.
 
-## Sound · high confidence — Configuration inspection includes the merged existing fields
+One Session can contain many readable files whose combined size exhausts the
+hook process. Factory bounds individual content and the entire private write
+plan before copying or publishing it. Capture admits 512 MiB of content and
+16 MiB of plan metadata. Review output admits 8 MiB of encoded publication within
+a 20 MiB private attempt that also contains diagnostics. Optional PR source
+shares its acquisition budget, not an unlimited side collection.
 
-When: slice 4 config/init closure.
+The spec required bounded preparation but left these combined allowances open.
+This is sound because all-or-nothing preparation requires bounded memory, but
+unusually large work can remain unpublished. The private original remains
+available for diagnosis. Future tuning must measure the complete operation;
+raising a per-file limit alone cannot disable its aggregate bound.
 
-A user enables automatic review after a previously ordinary extension value
-becomes a known env secret. Updating only the new boolean would copy that secret
-back into the committed configuration. The repository writer instead checks the
-entire merged configuration, including unknown keys, arrays and nested extras,
-while holding its existing mutation lock. It refuses the write and keeps the old
-bytes intact; it does not silently replace a branch or model with a marker.
+### Bound the matcher as well as discovery
 
-Gap: the contract required all configuration writes to be prepared but did not
-place discovery relative to read/merge/lock. Reach: configuration updates pay
-bounded discovery cost under the existing lock, so concurrent updates cannot
-invalidate the checked merge. Verdict: sound because the bytes admitted are the
-exact bytes published. Confidence: high. The shared sanitizer and its discovery
-limits remain the policy owner; no second config secret catalogue is introduced.
+When: shared policy.
 
-## Sound
+A small env file can generate a larger search structure, and repetitive text can
+produce many matches. Factory limits dictionary states and distinct match spans
+as well as input bytes. Adjacent and overlapping matches coalesce. Exceeding a
+ceiling fails preparation rather than publishing partially matched text.
 
-### Absent Git identities retain their typed null representation
+The plan did not specify internal matcher storage limits. This is sound because
+bounding filesystem input alone does not prevent an out-of-memory hook. Unusual
+inputs may remain pending; the policy contract owns the ceilings and fixed
+failure meaning rather than allowing producers to fall back to raw evidence.
 
-- **When:** publication admission integration.
-- **Choice:** A deleted PR head can report a null Git identity. Even when
-  `TOKEN=null`, preparation preserves that absence at the validated optional
-  Git identity fields while redacting null in unknown metadata.
-- **Gap:** Structural Git identities were protected, but their absence sentinel
-  was not explicitly covered by the preparation policy.
-- **Reach:** Repeated preparation accepts deleted-head evidence without granting
-  a blanket exemption to null values or unknown fields.
-- **Verdict:** sound; the typed field owns its meaning, including absence.
-- **Confidence:** high.
+### Recognize source text by strict UTF-8 without NUL
 
-### Secret redaction takes precedence over generated marker prose
+When: source observation.
 
-- **When:** publication admission integration.
-- **Choice:** With `TOKEN=1000`, a 5,000-character tool result retains its first
-  3,000 and last 1,000 characters, but its visible omission count is redacted.
-  The structured transformation summary still records exactly 1,000 omitted
-  characters. Generated marker text receives no trusted-span exemption.
-- **Gap:** The contract specified both all-message redaction and an explicit
-  count marker without resolving a collision between them. The user selected
-  redaction precedence during integration review.
-- **Reach:** Consumers use structured counts, not marker parsing. A reviewer
-  can still recognize omitted content without learning a matching secret.
-- **Verdict:** sound; it preserves the existing authority boundary without
-  introducing trusted prose provenance to satisfy an unused parsing contract.
-- **Confidence:** high.
+A file named notes.txt may contain opaque binary data. Factory omits source that
+cannot decode as UTF-8 or contains NUL rather than redacting visible fragments
+and copying the rest. Valid UTF-8 source is retained regardless of extension,
+including its leading byte-order mark.
 
-### Bound the whole prepared capture, not just each leaf
+The spec required binary omission without selecting a classifier. This is sound
+for review context, but unusual NUL-bearing text is deliberately unavailable.
+Supporting a binary format later requires a readable, sanitizable representation,
+not a filename exception to the text rule.
 
-- **When:** durable capture pass.
-- **Choice:** A capture may contain many individually readable objects. Factory
-  refuses preparation if their combined bytes exceed 512 MiB or the frozen plan
-  exceeds 16 MiB, instead of holding an unlimited graph in memory. Each leaf
-  still obeys the existing 64 MiB ceiling. The private journal retains the
-  original capture so this failure cannot become a raw publication fallback.
-- **Gap:** The plan required bounded private preparation without specifying an
-  aggregate allowance for source, hooks, transcripts and portable records.
-- **Reach:** Very large captures can remain pending instead of exhausting the
-  hook process. Future tuning must preserve a whole-operation bound, not only
-  increase per-file limits.
-- **Verdict:** sound; the operation needs a finite resource budget before it can
-  promise to prepare the entire graph before publication.
-- **Confidence:** medium.
+### Restore prepared authority through an internal friend interface
 
-### Prepared reviews retain their output graph, not a second copy of bundle authority
+When: repository admission and durable replay.
 
-- **When:** review-publication pass.
-- **Choice:** After a review finishes, its private attempt saves the safe manifest,
-  submissions, ledger, and derived decision observations before publishing any of
-  them. The existing verified bundle still owns the input records and object
-  inventory; recovery reopens that exact digest instead of copying those lists
-  into the attempt again. The freeze accepts only repository-issued record
-  capabilities and binds their root and exact encoded bytes to the raw attempt.
-  The prepared output is capped at 8 MiB, with a 20 MiB
-  outer attempt-state cap including raw diagnostic streams and JSON encoding.
-- **Gap:** The spec required durable preparation but did not select its precise
-  storage shape or byte ceiling.
-- **Reach:** Larger input bundles do not enlarge the receipt merely by repeating
-  their authority lists. Exceptionally large output graphs fail before publication;
-  increasing that ceiling requires a bounded acquisition probe.
-- **Verdict:** sound; one existing attempt owns recovery without a second bundle
-  inventory or an unbounded in-memory publication plan.
-- **Confidence:** medium.
+The writer accepts handles issued by preparation, not arbitrary bytes with a
+boolean saying “safe.” Each handle privately owns an independent copy and its
+checkout identity. After a crash, the journal verifies its saved owner and exact
+bytes, then uses an internal package interface to recreate those handles. A
+lookalike object cannot enter the normal publication API.
 
-### Human action retries retain a private request receipt
+The plan required replay without choosing this runtime interface. This is sound
+because it prevents accidental raw publication without rediscovering old secrets.
+The interface is deliberately available to trusted recovery owners; it is not
+a sandbox against malicious code already executing in the repository. Moving it
+into another package would add ownership without strengthening that boundary.
 
-- **When:** human-action publication pass.
-- **Choice:** When a user submits a note containing a secret, the repository writer
-  saves a private hash of that exact request alongside its admitted safe action
-  semantics, bound to the actual repository root.
-  A retry can then return the original safe action after env values change. A
-  different request under the same action ID is refused; the already-prepared
-  semantics are also a valid retry. Receipts stay in existing private repository
-  runtime state so old exact retries do not need a historical secret dictionary.
-- **Gap:** The spec required stable retries but the action owner previously had
-  only the public atomic record, not a private request-to-preparation binding.
-- **Reach:** This adds one bounded private receipt per prepared decision action.
-  It contains no secret dictionary or raw note, and its request hash never enters
-  portable records. Coverage actions need no prose receipt because their payload
-  is typed authority plus unchanged Session locators.
-- **Verdict:** sound; preparation extends the existing action lock owner and keeps
-  compare-and-append authority unchanged.
-- **Confidence:** high.
+### Copy one bounded bundle file instead of cloning readonly files
 
-### Mark combined stdout and stderr instead of preserving a false split
+When: installed reviewer execution.
 
-- **When:** provider adapter pass.
-- **Choice:** When a Claude hook reports both output streams, Factory joins their
-  text, redacts and trims it as one tool result, and stores it with an explicit
-  combined-output label. The second stream field is empty. Splitting the shortened
-  result back at the original character offset would invent a boundary after
-  redaction changed the lengths, and separate budgets could retain twice as much
-  low-value output. Tool-call identity and error status remain in the envelope.
-- **Gap:** The policy required one result budget but did not specify how to
-  represent native stream fields after text reduction.
-- **Reach:** Reviewers keep the combined context but cannot infer which stream
-  originally contained a retained character. This is review evidence, not a
-  byte-faithful terminal recording.
-- **Verdict:** sound; the explicit label makes that information loss visible.
-- **Confidence:** high.
+On a Mac-shared Docker filesystem, Bun's copy operation can create a destination
+whose permissions cannot subsequently be changed when the source was readonly.
+Factory instead reads one bounded file through its existing confined reader,
+creates the destination exclusively, and makes it readonly. The entire snapshot
+must still match the original verified bundle digest before review.
 
-### Bound the matcher's memory as well as filesystem input
+The plan did not prescribe the copy mechanism. This is sound because it preserves
+the actual isolation boundary on supported host filesystems. It uses transient
+memory for one bounded file; streaming would use less memory but introduce
+another copy implementation. Failure never authorizes using the live bundle.
 
-- **When:** policy/discovery pass.
-- **Choice:** If a repository supplies a huge env value or text containing too
-  many separate secret matches, preparation reports a fixed resource-limit
-  failure. A hook can still return normally, but cannot publish unprocessed
-  evidence. Reading a bounded file alone does not bound the larger in-memory
-  search structure built from it. Repeated adjacent matches collapse into one
-  redaction instead of exhausting the allowance.
-- **Gap:** The plan bounded discovery but did not specify the matcher's internal
-  storage ceiling. The chosen ceilings are recorded in the contract, backed by
-  an oversized-dictionary regression and a repetitive-input probe.
-- **Reach:** Producers must handle this as unavailable preparation, not fall back
-  to raw publication. This can reject unusual inputs rather than risk an out-of-
-  memory hook process.
-- **Verdict:** sound; a fixed explicit failure preserves the publication boundary.
-- **Confidence:** medium.
+## Sound — high confidence
 
-### Treat invalid UTF-8 and NUL-bearing source as unsupported text
+### Keep input authority out of the output receipt
 
-- **When:** source observation pass.
-- **Choice:** A binary file can contain text-like fragments, but Factory does not
-  try to redact those fragments and publish the surrounding opaque bytes. A file
-  that cannot decode strictly as UTF-8, or contains a NUL character, is omitted
-  with a fixed reason. Other UTF-8 source remains reviewable, without relying on
-  filename extensions. Leading byte-order marks remain part of retained text.
-- **Gap:** The plan required omission of unsupported binary source without naming
-  a text-classification rule.
-- **Reach:** Some unusual NUL-bearing text is omitted rather than transformed;
-  binary formats are not promised redaction support. This is a bounded text
-  policy, not a general file-type detector.
-- **Verdict:** sound; it avoids copying opaque source payloads while retaining
-  common source encodings.
-- **Confidence:** medium.
+When: review publication.
 
-### Supplement Docker with isolated native platform probes
+A completed review saves its safe submissions, ledger, manifest, and derived
+decisions before publishing any of them. On retry it reopens the already-verified
+input bundle by digest instead of repeating the bundle inventory in the saved
+output plan. Both remain bound to the same private attempt.
 
-- **When:** policy/discovery pass.
-- **Choice:** A filesystem flag that behaves differently on macOS must be tested
-  on macOS as well as in the Linux Docker suite. The native probe uses a disposable
-  temporary directory and a bounded child process; it never touches provider
-  homes, hooks, or `.factory`. Docker remains the normal filesystem test gate.
-- **Gap:** The plan's pure-tests-only host wording could not prove the required
-  Darwin behavior. AGENTS permits isolated tests that do not touch the named live
-  boundaries; the handoff now describes this supplemental platform check.
-- **Reach:** Platform-specific filesystem changes inherit real platform evidence,
-  without granting tests access to the developer's provider configuration.
-- **Verdict:** sound; it strengthens rather than substitutes verification.
-- **Confidence:** high.
+The spec left the storage shape open. This is sound because a large input bundle
+should not enlarge an unrelated output receipt. The bundle remains the single
+input authority; the private attempt remains the single recovery owner.
 
-### Verify selected bytes again without treating excluded content as input
+### Keep Session routing in the CLI
 
-- **When:** policy/discovery pass.
-- **Choice:** If one env file changes while a later directory is scanned, compare
-  its final bytes with the already-read value before returning the secret context.
-  File timestamps alone can miss a same-size overwrite. The second read uses
-  bounded chunks, not another complete copy. A build directory excluded by policy
-  may change its contents without failing discovery; its identity still must not
-  be replaced while inspected.
-- **Gap:** The plan required race detection but did not define whether unchanged
-  metadata proves unchanged content, or whether excluded content churn matters.
-- **Reach:** Discovery does one extra bounded read of included env files. It does
-  not expand its secret dictionary into excluded trees or make their routine
-  writes block capture.
-- **Verdict:** sound; check the bytes that determine protection, not unrelated
-  content that the policy intentionally excludes.
-- **Confidence:** high.
+When: capture admission.
 
-### Redact overlapping values together and retain both env spellings
+A developer continues one Session across repositories or linked checkouts. The
+CLI chooses its publication destination using the existing Session rules.
+Preparation binds all content to that checkout. The journal refuses a graph
+mixing checkouts and retains the binding for recovery and completion; it does
+not infer another destination from the first or latest hook's directory.
 
-- **When:** policy/discovery pass.
-- **Choice:** If one secret covers `abc` and another covers `bcde`, text `abcde`
-  becomes one redaction marker. Replacing only the longer value would leave the
-  first secret's `a` visible. Likewise an env value written using an escaped
-  newline is matched both when copied verbatim and when decoded into a message.
-- **Gap:** The plan required deterministic overlapping matching and decoded env
-  values but did not specify these two representation details.
-- **Reach:** The same secret is protected in copied file output and decoded JSON;
-  overlapping matches cannot leak each other's edge fragments.
-- **Verdict:** sound; it protects the union of known sensitive content without
-  adding a general-purpose recursive decoding system.
-- **Confidence:** high.
+The spec required durable replay without prescribing worktree binding. This is
+sound because the writer must enforce preparation's destination, while a second
+routing algorithm would disagree with legitimate cross-checkout workflows.
 
-### Opaque JSON scalars do not inherit structural-ID exemptions
+### Inspect the entire merged configuration
 
-- **When:** policy/discovery pass.
-- **Choice:** If a provider payload contains a numeric password, it can become
-  a redaction marker just like a string password. Validated Factory record IDs
-  and counters have separate schema authority; an arbitrary number in opaque
-  provider data does not acquire that authority merely by being numeric.
-- **Gap:** The plan described decoded JSON strings explicitly, but all-message
-  protection also has to cover numeric credentials.
-- **Reach:** Opaque provider JSON may change scalar types where a secret is
-  removed. Provider metadata is classified before transformation; portable
-  structural fields must use their validated producer contract.
-- **Verdict:** sound; no free bypass for numeric secrets.
-- **Confidence:** high.
+When: configuration publication.
 
-### Optional PR source shares the acquisition preparation budget
+A user enables automatic review after an existing extension value becomes a
+known env secret. Factory checks the complete merged configuration while holding
+its mutation lock, not only the new boolean. It refuses the update and preserves
+the old bytes if a value or key requires redaction. Replacing a branch or model
+with a marker could silently change operational behavior.
 
-- **When:** GitHub observation pass.
-- **Choice:** When optional PR source capture prepares files beside GitHub
-  metadata and patches, those safe bytes share the acquisition's existing
-  byte ceiling. A callback cannot keep growing a private in-memory collection
-  indefinitely. This can refuse a large source capture that previously returned
-  only a reference to objects written elsewhere; it does not create an
-  additional storage service or an unlimited second budget.
-- **Gap:** The plan required a complete safe graph and bounded acquisition but
-  did not choose a separate allowance for privately prepared source bytes.
-- **Reach:** Optional source providers must share the caller's sanitizer and
-  object collection. Any future allowance increase should come with a bounded
-  acquisition probe rather than silently bypassing that collection.
-- **Verdict:** sound; a single preparation ceiling keeps transient memory
-  bounded, and preparation failures stop before any committable prefix.
-- **Confidence:** medium.
+The spec did not place discovery relative to read, merge, and lock. This is sound
+because the checked bytes are the proposed write. Configuration updates pay
+bounded discovery cost under the existing lock; no second secret catalogue or
+silent settings repair is introduced.
 
-## Installed boundary foundation
+### Save a private receipt for human action retries
 
-- **When:** Installed audit journey checkpoint.
-- **The choice:** Copy bounded bytes instead of cloning read-only files. When
-  the native Linux CLI prepares a reviewer snapshot on a Mac-shared Docker
-  mount, Bun's file-copy operation can create a file whose permissions cannot
-  subsequently be changed. The snapshot now uses the existing confined reader
-  (which refuses symlinks and changed file identity), creates a new destination
-  exclusively, and makes it read-only. The complete snapshot must still match
-  the verified bundle digest before Docker receives it. A streaming copy would
-  use less transient memory; this choice holds at most one bounded bundle file
-  at a time and avoids another filesystem traversal owner.
-- **The gap:** The plan required real installed execution but did not prescribe
-  the byte-copy mechanism across shared host filesystems.
-- **The reach:** Snapshot preparation uses the existing bundle size ceilings and
-  confined reader. It does not weaken final verification or add a fallback that
-  runs against the live bundle when copying fails.
-- **Verdict:** sound; a real bind-mount failure is removed without changing the
-  isolation contract or hiding that filesystem from the test.
-- **Confidence:** medium.
+When: decision actions.
 
-- **When:** Installed audit journey checkpoint.
-- **The choice:** Give only the outer test harness Docker control. The installed
-  Linux CLI runs in a disposable outer container and launches a real sibling
-  reviewer through the mounted Docker socket. Both see the same absolute scratch
-  paths, so the daemon mounts the files the CLI actually prepared. The outer
-  container receives the socket's observed numeric group; the reviewer still
-  receives only its production allowlisted mounts, never the socket. Running a
-  fake Docker command instead would not prove actual isolation or native startup.
-- **The gap:** The installed Linux test needs to exercise a daemon on the host
-  while keeping provider configuration and repository writes disposable.
-- **The reach:** This socket permission belongs solely to a test harness. The
-  report distinguishes synthetic model behavior from real Factory execution.
-- **Verdict:** sound; the test grants the authority needed to exercise the real
-  boundary without granting it to the component under isolation.
-- **Confidence:** high.
+A user submits a note containing a secret, then retries after the env file changes.
+Factory privately saves the safe action and a hash of the original request under
+the existing action lock. The same request reuses the original action; different
+content under the same action ID is refused. Already-prepared semantics are also
+an exact retry. Neither the raw note nor its request hash enters Git.
+
+The plan required stable retries without defining this binding. This is sound
+because immutable actions must not change with today's dictionary. It adds a
+bounded private receipt per prepared action. Coverage actions need no prose
+receipt: they contain typed authority and unchanged Session locators.
+
+### Share prepared GitHub evidence policy, not the raw provider parser
+
+When: PR publication admission.
+
+GitHub returns a title, timestamp, and head commit. Preparation can redact the
+title or timestamp; a second pass must still recognize the resulting evidence.
+The GitHub adapter validates the raw response. The repository owns the shared
+prepared-evidence rule: validated containers and exact Git-identity paths remain
+structural while other scalars are opaque sanitized data.
+
+The plan did not locate this shared rule. This is sound because producer and
+writer must not apply different SHA exemptions. Only documented, validated Git
+fields retain their identities; a matching hash in an unknown explanation is
+redacted. Optional Git-identity null remains structural too, so a deleted head
+does not become an invalid commit even when an env secret equals null.
+
+### Prefer redaction when a visible omission count matches a secret
+
+When: publication integration.
+
+With TOKEN=1000, shortening a 5,000-character result produces a visible marker
+whose count is redacted. The structured transformation summary still records
+exactly 1,000 omitted characters. Prose that resembles a generated omission marker
+does not receive extra trust.
+
+The plan required all-message redaction and an exact count without settling their
+collision. This is a sound implementation choice because consumers use structured
+counts, not marker parsing. It sacrifices a visible number in this rare case
+rather than adding an exemption for arbitrary message text.
+
+### Label combined stdout and stderr honestly
+
+When: provider adapters.
+
+A Claude hook supplies both output streams. Factory combines their text, applies
+one result budget, labels it as combined output, and leaves the second stream
+field empty. Dividing shortened text at the original boundary would be false
+after redaction changed lengths. Separate budgets would retain twice the context.
+Tool-call identity and error status remain available.
+
+The spec left the reduced stream representation open. This is sound for review
+evidence, but readers cannot infer which stream originally held each character.
+The label prevents shortened evidence from pretending to be a terminal recording.
+
+### Recheck the bytes that determine protection
+
+When: env discovery.
+
+An env file changes while another directory is scanned. Factory compares its
+final bytes with the first read rather than assuming unchanged timestamps prove
+unchanged content. The second read uses bounded chunks. Churn inside deliberately
+excluded build directories does not invalidate discovery, provided their own
+inspected identity was not replaced.
+
+The spec required race detection without defining its proof. This is sound
+because selected env bytes determine protection; unrelated excluded contents do
+not. Discovery pays one extra bounded read without expanding dictionary scope.
+
+### Match both env spellings and the union of overlapping secrets
+
+When: shared matching policy.
+
+An env value with an escaped newline may appear literally in copied file output
+or decoded in JSON. Factory matches both forms. If two secrets overlap, such as
+abc and bcde inside abcde, it redacts their union rather than leaving an edge of
+either match visible.
+
+The plan left these representation details open. This is sound because the same
+known content should stay protected across ordinary provider encoding. It does
+not add recursive decoding of arbitrary base64 or other opaque formats.
+
+### Opaque scalars do not become structural by their type
+
+When: shared JSON policy.
+
+A provider payload contains a numeric password or an unknown null matching a
+secret. Factory can replace that scalar with a redaction string. A validated
+Factory counter or optional Git identity instead keeps its structural meaning.
+Provider metadata is classified before transformation.
+
+The plan explicitly covered decoded strings but not all scalar types. This is
+sound because numeric credentials must not get a free bypass. Opaque evidence
+consumers must allow changed scalar types rather than applying the raw provider
+schema to already-prepared evidence.
+
+### Keep native probes narrow and Docker control outside the reviewer
+
+When: filesystem and installed verification.
+
+A macOS-specific behavior needs a real macOS probe, but provider and repository
+tests remain in Docker. Native probes therefore use bounded temporary files
+without homes, hooks, or .factory. The installed Linux journey uses a disposable
+outer container with the host Docker socket to launch a real sibling reviewer.
+Shared absolute scratch paths let the daemon mount the CLI's actual prepared
+files. Only the outer harness receives Docker control; the reviewer retains its
+production mount allowlist and never receives the socket.
+
+The spec left this test topology open. This is sound because it verifies native
+behavior without touching live provider configuration or replacing Docker with
+a fake command. It is test-only authority, not a new product capability.
