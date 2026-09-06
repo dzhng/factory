@@ -51,6 +51,7 @@ import {
   uninstallHooks,
   upgradeInstallation,
 } from './installation'
+import { npmInstallation, upgradeNpmInstallation } from './npm-upgrade'
 import { openCommand, type OpenCommandOptions } from './open'
 import {
   atomicPrivateWrite,
@@ -681,6 +682,7 @@ export async function runFactoryCli(
   options: {
     environment?: NodeJS.ProcessEnv
     cwd?: string
+    runtimeExecutable?: string
     output?: Output
     open?: OpenCommandOptions
   } = {},
@@ -693,8 +695,26 @@ export async function runFactoryCli(
       stdout: value => process.stdout.write(value),
       stderr: value => process.stderr.write(value),
     } satisfies Output)
-  const [command] = args
   try {
+    const noAutoUpgrade =
+      args.includes('--no-auto-upgrade') || environment.FACTORY_NO_AUTO_UPGRADE === '1'
+    args = args.filter(arg => arg !== '--no-auto-upgrade')
+    const [command] = args
+    if (
+      !noAutoUpgrade &&
+      ['install', 'init', 'review', 'associate', 'open'].includes(command ?? '') &&
+      !args.includes('--automatic')
+    ) {
+      try {
+        const npm = await npmInstallation(options.runtimeExecutable ?? process.execPath)
+        if (npm && (await updateChecksEnabled(await gitRoot(cwd, environment), environment)))
+          await upgradeNpmInstallation(npm, environment, false, output.stderr, true)
+      } catch (error) {
+        output.stderr(
+          `Factory automatic upgrade skipped: ${error instanceof Error ? error.message : String(error)}.\n`,
+        )
+      }
+    }
     if (command === '--version' || command === 'version') {
       output.stdout(`${factoryBuildIdentity.version}\n`)
       return 0
@@ -704,6 +724,7 @@ export async function runFactoryCli(
         const warning = await cachedUpdateWarning(environment)
         if (
           warning !== undefined &&
+          (await npmInstallation(options.runtimeExecutable ?? process.execPath)) === undefined &&
           (await updateChecksEnabled(await gitRoot(cwd, environment), environment))
         )
           output.stderr(warning)
@@ -814,6 +835,22 @@ export async function runFactoryCli(
       return 0
     }
     if (command === 'upgrade') {
+      const npm = await npmInstallation(options.runtimeExecutable ?? process.execPath)
+      if (npm !== undefined) {
+        if (args.length !== 1 && !(args.length === 2 && args[1] === '--check'))
+          throw new Error(
+            'npm installations support factory upgrade [--check]; archive replacement is for standalone binaries',
+          )
+        if (
+          args.includes('--check') &&
+          !(await updateChecksEnabled(await gitRoot(cwd, environment), environment))
+        ) {
+          output.stdout('Factory update checks are disabled.\n')
+          return 0
+        }
+        await upgradeNpmInstallation(npm, environment, args.includes('--check'), output.stdout)
+        return 0
+      }
       if (args.includes('--check')) {
         if (args.length !== 2)
           throw new Error('--check cannot be combined with upgrade mutation options')
@@ -837,7 +874,9 @@ export async function runFactoryCli(
         manifestPath === undefined ||
         expectedManifestSha256 === undefined
       )
-        throw new Error('factory upgrade requires --archive, --manifest, and --manifest-sha256')
+        throw new Error(
+          'Standalone factory upgrade requires --archive, --manifest, and --manifest-sha256. For npm-managed upgrades, install with npm install -g @dzhng/factory.',
+        )
       const expectedTarget = releaseTargetForCurrentHost()
       if (expectedTarget === undefined) throw new Error('factory upgrade is unsupported here')
       const archive = await readBoundedOrdinaryFile(resolve(cwd, archivePath), 96 * 1024 * 1024)

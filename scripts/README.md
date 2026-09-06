@@ -8,7 +8,7 @@ The [release workflow](../.github/workflows/publish.yml) runs on stable `v*`
 tags. It reuses CI's quality and native build jobs, then packages those exact
 artifacts into public `@dzhng/factory` and publishes the native GitHub assets.
 The npm package contains both supported binaries and a platform-selecting Node
-launcher, with no install scripts or runtime downloads. This trades download
+launcher, with no install scripts or launcher downloads. This trades download
 size for one package and one publication boundary.
 
 Publishing requires npm authority for `@dzhng`: configure `NPM_TOKEN` in the

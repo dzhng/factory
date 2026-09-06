@@ -158,25 +158,40 @@ package installation; Factory does not claim its archive manifest independently
 authenticates an npm publisher. Packaging binds both binaries to the tag's exact
 source and version. No npm lifecycle script changes provider settings or fetches
 executables. The launcher selects a bundled binary; hook installation remains
-explicit. npm-managed installations should be updated through npm.
+explicit. Global npm installations update through npm, with lifecycle scripts
+disabled and the destination prefix derived from the running executable, never
+from npm's default prefix. Project-local installs and other package managers are
+not automatically modified.
+
+Normal npm-installed work commands may check the fixed public npm registry and
+install a newer stable version before proceeding. Discovery is time- and
+size-bounded; failures are nonfatal to the requested command. Installation is
+serialized with Factory's install lock and refused while a native transaction
+is pending. npm owns package replacement and recovery, not Factory's native
+transaction journal. Once installation starts, Factory waits for npm to finish
+rather than interrupting package replacement on a startup deadline. A running
+native process continues using its loaded version; subsequent commands use the
+updated package. Upgrades neither reconcile hooks nor change repository data.
+User controls and excluded commands live in the [installation guide](scripts/npm-README.md).
 
 Update discovery is separate from upgrade authority. An explicit
 `factory upgrade --check` can read bounded public release metadata from the
 fixed `dzhng/factory` GitHub release endpoint without authentication or redirects.
-It writes only a private, expiring version observation. Ordinary command startup
-may display that cached warning but never contacts the network or installs an
-update; capture and automatic-review workers do neither. Repository and global
-preferences can disable discovery and warnings. A cache entry cannot authorize
-executable replacement.
+For standalone binaries it writes only a private, expiring version observation;
+their startup may display that cached warning but never installs an update.
+Capture and automatic-review workers never check or upgrade. Repository and
+global preferences can disable discovery, automatic upgrades, and warnings.
+Explicit upgrades remain available even when automatic discovery is disabled.
+A cache entry cannot authorize executable replacement.
 
-Factory replaces its installed executable only from a release artifact whose
+For standalone upgrades, Factory replaces its installed executable only from a release artifact whose
 trusted manifest digest, archive inventory, target, source identity, and inner
 executable digest have all been verified. Release-shaped JSON alone is not
 upgrade authority. The staged executable must also run and report the verified
 version before it can be promoted.
 
-Install, uninstall, repair, and upgrade share one host-level lock and durable
-transaction owner. Recovery may retain the verified old executable or complete
+Install, uninstall, repair, and upgrades share one host-level lock. Native
+mutations also share a durable transaction owner. Recovery may retain the verified old executable or complete
 the verified replacement; it must refuse to overwrite bytes that diverged while
 Factory was interrupted. Upgrade never grants authority over repository data or
 provider configuration beyond reconciling Factory's exactly owned hooks.

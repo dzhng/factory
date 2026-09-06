@@ -549,13 +549,14 @@ async function recoverInstallationTransactionUnlocked(
   await syncDirectory(root)
 }
 
-async function withInstallationLock<T>(
+export async function withInstallationLock<T>(
   environment: NodeJS.ProcessEnv,
   operation: () => Promise<T>,
+  timeoutMs = 30_000,
 ): Promise<T> {
   const root = configRoot(environment)
   await mkdir(root, { recursive: true, mode: 0o700 })
-  return await withAdvisoryFileLock(join(root, 'installation.lock'), 30_000, operation)
+  return await withAdvisoryFileLock(join(root, 'installation.lock'), timeoutMs, operation)
 }
 
 export async function recoverInstallationTransaction(

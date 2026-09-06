@@ -15,11 +15,12 @@ Manual review flags override that same configuration fold. The public contract
 owns the permitted resource ranges; the reviewer verifies Docker's actual
 constraints without making its isolation policy configurable.
 
-Update checks are advisory and explicitly refreshed with `factory upgrade --check`.
-Normal startup only reads a private cached version observation; expired or
-malformed cache data is ignored. Capture and automatic-review workers skip update
-diagnostics entirely. Discovery never substitutes for the verified artifact
-authority needed by an actual upgrade.
+The [npm upgrade owner](src/npm-upgrade.ts) updates only the global npm prefix
+containing the running executable. Manual and automatic upgrades share that
+owner and the installation lock. npm owns package replacement; Factory does not
+rewrite hook settings during package upgrades. The [installation guide](../../scripts/npm-README.md)
+owns user controls. Standalone binaries retain explicit verified-archive upgrades
+and cached advisory checks; discovery never substitutes for artifact authority.
 
 `factory capture` is deliberately fail-open for Codex and Claude Code: after
 input classification it always emits the provider's valid empty response and
@@ -46,7 +47,7 @@ compares actual hooks with provider-owned semantics. `factory doctor` is
 read-only unless `--repair` is explicit and reports that inspection without
 including provider configuration bytes.
 
-All install mutations journal through one tagged installation transaction.
+Factory-owned install mutations journal through one tagged installation transaction.
 Hook reconciliation is its first operation kind; executable upgrade extends
 that same recovery owner rather than creating a parallel update journal. The
 upgrade boundary accepts only an artifact-verifier capability, stages on the

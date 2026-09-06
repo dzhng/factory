@@ -49,6 +49,7 @@ const dockerArgs = [
   'bun',
   'test',
   '/workspace/packages/cli/test/vertical.test.ts',
+  '/workspace/packages/cli/test/npm-upgrade.test.ts',
 ]
 child = Bun.spawn(dockerArgs, { stdout: 'inherit', stderr: 'inherit' })
 process.exit(await child.exited)
