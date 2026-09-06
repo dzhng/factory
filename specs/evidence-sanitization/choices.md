@@ -228,3 +228,40 @@ limits remain the policy owner; no second config secret catalogue is introduced.
 - **Verdict:** sound; a single preparation ceiling keeps transient memory
   bounded, and preparation failures stop before any committable prefix.
 - **Confidence:** medium.
+
+## Installed boundary foundation
+
+- **When:** Installed audit journey checkpoint.
+- **The choice:** Copy bounded bytes instead of cloning read-only files. When
+  the native Linux CLI prepares a reviewer snapshot on a Mac-shared Docker
+  mount, Bun's file-copy operation can create a file whose permissions cannot
+  subsequently be changed. The snapshot now uses the existing confined reader
+  (which refuses symlinks and changed file identity), creates a new destination
+  exclusively, and makes it read-only. The complete snapshot must still match
+  the verified bundle digest before Docker receives it. A streaming copy would
+  use less transient memory; this choice holds at most one bounded bundle file
+  at a time and avoids another filesystem traversal owner.
+- **The gap:** The plan required real installed execution but did not prescribe
+  the byte-copy mechanism across shared host filesystems.
+- **The reach:** Snapshot preparation uses the existing bundle size ceilings and
+  confined reader. It does not weaken final verification or add a fallback that
+  runs against the live bundle when copying fails.
+- **Verdict:** sound; a real bind-mount failure is removed without changing the
+  isolation contract or hiding that filesystem from the test.
+- **Confidence:** medium.
+
+- **When:** Installed audit journey checkpoint.
+- **The choice:** Give only the outer test harness Docker control. The installed
+  Linux CLI runs in a disposable outer container and launches a real sibling
+  reviewer through the mounted Docker socket. Both see the same absolute scratch
+  paths, so the daemon mounts the files the CLI actually prepared. The outer
+  container receives the socket's observed numeric group; the reviewer still
+  receives only its production allowlisted mounts, never the socket. Running a
+  fake Docker command instead would not prove actual isolation or native startup.
+- **The gap:** The installed Linux test needs to exercise a daemon on the host
+  while keeping provider configuration and repository writes disposable.
+- **The reach:** This socket permission belongs solely to a test harness. The
+  report distinguishes synthetic model behavior from real Factory execution.
+- **Verdict:** sound; the test grants the authority needed to exercise the real
+  boundary without granting it to the component under isolation.
+- **Confidence:** high.

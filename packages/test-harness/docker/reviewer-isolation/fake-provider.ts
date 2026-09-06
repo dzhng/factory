@@ -28,6 +28,9 @@ if (behavior.includes('factory-test-decision') && bundle.plan.priorLedger !== un
   decisionEvidence = bundle.plan.priorLedger.object
 }
 const unsound = behavior.includes('factory-test-unsound')
+const sensitive = behavior.includes('factory-test-sanitization')
+  ? ' fixture-env-secret-9a7f3e21 sk-proj-1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJ'
+  : ''
 const events: {
   kind: string
   choice?: Record<string, unknown>
@@ -62,9 +65,9 @@ if (behavior.includes('factory-test-verdicts'))
       choice: {
         choiceKey: `fixture.${verdict}`,
         effect: 'assert',
-        assertion: { verdict, nested: { retained: true } },
+        assertion: { verdict, nested: { retained: true, explanation: `Context${sensitive}` } },
         when: 'When synthetic provider behavior was specified',
-        headline: `${verdict} synthetic decision`,
+        headline: `${verdict} synthetic decision${sensitive}`,
         scenario:
           'A release author selects a behavior without explicit direction.\nThe next release inherits it; a different choice would change certification.',
         gap: 'The user did not select this fixture behavior.',
@@ -87,7 +90,7 @@ if (behavior.includes('factory-test-verdicts'))
 events.push({
   kind: 'audit-summary',
   summary: {
-    reviewed: 'Inspected the synthetic release implementation and its explicit specification.',
+    reviewed: `Inspected the synthetic release implementation and its explicit specification.${sensitive}`,
     ...(events.length === 0
       ? {
           noChoiceRationale: 'The specification explicitly selected all observed release behavior.',

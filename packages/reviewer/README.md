@@ -35,6 +35,11 @@ private runtime data, separate from the canonical submission stream. Recovery
 retains both streams until acceptance; final text is never a fallback when
 submissions are absent.
 
+Snapshot copying reads bounded, no-follow source bytes and creates destination
+files exclusively before making them read-only. This avoids filesystem clone
+behavior that can leave a copied read-only file unchmodable on a shared host
+mount; complete bundle verification still authorizes the resulting snapshot.
+
 The image contains a fixed stdio submission server. It verifies the bundle,
 resolves bundle-local evidence handles, and appends canonical events only after
 the shared contract fold admits them. The journal itself is the OS-released lock

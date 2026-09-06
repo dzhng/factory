@@ -1,10 +1,11 @@
 import { constants } from 'node:fs'
-import { chmod, copyFile, mkdir, mkdtemp, open, rm } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, open, rm } from 'node:fs/promises'
 import { platform, arch } from 'node:os'
 import { dirname, join } from 'node:path'
 
 import type { DockerLimits, RecordId } from '@factory/contract'
 import { canonicalJson } from '@factory/contract'
+import { readConfinedFile } from '@factory/repository'
 
 import { reviewerAdapter } from './adapter'
 import { sealReviewerRawAttempt, type ReviewerRawAttempt } from './attempt'
@@ -98,8 +99,28 @@ async function immutableBundleSnapshot(
     for (const file of [{ path: 'bundle.json' }, ...verified.manifest.files]) {
       const target = join(root, file.path)
       await mkdir(dirname(target), { recursive: true, mode: 0o755 })
-      await copyFile(join(verified.path, file.path), target, constants.COPYFILE_EXCL)
-      await chmod(target, 0o444)
+      const bytes = await readConfinedFile(
+        verified.path,
+        file.path.split('/').map(segment => new TextEncoder().encode(segment)),
+        {
+          maximumBytes:
+            file.path === 'bundle.json'
+              ? 4 * 1024 * 1024
+              : verified.manifest.plan.limits.maxBundleBytes,
+        },
+      )
+      // Bun's readonly-source copyFile can produce an unchmodable VirtioFS target.
+      const destination = await open(
+        target,
+        constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+        0o600,
+      )
+      try {
+        await destination.writeFile(bytes)
+        await destination.chmod(0o444)
+      } finally {
+        await destination.close()
+      }
     }
     return { bundle: await openVerifiedReviewBundle(root, verified.sha256), root }
   } catch (error) {

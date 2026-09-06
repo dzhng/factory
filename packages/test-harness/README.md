@@ -25,6 +25,14 @@ The [sanitization policy probe](src/run-sanitization-policy.ts) makes retained
 reasoning and reduced tool context inspectable using synthetic text only. It
 does not certify the repository publication boundary.
 
+The [installed audit journey](src/run-installed-audit.ts) accepts a verified
+Linux release archive and drives its native executable in disposable Docker
+state, without Bun on the consumer path. Synthetic provider executables submit
+through the real isolated reviewer and repository publication owners. The outer
+test container alone receives the Docker socket; shared scratch paths retain
+their host spelling so sibling reviewer mounts resolve to the same bytes.
+Its report names the checks actually exercised, not real-model judgment quality.
+
 Provider fixtures preserve raw bytes and provider-native vocabulary. They are
 observations, not a shared provider schema. Empirical oracle evidence informs
 Factory without becoming production behavior.
