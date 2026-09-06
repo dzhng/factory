@@ -140,19 +140,15 @@ test('Codex metadata and call identities cannot collapse to redaction markers', 
   }
 })
 
-test(
-  'bounded input cannot expand into unbounded omission evidence',
-  () => {
-    expect(() =>
-      codexCaptureAdapter.prepareEvidence(
-        'transcript',
-        new Uint8Array(1_300_000).fill(10),
-        createSanitizer([]),
-      ),
-    ).toThrow('sanitization-limit')
-  },
-  30_000, // Exercises the real 64 MiB expansion bound, not a five-second latency contract.
-)
+test('bounded input cannot expand into unbounded omission evidence', () => {
+  expect(() =>
+    codexCaptureAdapter.prepareEvidence(
+      'transcript',
+      new Uint8Array(1_300_000).fill(10),
+      createSanitizer([]),
+    ),
+  ).toThrow('sanitization-limit')
+}, 30_000) // Exercises the real 64 MiB expansion bound, not a five-second latency contract.
 
 test('invalid UTF8 omits only its line and deep unsupported JSON does not stop siblings', () => {
   const deep = '['.repeat(66) + '0' + ']'.repeat(66)
