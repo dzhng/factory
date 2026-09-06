@@ -1,231 +1,242 @@
-# Implementation choices
+# Choice-audit decisions
 
-## Sound · medium confidence — Describe conditional tool fields and enforce them at admission
+Review these first: giving the ledger the primary screen area, selecting one
+failure verdict rather than a threshold, and describing conditional tool fields
+instead of advertising conditional schemas. All surviving choices are judged
+sound; medium confidence means a reasonable owner could prefer the alternative.
 
-When: slice 4 pinned-provider integration.
+## Sound
 
-A reviewer judges a choice unsound and must supply the corrected decision. The
-tool description explains that requirement; the server refuses the submission
-with a fixed correction message if it is absent. The advertised JSON Schema is
-a flat object because the pinned Claude client dropped the choice tool when its
-schema used conditional clauses. Keeping those clauses would make a formally
-precise schema unusable; inventing separate verdict tools would expand the agreed
-three-tool surface. The shared runtime validator still checks the exact rules
-before acknowledging or storing anything.
+### Give standalone choices the primary screen area
 
-Gap: the plan did not settle client-specific JSON Schema expressiveness.
-Reach: future conditional fields need descriptive tool metadata and an admission
-rule; client schema acceptance alone never proves a valid submission. Verdict:
-sound because interoperability changes no accepted semantic value.
+Confidence: medium.
 
-## Sound · medium confidence — Disable Codex web search for bundle-only review
+A reader deciding whether to retain payment receipts for a year needs the
+reasoning, provisional retention period, and reversal instructions together.
+Factory places the choice ledger across the page above the Session and pull-request
+panels, with two cards across on wide screens and one on narrow screens. A sidebar
+would leave more Session evidence above the fold, but squeeze these explanations
+or require readers to open each one.
 
-When: slice 4 provider configuration.
+Gap: making choices the primary task did not determine how much screen area to
+give them. Reach: future additions must preserve uninterrupted reading of the
+decision, even at the cost of pushing supporting evidence farther down the page.
+Verdict: sound because judging the choice, not navigating its source transcript,
+is this screen's main task; the space tradeoff remains a product preference.
 
-A reviewer sees a library name in a captured implementation. It should judge the
-choice against the supplied history, not silently add mutable web evidence that
-cannot be cited from the verified bundle. The adapter disables Codex's built-in
-web search while preserving the container's existing model-service network
-access. Leaving search enabled would invite uncaptured evidence without adding a
-durable citation owner.
+### Select one failure verdict, not a severity threshold
 
-Gap: the plan required exact bundle citations but did not explicitly choose the
-web-search switch. Reach: future external research needs an explicit evidence
-capture path before it can support this audit. Verdict: sound because the audit's
-authority remains the immutable input the host verified.
+Confidence: medium.
 
-## Sound · high confidence — Use closed configuration sources instead of Claude safe mode
+A team wants CI to fail when the reviewer finds an unsound decision. With
+`--fail-on unsound`, a needs-user choice does not fail that command: needing the
+owner to select a retention policy is different from choosing a demonstrably
+wrong policy. Conversely, `--fail-on needs-user` does not fail merely for an
+unsound choice. A ranked threshold would silently decide which kind of judgment
+includes the other; a multi-verdict selector would add a broader policy surface.
 
-When: slice 4 pinned-provider experiment.
+Gap: removing generic severity levels left command-line enforcement unspecified.
+Reach: automation selects exactly the judgment it wants to enforce, rather than
+inheriting an ordering between correctness and user authority. Verdict: sound
+because the two meanings stay separate, although callers wanting either verdict
+to fail must express that policy outside this single selector.
 
-Factory starts Claude with its native login and its own submission server. Safe
-mode removes even that explicitly supplied server, leaving the model unable to
-submit an audit. Factory instead uses restricted mode, empty setting sources,
-strict MCP configuration, and explicit read/submission tool permissions inside
-the already isolated container. Enabling ordinary user settings would let a
-saved hook run; a synthetic poisoned-home test proves that difference. Bare mode
-would remove native login support, so it is not an equivalent substitute.
+### Describe conditional tool fields and enforce them on submission
 
-Gap: the plan chose strict tool authority but did not specify how pinned safe
-mode interacts with explicit servers. Reach: provider upgrades must rerun the
-executable configuration probe, not just argument assertions. Verdict: sound
-because the closed source boundary preserves both native authentication and the
-required tools, without another host mount or broader permissions.
+Confidence: medium.
 
-## Sound · medium confidence — Evidence handles live inside the bundle manifest
+A model submits an unsound choice without explaining the corrected decision.
+Factory's submission server rejects it with a fixed, actionable message, allowing
+the model to retry. The tool's advertised JSON Schema describes a flat object;
+field descriptions explain verdict-dependent requirements. The pinned Claude
+client drops the tool when the advertised schema uses conditional clauses.
+Separate tools for each verdict would avoid that limitation but multiply the
+agreed submission interface.
 
-When: slice 2 submission tooling.
+Gap: the tool contract did not settle client-specific schema expressiveness.
+Reach: new conditional fields need both readable descriptions and authoritative
+runtime validation. Clients cannot discover every cross-field rule mechanically.
+Verdict: sound because interoperability weakens the advertised description, not
+the values Factory accepts; the shared validator remains the authority.
 
-A model needs to cite a captured object without copying a long digest and all its
-metadata. Factory adds a compact lookup table beside the bundle's existing
-inventory: `e1` refers to the first full reference in canonical order. The model
-submits that handle; the server expands it back to the exact reference. A separate
-index file would need its own path and digest entry, while ordinal-only inference
-would force clients to recreate the ordering rule themselves.
+### Keep evidence handles inside the verified bundle manifest
 
-Gap: the plan required a deterministic index but did not choose its representation.
-Reach: manifests grow by a bounded copy of their reference inventory; their
-existing byte ceiling still applies. Handles change when inventory changes and
-never become durable identity. Verdict: sound because one verified manifest
-binds the mapping without another file-publication rule.
+Confidence: medium.
 
-## Sound · high confidence — The submission journal is also the lock inode
+A model cites a captured file by submitting `e1` instead of copying its digest,
+size, media type, and role. The bundle manifest—the immutable description of the
+review input—contains a table mapping that short handle to the full object
+reference. The server expands the handle, and durable citations retain the exact
+reference. Another bundle can assign `e1` to a different object; the handle is
+never a cross-review identity.
 
-When: slice 2 durable tool acknowledgement.
+Gap: the required deterministic evidence index had no chosen representation.
+Reach: the manifest contains a bounded duplicate of its reference inventory.
+A separate index file would need its own publication and digest binding, while
+implicit numbering would make every client recreate the sorting rule. Verdict:
+sound because the existing verified manifest binds both inventory and lookup
+without another authoritative artifact.
 
-Two server processes may start after a provider retry. Both lock the same journal
-file using the existing operating-system lock, then read, validate, append, and
-sync while holding it. The second process sees the first's event and returns
-success without appending a duplicate. The journal is never renamed or replaced;
-process death releases its lock automatically. A separate lock artifact would
-add another allowed output file and its cleanup lifecycle.
+### Disable Codex web search during bundle-only review
 
-Gap: the plan required durable idempotent appends without choosing concurrency
-ownership. Reach: all honest writers must preserve this file identity and use the
-same lock. Exact retries also sync before acknowledgement, covering a predecessor
-that wrote bytes but died before syncing. Verdict: sound because serialization
-and crash release reuse a proven repository primitive without another artifact.
+Confidence: medium.
 
-## Sound · high confidence — Corrupt journals remain evidence, not repair targets
+A reviewer encounters a library name in the captured implementation. Codex's
+built-in web search is disabled, so the review cannot quietly use a current web
+page as if it were captured evidence. The container still has network access for
+the model service; this switch is a tool restriction, not a network-isolation
+claim. Leaving search enabled could help research, but its results would have no
+exact citation in this review's immutable bundle.
 
-When: slice 2 hostile-output handling.
+Gap: requiring bundle citations did not choose the provider's search setting.
+Reach: external research needs an explicit capture-and-citation path before it
+can support this analyzer. Verdict: sound because the reviewer judges the history
+Factory supplied, rather than adding a second, mutable evidence source.
 
-The provider can write its output directory directly and leave a malformed line
-after an acknowledged choice. A restarted tool refuses to append to that file;
-it does not delete the malformed tail or guess what the model meant. Host
-acceptance can still preserve the earlier valid choice as a partial audit.
-Repairing the file inside the tool would hide what happened and might turn an
-incomplete attempt into an apparently clean finish.
+### Copy the complete explanation into derived decision observations
 
-Gap: the plan required malicious direct-output tests but did not prescribe
-server-side repair behavior. Reach: a damaged attempt must end as partial or
-failed and be retried as another attempt; its valid history remains available.
-Verdict: sound because only validation, not rewriting evidence, can grant authority.
+Confidence: medium.
 
-## Sound · high confidence — Missing scope disables actions, not reading
+After accepting a review about receipt retention, Factory creates a decision
+observation: a rebuildable record used to combine that choice with later reviews
+and human actions. It includes the scenario, gap, reach, judgment, citations, and
+corrected or provisional decision, not just the underlying assertion. The browser
+can then explain the decision from the history projection without resolving its
+source review again for every field.
 
-When: slice 3 independent-review correction.
+Gap: verdict-aware history did not specify how much explanation the derived
+record should carry. Reach: records are larger and repeat accepted prose, but
+their complete bytes must reproduce from the authoritative review and subject.
+A reference-only record would save duplication while moving those joins into
+every reader. Verdict: sound because duplication is checked derivation, not a
+second independently editable judgment.
 
-A cloned repository can contain verified receipt-retention choices before its
-owner configures a canonical branch. Those explanations remain readable, marked
-unclassified and read-only. The browser receives neither an action fingerprint
-nor invented lifecycle or human status.
+### Use closed Claude configuration sources instead of safe mode
 
-Gap: the old projection withheld the entire fold when policy was absent; the spec
-required readable standalone choices without defining this state. Reach: future
-missing-authority states should not silently erase verified audit explanations.
-Verdict: sound because reading evidence is distinct from authorizing a mutation.
-Confidence: high; projection and real-browser regressions cover both boundaries.
-
-## Sound · medium confidence — Standalone choices get the primary full-width panel
-
-When: slice 3 presentation.
-
-A reader deciding whether to keep a year of payment receipts now sees the
-provisional retention period and how to reverse it next to the scenario. The
-ledger sits above the existing session and PR layout, with two readable cards
-across on wide screens and one on narrow screens. Keeping the old sidebar would
-leave little room for the required explanation or require hiding it behind a
-disclosure. The tradeoff is that session cards move farther down the page.
-
-Gap: the spec made choices primary but did not assign their screen area. Reach:
-future audit fields must fit this reading hierarchy without turning the ledger
-back into headlines alone. Verdict: sound because the main task is judging the
-choice without opening a transcript; comparison captures show that task directly.
-Confidence: medium; independent integration visual inspection remains pending.
-
-## Sound · high confidence — Citation detail is disclosed, decision guidance is not
-
-When: slice 3 presentation.
-
-The receipt-retention card always shows its scenario, gap, reach, and reversible
-provisional decision. Its implementation point and source review/entry IDs are
-also visible. A native disclosure reveals evidence role, full SHA-256 digest,
-and locator. Sending the complete object reference or raw submission preview
-would give the browser storage details without improving this explanation.
-
-Gap: the spec required compact provenance but delegated disclosure mechanics.
-Reach: this is a read-only citation display, not an object browser or new evidence
-authority. Exact references remain in durable records; action IDs and the fold's
-state fingerprint pass through unchanged. Verdict: sound because optional
-provenance detail does not hide the user's required decision. Confidence: high.
-
-## Sound · high confidence — Canonical scope breaks confidence ties
-
-When: slice 3 presentation.
-
-If two needs-user choices both have low confidence, the canonical-branch choice
-appears before a proposal from another branch. A medium-confidence canonical
-choice still follows both: scope does not override the required least-confident
-order. Remaining ties use priority and stable semantic/observation identifiers.
-
-Gap: the spec required canonical priority without defining its interaction with
-confidence ordering. Reach: ordering is owned by the domain projection, so every
-browser receives the same groups without inventing verdict semantics. Verdict:
-sound because it preserves both rules without changing lifecycle or human status.
 Confidence: high.
 
-## Sound · medium confidence — Failure selection names one verdict
+Factory starts Claude with its native login and the Factory submission server.
+Claude's safe mode suppresses even that explicitly configured server, making a
+typed audit impossible. Factory uses restricted mode, empty setting sources,
+strict MCP configuration—the explicit list of tool servers—and read/submission
+tool permissions inside the isolated container. Ordinary user settings could
+activate unrelated hooks or tools; bare mode would lose native login support.
 
-When: slice 1 contract cutover.
+Gap: strict tool authority did not specify how the provider's modes interact
+with explicit servers and authentication. Reach: provider-mode behavior remains
+part of this integration's contract; these switches supplement the container
+boundary, not replace it. Verdict: sound because closed configuration sources
+retain the required login and tools without importing a user configuration home
+or broadening host access.
 
-A CI command previously selected a severity threshold. Choice audits instead
-judge whether a decision is wrong or belongs to the user; those judgments have no
-natural severity ordering. The command now selects exactly `unsound` or exactly
-`needs-user`. Selecting unsound does not fail for a user-only choice, and selecting
-needs-user does not fail for a wrong decision. Inventing an order would silently
-turn one policy into the other.
+### Use the submission journal itself as the lock target
 
-Gap: the spec removed generic severities without choosing replacement CLI
-enforcement semantics. Reach: automation must explicitly select the judgment it
-wants to enforce; the old severity options are rejected. Verdict: sound because
-exact selection preserves opt-in enforcement without inventing product priority.
+Confidence: high.
 
-## Sound · medium confidence — Derived decisions retain the whole explanation
+Two submission-server processes can overlap after a retry. They acquire the same
+operating-system lock on the journal file, so the second reads the first's event
+before deciding whether to append. An exact retry succeeds without a duplicate.
+The file is never replaced, and process death releases the lock automatically.
+A separate lock file would introduce another artifact and cleanup lifecycle.
 
-When: slice 1 domain projection.
+```text
+lock the journal file
+read and validate existing events
+if the exact event is absent: validate and append it
+sync the file and its directory, including on an exact retry
+release the lock, then acknowledge
+```
 
-After an audit is accepted, Factory creates a rebuildable decision observation
-for the history fold. It copies the validated scenario, gap, reach, verdict, and
-evidence, as well as the assertion. A later browser can explain a choice and show
-its corrected or provisional decision directly. Keeping only a reference would
-make every projection resolve the review again to recover these essential fields.
+Gap: durable, repeatable acknowledgements required a concurrency owner. Reach:
+cooperating writers must preserve the file's identity and use this lock. Syncing
+on a retry also covers a predecessor that wrote the event but died before making
+it durable. Verdict: sound because serialization and crash release use the same
+existing file-lock primitive without a second ownership mechanism.
 
-Gap: the plan required verdict-aware folding but did not specify the derived
-observation's complete payload. Reach: observations are larger, but are still
-admitted only when their bytes reproduce exactly from the authoritative review.
-Verdict: sound because all consumers receive the same validated explanation and
-cannot substitute an independently reconstructed judgment.
+### Refuse to repair a corrupt submission journal
 
-## Sound · high confidence — Partial scope summaries are useful without completion
+Confidence: high.
 
-When: slice 1 acceptance seam.
+The provider can write its output directory directly and leave a malformed line
+after an acknowledged choice. A restarted submission server refuses to append;
+it does not truncate the tail or guess the intended event. Host acceptance can
+preserve the valid preceding choice as a partial audit. Repairing the journal
+would hide the damaged output and could make an unfinished attempt appear clean.
 
-A reviewer submits a cited account of what it read, then crashes before submitting
-choices or finishing. Factory preserves that account as a partial audit. It does
-not claim that no choices exist. A zero-choice audit can finish only after an
-explicit no-choice rationale. Rejecting the early summary would discard useful
-work; treating it as complete would manufacture assurance from silence.
+Gap: hostile-output handling did not decide whether the tool should repair its
+input. Reach: corruption reduces the attempt's authority rather than authorizing
+rewrites; a new execution is a separate attempt, not an erased tail. Verdict:
+sound because useful validated evidence survives without manufacturing completion.
 
-Gap: the plan distinguishes partial valid output from completed empty audits,
-but leaves durable summary optionality unspecified. Reach: a partial ledger may
-have entries without a summary, or a scope summary without choices; completion
-remains a separate validated fact. Verdict: sound because it retains evidence
-without overstating authority.
+### Keep choices readable when canonical scope is unknown
 
-## Sound · high confidence — Private diagnostics have a separate bounded stream
+Confidence: high.
 
-When: slice 1 reviewer crash boundary.
+A cloned repository contains a verified receipt-retention choice, but its owner
+has not configured the canonical branch—the branch used to decide which choices
+describe the main line of work. Factory shows the explanation as unclassified
+and read-only. It does not invent lifecycle or human-confirmation status, and it
+does not issue the state fingerprint required to submit an action. Hiding the
+whole history would remove useful evidence just because mutation authority is
+unavailable.
 
-A provider writes final prose while the submission tool records semantic events.
-Factory keeps those as two private streams while publication is pending, so crash
-recovery can repeat acceptance and the live capture probe can inspect provider
-completion independently. Only validated submissions can become portable records.
-Using final prose as a fallback would reintroduce the removed model-JSON parser;
-discarding it would remove the existing diagnostic oracle.
+Gap: readable choices were required, but missing canonical policy had no defined
+presentation. Reach: future unavailable-authority states should disable actions
+without silently discarding verified explanations. Verdict: sound because
+reading evidence and authorizing a change are different capabilities.
 
-Gap: the clean cutover did not specify how private raw-attempt recovery retains
-both channels. Reach: each channel is bounded at 1 MiB; their base64 encoding plus
-fixed facts fits the private 3 MiB state ceiling. The forthcoming sanitizer must
-still govern every committable submission. Verdict: sound because the bounds
-follow the actual two-channel schema and preserve a distinct private trust domain.
+### Use canonical scope only to break confidence ties
+
+Confidence: high.
+
+Two needs-user choices have low confidence: one describes the canonical branch,
+the other a proposal branch. Factory shows the canonical choice first. A
+medium-confidence canonical choice still follows both low-confidence choices;
+scope does not override uncertainty. The domain projection, not each browser,
+applies this ordering.
+
+```text
+group by verdict
+within each group: confidence from low to high
+then canonical scope before other scope
+then existing priority and stable identifiers
+```
+
+Gap: canonical priority and least-confident-first ordering did not specify which
+rule wins. Reach: all consumers get the same order without changing choice
+presence or human status. Verdict: sound because scope resolves ties instead of
+quietly hiding the choices most likely to need scrutiny.
+
+### Preserve a scope summary without claiming the audit finished
+
+Confidence: high.
+
+A reviewer submits a cited account of the histories it read, then crashes before
+submitting choices or finishing. Factory retains that account as a partial audit,
+not a declaration that no choices exist. Conversely, a choice submitted before
+the summary can survive on its own. A completed empty audit needs an explicit
+finish and a cited explanation of why no undeclared choice was found.
+
+Gap: partial output and completed empty audits had different meanings, but the
+durable summary's optionality was unspecified. Reach: a partial ledger can have
+useful entries without a summary, or a summary without entries. Requiring both
+would discard valid work; accepting either as completion would invent assurance.
+Verdict: sound because retention and completion remain separate judgments.
+
+### Retain provider diagnostics separately from semantic submissions
+
+Confidence: high.
+
+A provider finishes with a prose explanation while the submission tool has
+recorded typed choices. If publication is interrupted, the private review
+attempt retains both bounded streams separately. Recovery can replay acceptance
+of the submissions, while diagnostics still explain how the provider ended.
+Discarding final text immediately would lose troubleshooting context; folding it
+into submissions would create an ambiguous second source of review meaning.
+
+Gap: the private attempt's storage shape had to retain both channels without
+making diagnostics semantic authority. Reach: only validated, sanitized
+submissions can become portable review records; final provider text remains
+private and is never a fallback when submissions are absent. Successful
+publication removes the transient attempt. Verdict: sound because diagnostics
+survive an interrupted publication without becoming another public response copy.
