@@ -8,8 +8,18 @@ the harness proves those seams against real boundary behavior.
 The [audit submission probe](src/run-audit-submissions.ts) builds the reviewer
 image and drives its packaged stdio server without a model. It prints a synthetic
 three-verdict ledger after exercising multiline prose, nested assertions, exact
-evidence handles, and explicit completion. This proves packaging and protocol,
-not either provider's strict tool configuration or real-model judgment quality.
+evidence handles, and explicit completion. The same runner probes pinned provider
+CLIs against a synthetic loopback model endpoint inside networkless Docker. It
+checks advertised Factory tools and poisoned ambient settings without inference
+or real credentials. Codex's deferred discovery is reported as such, not as a
+completed tool call. Real-model judgment quality is outside this authority.
+
+The [execution journey](src/run-review-execution.ts) runs deterministic provider
+executables through the production isolation owner and packaged MCP server. Their
+only normal submission path is the configured tools; direct writes are reserved
+for deliberate corruption cases. Complete and interrupted typed drafts retain
+their exact evidence references. This focused journey uses a synthetic publication
+store; the installed release journey owns real committed-history reconstruction.
 
 The [sanitization policy probe](src/run-sanitization-policy.ts) makes retained
 reasoning and reduced tool context inspectable using synthetic text only. It

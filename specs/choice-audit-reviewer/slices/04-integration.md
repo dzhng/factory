@@ -44,3 +44,51 @@ authority, or complete/partial/failed rules.
 Run whole-feature review and choice audit. Consolidate the choices ledger, archive
 this spec with close-spec, commit, and push. Do not tag or publish npm without a
 separate release request.
+
+## Backend checkpoint — 2026-09-06
+
+Adapters now bind one stdio server to the exact bundle digest and share the
+evidence-aware audit prompt. CLI preflight validates settings independently of
+invocation construction. Provider final text remains diagnostic-only; no output
+fallback or publication ownership changed in this pass.
+
+The pinned CLI experiment exposed two failures that argument snapshots missed:
+Claude safe mode suppressed every explicitly configured tool, and a top-level
+conditional JSON Schema caused its client to drop submit_choice. Restricted mode,
+empty setting sources, strict MCP configuration, and explicit tool permissions
+preserve the intended boundary without disabling native OAuth. A flat advertised
+schema with descriptive conditional fields keeps all three tools visible; the
+shared runtime validator still enforces every verdict/effect condition. See the
+official [Claude CLI controls](https://code.claude.com/docs/en/cli-reference) and
+[Codex MCP configuration](https://developers.openai.com/codex/mcp/), plus the pinned
+executable probe for version-specific behavior.
+
+`bun run packages/test-harness/src/run-audit-submissions.ts` builds the image and
+probes both real pinned CLIs against a synthetic loopback model boundary with no
+network or real credentials. Claude advertises the three exact tools; Codex
+registers Factory for deferred discovery. Poisoned user settings, hooks, plugins,
+and a foreign MCP configuration do not execute. Deliberately reopening Claude
+user settings made the sentinel assertion fail; restoring isolation passed.
+This is configuration/discovery authority, not inference or a real-model audit.
+
+`bun run packages/test-harness/src/run-review-execution.ts` drives both
+deterministic providers through the packaged server. It prints complete and
+timed-out three-verdict ledgers, explicit zero-choice completion, and refusal of
+malformed direct output. The fixtures retry an invalid unsound choice with a
+correction and repeat accepted choices exactly; multiline scenarios, nested
+assertions, and exact citations survive. Oversized direct output remains bounded.
+Its publication store is synthetic. The installed combined journey, sanitized
+publication/recovery integration, browser projection, and final release-shaped
+gates remain integration work; this backend checkpoint does not close the spec.
+
+Owning gates passed: contract/domain/review 74 tests, reviewer 32 tests, both
+focused Docker probes, and all 13 workspace type/build/lint gates plus formatting.
+The independent bundled Codex review found no actionable regressions and reran
+the four adapter tests; owning Docker journeys were verified separately.
+
+Release must publish the final reviewer image and update the default immutable
+reference and live-capture image pin from its observed digest. The prior shipped
+image does not contain the submission server. The image workflow currently
+watches Docker files only, so source-only server/schema changes also need explicit
+dispatch or a corrected dependency path filter. Neither a local test image nor
+a passing source build certifies that default remote image.

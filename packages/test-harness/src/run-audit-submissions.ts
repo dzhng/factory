@@ -15,6 +15,29 @@ await command([
   'factory-choice-audit-reviewer:local',
   '.',
 ])
+
+await command([
+  'docker',
+  'run',
+  '--rm',
+  '--network',
+  'none',
+  '--read-only',
+  '--user',
+  '1000:1000',
+  '--tmpfs',
+  '/tmp:rw,nosuid,nodev,size=128m,mode=1777',
+  '--tmpfs',
+  '/out:rw,noexec,nosuid,nodev,size=4m,mode=1777',
+  '--mount',
+  `type=bind,src=${root},dst=/workspace,readonly`,
+  '--mount',
+  `type=bind,src=${root}/specs/done/factory-v1/assets/review-plan/complete-bundle,dst=/review-input,readonly`,
+  '--entrypoint',
+  'bun',
+  'factory-choice-audit-reviewer:local',
+  '/workspace/packages/test-harness/src/provider-tools-probe.ts',
+])
 const assets = resolve(root, 'specs/done/factory-v1/assets/review-plan')
 const report = JSON.parse(await readFile(resolve(assets, 'report.json'), 'utf8'))
 await command([

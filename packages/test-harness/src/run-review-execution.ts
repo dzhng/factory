@@ -3,7 +3,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/pr
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
-import { canonicalJson, type ReviewManifest } from '@factory/contract'
+import { canonicalJson, readAuditDraft, type ReviewManifest } from '@factory/contract'
 import type { RepositoryStore } from '@factory/repository'
 import { acceptReview, validateReview } from '@factory/review'
 import {
@@ -52,7 +52,7 @@ async function main() {
     const authRoot = join(root, 'auth')
     await mkdir(authRoot)
     const auth = join(authRoot, 'auth.json')
-    await writeFile(auth, 'dedicated-fake-credential\n', { mode: 0o444 })
+    await writeFile(auth, 'factory-test-verdicts\n', { mode: 0o444 })
     const raw = await dockerReviewerExecutor.run(
       bundle,
       { settings: bundleManifest.plan.policies.reviewer },
@@ -75,6 +75,13 @@ async function main() {
     const observation = readReviewerRawAttempt(raw)
     const verified = await readVerifiedReviewBundle(bundle)
     const validated = await validateReview(bundle, raw)
+    const submitted = readAuditDraft(
+      observation.submissions,
+      verified.manifest.inventory,
+      observation.reviewId,
+    )
+    if (submitted.entries.length !== 3 || submitted.incomplete)
+      throw new Error('provider did not submit three verdicts through the configured tools')
     let manifest: ReviewManifest | undefined
     const store = {
       manifest: { repositoryId: verified.authority.repositoryId },
@@ -83,6 +90,9 @@ async function main() {
       },
       async getObject() {
         return new Uint8Array()
+      },
+      async createImmutable(path: string, bytes: Uint8Array) {
+        return { path, sha256: '', bytes: bytes.byteLength }
       },
       async publishImmutableGroup(records: readonly { path: string; bytes: Uint8Array }[]) {
         const value = records.find(record => record.path.endsWith('manifest.json'))!
@@ -110,7 +120,42 @@ async function main() {
       )
     }
 
+    const toolJourneys: unknown[] = []
     for (const expected of [
+      ...(['codex', 'claude'] as const).flatMap(provider => [
+        {
+          provider,
+          behavior: 'factory-test-verdicts',
+          termination: 'completed',
+          exitCode: 0,
+          choices: 3,
+          complete: true,
+        },
+        {
+          provider,
+          behavior: 'factory-test-zero',
+          termination: 'completed',
+          exitCode: 0,
+          choices: 0,
+          complete: true,
+        },
+        {
+          provider,
+          behavior: 'factory-test-verdicts factory-test-prefix-timeout',
+          termination: 'timed-out',
+          exitCode: null,
+          choices: 3,
+          complete: false,
+        },
+        {
+          provider,
+          behavior: 'factory-test-verdicts factory-test-malformed',
+          termination: 'completed',
+          exitCode: 0,
+          choices: 0,
+          complete: false,
+        },
+      ]),
       {
         provider: 'claude',
         behavior: 'factory-test-prefix-nonzero',
@@ -162,19 +207,43 @@ async function main() {
           effort: 'high',
           promptVersion: 'prompt-v1',
         },
-        invocation: reviewerAdapter({
-          provider: expected.provider,
-          model: `${expected.provider}-test`,
-          effort: 'high',
-        }),
+        invocation: reviewerAdapter(
+          {
+            provider: expected.provider,
+            model: `${expected.provider}-test`,
+            effort: 'high',
+          },
+          report.bundles.complete,
+        ),
         containerIdentity: {
           name: `factory-review-scenario-${randomUUID()}`,
           label: randomUUID(),
         },
         scenario: 'review',
         timeoutMs: 5_000,
-        ...(expected.behavior === 'factory-test-prefix-timeout' ? { providerTimeoutMs: 250 } : {}),
+        ...(expected.behavior.includes('factory-test-prefix-timeout')
+          ? { providerTimeoutMs: 500 }
+          : {}),
       })
+      if ('choices' in expected) {
+        const draft = readAuditDraft(
+          await readFile(join(scenarioOutput, 'submissions.jsonl')),
+          verified.manifest.inventory,
+          'review_00000000000000000000000011',
+        )
+        if (draft.entries.length !== expected.choices || draft.incomplete === expected.complete)
+          throw new Error('provider submission completion or retained prefix differed')
+        if (
+          draft.entries.some(entry => !entry.scenario.includes('\n') || entry.evidence.length !== 1)
+        )
+          throw new Error('structured prose or citations changed across provider tools')
+        toolJourneys.push({
+          provider: expected.provider,
+          behavior: expected.behavior,
+          complete: !draft.incomplete,
+          entries: draft.entries,
+        })
+      }
       const responseInfo = await stat(join(scenarioOutput, 'response.txt'))
       if (
         scenario.termination !== expected.termination ||
@@ -221,7 +290,7 @@ async function main() {
       }
     }
     process.stdout.write(
-      `${JSON.stringify({ schemaVersion: 1, imageDigest, termination: observation.termination, disposition: accepted.disposition, bundleSha256: manifest.bundleSha256 })}\n`,
+      `${JSON.stringify({ schemaVersion: 1, authority: 'deterministic provider executables using packaged MCP server; publication store is synthetic', imageDigest, termination: observation.termination, disposition: accepted.disposition, bundleSha256: manifest.bundleSha256, toolJourneys })}\n`,
     )
   } finally {
     await rm(root, { recursive: true, force: true })

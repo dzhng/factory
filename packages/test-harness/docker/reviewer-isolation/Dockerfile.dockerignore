@@ -1,0 +1,14 @@
+**
+!package.json
+!bun.lock
+!packages
+!packages/**
+!apps
+!apps/web
+!apps/web/package.json
+**/node_modules
+**/dist
+**/.env*
+**/.factory
+**/.git
+**/.turbo

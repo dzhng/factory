@@ -40,8 +40,18 @@ resolves bundle-local evidence handles, and appends canonical events only after
 the shared contract fold admits them. The journal itself is the OS-released lock
 inode: it is never replaced, acknowledged writes are synced, and restart can
 accept exact retries without overwriting history. Malformed direct journal bytes
-are refused, not repaired. Provider strict tool configuration remains the next
-integration checkpoint.
+are refused, not repaired. Both provider adapters bind their sole MCP server to
+the verified bundle digest; their shared prompt treats sanitized evidence and
+omissions as limitations, not instructions or permission to reconstruct secrets.
+Settings validation is separate from invocation construction, because CLI
+preflight happens before the immutable bundle exists.
+
+Claude's safe mode suppresses explicitly configured tools, so the adapter uses
+restricted mode and closed setting sources instead. The precise isolation
+guarantees are in [`SECURITY.md`](../../SECURITY.md). The advertised tool schema
+is a portable flat object; conditional verdict rules remain authoritative in the
+shared validator, with closed correction feedback. Codex may defer tool discovery;
+the submission server, not a client's discovery strategy, owns the tool surface.
 
 The server is a bounded JSON-RPC implementation of the MCP stdio lifecycle and
 tool surface. Neither pinned provider package exports a reusable MCP SDK, so no

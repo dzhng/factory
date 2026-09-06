@@ -7,9 +7,9 @@ Factory tool instead of hand-authoring JSONL.
 
 ## Next Agent Prompt
 
-Status: slices 1–3 implemented; provider integration and publication closure remain. Last updated: 2026-09-06.
+Status: slices 1–3 and provider wiring implemented; publication closure and combined release gates remain. Last updated: 2026-09-06.
 
-Integrate [slice 4](slices/04-integration.md) next. Inspect [slice 3's visual checkpoint](assets/presentation/README.md) at integration; fresh-agent visual critique was unavailable. Read this README, the
+Finish the combined journey in [slice 4](slices/04-integration.md) next. Inspect [slice 3's visual checkpoint](assets/presentation/README.md) at integration; fresh-agent visual critique was unavailable. Read this README, the
 [target contract](contract.md), `SECURITY.md`, and the repository's write-tests
 skill before changing behavior. This is a clean cutover for an unlaunched
 product: delete the generic reviewer-output contract as its consumers move; do

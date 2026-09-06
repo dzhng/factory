@@ -173,7 +173,7 @@ export const dockerReviewerExecutor: ReviewerExecutor = {
           effort: choice.settings.effort,
           promptVersion: before.manifest.plan.policies.promptVersion,
         },
-        invocation: reviewerAdapter(choice.settings),
+        invocation: reviewerAdapter(choice.settings, before.sha256),
         containerIdentity: input.containerIdentity,
         timeoutMs: remaining(),
         dockerLimits: input.dockerLimits,

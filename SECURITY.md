@@ -89,6 +89,15 @@ That tmpfs has no host source and disappears with the container; the nested
 credential-file mount remains read-only. No other provider home or host
 configuration is mounted.
 
+Reviewer adapters supply the only MCP server configuration and bind its stdio
+command to the verified bundle digest. Claude uses restricted mode, empty setting
+sources, disabled skills, and an explicit read-tool/submission-tool allowlist;
+its safe mode cannot be used because it suppresses explicitly configured MCP
+tools too. Codex ignores user configuration and rules and disables web search.
+These CLI controls supplement the observed container boundary; they do not turn
+the writable output directory into trusted storage. Direct provider writes still
+undergo host validation, and final provider prose is never semantic fallback.
+
 The Docker boundary, not a provider CLI's nested process sandbox, owns filesystem
 confinement. Codex therefore runs without its inner bubblewrap sandbox: user
 namespaces are unavailable inside the capability-free container, and enabling

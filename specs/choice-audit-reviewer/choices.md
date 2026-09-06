@@ -1,5 +1,57 @@
 # Implementation choices
 
+## Sound · medium confidence — Describe conditional tool fields and enforce them at admission
+
+When: slice 4 pinned-provider integration.
+
+A reviewer judges a choice unsound and must supply the corrected decision. The
+tool description explains that requirement; the server refuses the submission
+with a fixed correction message if it is absent. The advertised JSON Schema is
+a flat object because the pinned Claude client dropped the choice tool when its
+schema used conditional clauses. Keeping those clauses would make a formally
+precise schema unusable; inventing separate verdict tools would expand the agreed
+three-tool surface. The shared runtime validator still checks the exact rules
+before acknowledging or storing anything.
+
+Gap: the plan did not settle client-specific JSON Schema expressiveness.
+Reach: future conditional fields need descriptive tool metadata and an admission
+rule; client schema acceptance alone never proves a valid submission. Verdict:
+sound because interoperability changes no accepted semantic value.
+
+## Sound · medium confidence — Disable Codex web search for bundle-only review
+
+When: slice 4 provider configuration.
+
+A reviewer sees a library name in a captured implementation. It should judge the
+choice against the supplied history, not silently add mutable web evidence that
+cannot be cited from the verified bundle. The adapter disables Codex's built-in
+web search while preserving the container's existing model-service network
+access. Leaving search enabled would invite uncaptured evidence without adding a
+durable citation owner.
+
+Gap: the plan required exact bundle citations but did not explicitly choose the
+web-search switch. Reach: future external research needs an explicit evidence
+capture path before it can support this audit. Verdict: sound because the audit's
+authority remains the immutable input the host verified.
+
+## Sound · high confidence — Use closed configuration sources instead of Claude safe mode
+
+When: slice 4 pinned-provider experiment.
+
+Factory starts Claude with its native login and its own submission server. Safe
+mode removes even that explicitly supplied server, leaving the model unable to
+submit an audit. Factory instead uses restricted mode, empty setting sources,
+strict MCP configuration, and explicit read/submission tool permissions inside
+the already isolated container. Enabling ordinary user settings would let a
+saved hook run; a synthetic poisoned-home test proves that difference. Bare mode
+would remove native login support, so it is not an equivalent substitute.
+
+Gap: the plan chose strict tool authority but did not specify how pinned safe
+mode interacts with explicit servers. Reach: provider upgrades must rerun the
+executable configuration probe, not just argument assertions. Verdict: sound
+because the closed source boundary preserves both native authentication and the
+required tools, without another host mount or broader permissions.
+
 ## Sound · medium confidence — Evidence handles live inside the bundle manifest
 
 When: slice 2 submission tooling.

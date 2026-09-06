@@ -24,6 +24,7 @@ export { ReviewAttemptCoordinator, type ReviewAttemptCoordinatorOptions } from '
 export {
   REVIEW_PROMPT_VERSION,
   reviewerAdapter,
+  validateReviewerSettings,
   reviewerAuthContainerPath,
   type ReviewerAdapterInvocation,
 } from './adapter.js'

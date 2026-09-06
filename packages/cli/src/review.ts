@@ -36,7 +36,7 @@ import {
   ReviewAttemptCoordinator,
   dockerReviewerExecutor,
   openVerifiedReviewBundle,
-  reviewerAdapter,
+  validateReviewerSettings,
   reviewerImageIdentity,
   resolveReviewerAuthentication,
   selectReviewer,
@@ -223,8 +223,8 @@ export async function reviewCommand(
     return 0
   }
   const reviewerDefaults = requiredReviewDefaults(environment)
-  reviewerAdapter({ provider: 'codex', ...reviewerDefaults.codex })
-  reviewerAdapter({ provider: 'claude', ...reviewerDefaults.claude })
+  validateReviewerSettings({ provider: 'codex', ...reviewerDefaults.codex })
+  validateReviewerSettings({ provider: 'claude', ...reviewerDefaults.claude })
   const coordinator = await ReviewAttemptCoordinator.open({ repositoryRoot })
   const subjectLock = reviewSubjectLock(
     coordinator.runtimeRoot,
@@ -248,7 +248,7 @@ export async function reviewCommand(
     }
     if (settings.reviewer !== 'auto') {
       const configured = settings.reviewer
-      reviewerAdapter({
+      validateReviewerSettings({
         provider: configured.provider,
         model: configured.model ?? reviewerDefaults[configured.provider].model,
         effort: configured.effort ?? reviewerDefaults[configured.provider].effort,
