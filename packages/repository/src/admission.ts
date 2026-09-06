@@ -88,6 +88,7 @@ const enumFields = new Set([
 function assertPreparedValue(value: JsonValue, sanitizer: Sanitizer, field = '', depth = 0): void {
   if (depth > 64) throw new TypeError('publication record exceeds nesting bound')
   if (field === 'assertion' || field === 'parsed') {
+    if (field === 'assertion' && value === null) return
     if (sanitizer.json(value).redacted)
       throw new TypeError('record contains unprocessed opaque content')
     return
