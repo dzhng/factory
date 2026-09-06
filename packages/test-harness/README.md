@@ -5,6 +5,10 @@ Docker environments, crash labs, provider fixtures, release-shaped journeys,
 and sanitized evidence reports. Production packages expose the narrow seams;
 the harness proves those seams against real boundary behavior.
 
+The [sanitization policy probe](src/run-sanitization-policy.ts) makes retained
+reasoning and reduced tool context inspectable using synthetic text only. It
+does not certify the repository publication boundary.
+
 Provider fixtures preserve raw bytes and provider-native vocabulary. They are
 observations, not a shared provider schema. Empirical oracle evidence informs
 Factory without becoming production behavior.

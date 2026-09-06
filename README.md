@@ -19,7 +19,8 @@ is separate so portable data does not depend on one package layout.
 
 The active [evidence sanitization plan](specs/evidence-sanitization/README.md)
 defines the planned cutover from lossless capture to sanitized review evidence.
-
+The complementary [choice-audit reviewer plan](specs/choice-audit-reviewer/README.md)
+defines typed audit submissions and their human-readable ledger.
 The [security model](SECURITY.md) owns repository trust, credentials, container
 isolation, and local interface policy. The implementation follows these ownership
 boundaries:
@@ -27,6 +28,8 @@ boundaries:
 - [CLI](packages/cli/README.md) composes commands and installation;
   [capture](packages/capture/README.md) adapts provider events and the
   [runtime journal](packages/runtime-journal/README.md) owns their durability.
+- [Sanitization](packages/sanitization/README.md) owns the shared secret-matching
+  and evidence-reduction policy used by the active sanitization work.
 - The [public contract](packages/contract/README.md) defines portable records;
   the [repository store](packages/repository/README.md) owns their writes and Git
   snapshots; [GitHub](packages/github/README.md) supplies optional PR observations.

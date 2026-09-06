@@ -6,10 +6,16 @@ is hashed or written, not just before the reviewer sees it.
 
 ## Next Agent Prompt
 
-Status: planned, not implemented. Last updated: 2026-09-06.
+Status: shared policy complete; implementing source/PR observations. Last updated: 2026-09-06.
 
-You are implementing a clean cutover for an unlaunched product. Start with
-[slice 1](slices/01-policy.md), after reading the target [contract](contract.md)
+The active implementation goal includes both this spec and the
+[choice-audit reviewer](../choice-audit-reviewer/README.md). Finish and verify
+both before marking the goal complete. The audit-contract pass is running in
+parallel in an isolated worktree; coordinate ownership of the shared public
+contract and acceptance files before integrating changes.
+
+You are implementing a clean cutover for an unlaunched product. Continue
+[slice 2](slices/02-observations.md), after reading the target [contract](contract.md)
 and current `SECURITY.md`. There are no migration or compatibility requirements.
 Invoke write-tests before behavior changes and follow red/green in the owning
 Docker environment. Do not inspect real secrets or alter live provider homes.
@@ -21,11 +27,12 @@ Intermediate commits are implementation checkpoints, not a release or a claim
 that all committable paths are protected. Do not publish an npm release until
 the final journey is green.
 
-- [ ] [1 — Shared policy and safe discovery](slices/01-policy.md)
+- [x] [1 — Shared policy and safe discovery](slices/01-policy.md)
 - [ ] [2 — Sanitized code and PR observations](slices/02-observations.md)
 - [ ] [3 — Provider capture and durable replay](slices/03-capture.md)
 - [ ] [4 — Review output, actions, and publication closure](slices/04-publication.md)
 - [ ] [5 — Installed-CLI certification](slices/05-certification.md)
+- [ ] Complete the complementary [choice-audit reviewer](../choice-audit-reviewer/README.md)
 
 Commit and push each green slice to the active upstream branch. Update this
 prompt and the owning slice with actual evidence, remaining work, and the exact
@@ -35,6 +42,7 @@ into claimed verification. Once shipped, use close-spec to archive the rationale
 ## Design map
 
 The [contract](contract.md) owns policy, schemas, failure behavior, and identity.
+The [choices ledger](choices.md) records decisions made during implementation.
 The [research](research.md) records external sources and shortcuts ruled out by
 the current architecture. Read those before making security-shaped decisions.
 
@@ -68,7 +76,10 @@ points. There is no lasting feature flag or dual public representation.
 
 Use named tests, then their file, then the owning workspace. All filesystem
 tests touching a home, provider config, hooks, or `.factory` run in Docker;
-only pure string fixtures can run directly. Mock external `gh`/model boundaries,
+pure string fixtures can run directly. A host-specific filesystem behavior may
+also have a bounded native probe in a dedicated temporary directory, without
+home, provider, hook, or `.factory` writes; this supplements rather than replaces
+the Docker suite. Mock external `gh`/model boundaries,
 not Factory's publication, discovery, hashing, or reconstruction owners.
 
 Run review (shape, diff, docs) and the independent Codex review for substantive
@@ -85,3 +96,8 @@ results are context; user/assistant reasoning remains untrimmed. Readable partia
 evidence still deserves review. Legitimate structural hashes remain meaningful.
 The product is unlaunched: no backward compatibility, migration, or history
 rewrite is authorized or needed.
+
+The parallel [choice-audit reviewer plan](../choice-audit-reviewer/README.md)
+adds typed model submissions. Its draft events must use this same publication
+boundary; implement that spec as part of this goal without creating a second
+sanitizer or a fallback raw-response channel.

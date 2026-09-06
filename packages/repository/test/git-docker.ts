@@ -38,6 +38,7 @@ child = Bun.spawn(
     'test',
     '/workspace/packages/repository/test/confined-writer.test.ts',
     '/workspace/packages/repository/test/git-observation.test.ts',
+    '/workspace/packages/repository/test/sanitization.test.ts',
   ],
   { stdout: 'inherit', stderr: 'inherit' },
 )

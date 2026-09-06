@@ -1,5 +1,5 @@
 {
-  "name": "@factory/repository",
+  "name": "@factory/sanitization",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -8,10 +8,9 @@
     "build": "tsc -p tsconfig.build.json",
     "check-types": "tsc --noEmit",
     "lint": "oxlint src test",
-    "test": "bun run test/docker.ts && bun run test/git-docker.ts"
+    "test": "bun test"
   },
   "dependencies": {
-    "@factory/contract": "workspace:*",
-    "@factory/sanitization": "workspace:*"
+    "@factory/contract": "workspace:*"
   }
 }

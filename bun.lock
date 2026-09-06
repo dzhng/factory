@@ -73,6 +73,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@factory/contract": "workspace:*",
+        "@factory/sanitization": "workspace:*",
       },
     },
     "packages/review": {
@@ -113,6 +114,13 @@
         "@factory/contract": "workspace:*",
       },
     },
+    "packages/sanitization": {
+      "name": "@factory/sanitization",
+      "version": "0.0.0",
+      "dependencies": {
+        "@factory/contract": "workspace:*",
+      },
+    },
     "packages/test-harness": {
       "name": "@factory/test-harness",
       "version": "0.0.0",
@@ -125,6 +133,7 @@
         "@factory/review": "workspace:*",
         "@factory/review-plan": "workspace:*",
         "@factory/reviewer": "workspace:*",
+        "@factory/sanitization": "workspace:*",
         "@factory/web": "workspace:*",
         "playwright-core": "1.61.0",
       },
@@ -150,6 +159,8 @@
     "@factory/reviewer": ["@factory/reviewer@workspace:packages/reviewer"],
 
     "@factory/runtime-journal": ["@factory/runtime-journal@workspace:packages/runtime-journal"],
+
+    "@factory/sanitization": ["@factory/sanitization@workspace:packages/sanitization"],
 
     "@factory/test-harness": ["@factory/test-harness@workspace:packages/test-harness"],
 

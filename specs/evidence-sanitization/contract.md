@@ -42,6 +42,9 @@ verification do not consult live env files or rerun sanitization.
   deterministically, longest match first at the same position. Match decoded
   JSON text, including unknown string fields and keys; JSON escaping must not
   conceal a known value. Do not recursively decode arbitrary base64 strings.
+  For quoted env values, also match their literal escaped spelling, so copied
+  env-file text receives the same protection as decoded messages. Merge the union
+  of overlapping matches rather than leaving a fragment of either secret visible.
 - Add bounded, synthetic-tested rules for recognizable API tokens, bearer
   credentials, private-key blocks, and secret-labelled assignments. The exact
   initial provider-pattern catalogue is delegated; document tested coverage
@@ -59,6 +62,12 @@ the failure and capture can retry. Intentional exclusions are policy, not errors
 The dictionary describes values available at preparation time: deleted historical
 values and later discoveries cannot be retroactively guaranteed without history
 rewriting, which is out of scope.
+
+Preparation also bounds in-memory matching: 500,000 dictionary states, 200,000
+disjoint match/marker spans, and 64 MiB per text input. Exceeding those ceilings
+returns `sanitization-limit`, never partial matching. Consecutive/overlapping
+matches coalesce before counting; tool-result trimming counts Unicode with a
+fixed-size tail buffer rather than allocating one array element per character.
 
 ## Tool-result reduction
 

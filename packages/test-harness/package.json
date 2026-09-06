@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "lab:sanitization-policy": "bun run src/run-sanitization-policy.ts",
     "build": "bun build src/*.ts --target=bun --outdir=dist --external playwright-core",
     "check-types": "tsc --noEmit",
     "lab:git-observation": "bun run src/run-git-observation.ts",
@@ -35,6 +36,7 @@
     "@factory/review": "workspace:*",
     "@factory/review-plan": "workspace:*",
     "@factory/reviewer": "workspace:*",
+    "@factory/sanitization": "workspace:*",
     "@factory/web": "workspace:*",
     "playwright-core": "1.61.0"
   }
