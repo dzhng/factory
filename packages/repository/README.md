@@ -8,6 +8,13 @@ Callers provide contract-owned paths rather than filesystem strings. Runtime
 state remains outside this boundary; object and record verification must be
 reproducible from the committed tree alone.
 
+Configuration is operational authority, not redactable prose. Initialization
+and updates check the complete proposed configuration against repository env
+discovery, including unknown keys and nested extensions. Any required change
+is refused rather than silently redirecting a branch or model. Initialization
+preflights before its first committable byte; an update preserves existing bytes
+on refusal and holds mutation ownership while checking the merged result.
+
 The Git observer reads a checkout through a fixed read-only command vocabulary
 and byte-preserving filesystem operations. Its portable source snapshots are
 sanitized UTF-8 review context, not runnable or original-byte copies. Env files,

@@ -1,5 +1,23 @@
 # Implementation choices
 
+## Sound · high confidence — Configuration inspection includes the merged existing fields
+
+When: slice 4 config/init closure.
+
+A user enables automatic review after a previously ordinary extension value
+becomes a known env secret. Updating only the new boolean would copy that secret
+back into the committed configuration. The repository writer instead checks the
+entire merged configuration, including unknown keys, arrays and nested extras,
+while holding its existing mutation lock. It refuses the write and keeps the old
+bytes intact; it does not silently replace a branch or model with a marker.
+
+Gap: the contract required all configuration writes to be prepared but did not
+place discovery relative to read/merge/lock. Reach: configuration updates pay
+bounded discovery cost under the existing lock, so concurrent updates cannot
+invalidate the checked merge. Verdict: sound because the bytes admitted are the
+exact bytes published. Confidence: high. The shared sanitizer and its discovery
+limits remain the policy owner; no second config secret catalogue is introduced.
+
 ## Sound
 
 ### Bound the whole prepared capture, not just each leaf

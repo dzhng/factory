@@ -11,6 +11,9 @@ meaningful place on the developer's machine. Factory does not add a separate
 trusted-repository registry or confirmation ceremony.
 
 Repository settings in `.factory/config.json` override global Factory defaults.
+Factory configuration writes use repository-bound secret discovery and refuse
+values or keys that would require redaction, including unknown extensions;
+operational settings are never silently replaced with redaction markers.
 Those settings may select any option supported by Factory's schema, but they do
 not create arbitrary host mounts or new command-execution mechanisms.
 

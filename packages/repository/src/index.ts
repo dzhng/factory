@@ -36,8 +36,10 @@ import {
   type RepositoryRecords as ContractRepositoryRecords,
   type Sha256,
 } from '@factory/contract'
+import { SanitizationError } from '@factory/sanitization'
 
 import { withAdvisoryFileLock } from './confined-writer'
+import { discoverRepositorySanitizer } from './git-observer'
 
 export {
   inventoryConfinedTree,
@@ -882,14 +884,15 @@ export class RepositoryStore {
   }
 
   async updateConfig(change: ConfigChange): Promise<void> {
+    const requested = JSON.parse(canonicalJson(change)) as ConfigChange
     await this.withMutationLock(async () => {
       const configPath = join(this.factoryRoot, 'config.json')
       await requireOrdinaryFile(configPath)
       const existing = parseRepositoryConfig(JSON.parse(decodeUtf8(await readFile(configPath))))
-      const updated = parseRepositoryConfig({ ...existing, ...change })
+      const updated = parseRepositoryConfig({ ...existing, ...requested })
       await atomicReplace(
         configPath,
-        new TextEncoder().encode(canonicalJson(updated)),
+        await prepareConfigBytes(this.repositoryRoot, updated),
         this.stagingRoot,
       )
     })
@@ -1157,8 +1160,13 @@ export async function initializeRepositoryStore(
   parseRepositoryConfig(config)
   assertNoMachinePaths(config)
   const manifestBytes = new TextEncoder().encode(canonicalJson(manifest))
-  const configBytes = new TextEncoder().encode(canonicalJson(config))
   const factoryRoot = join(repositoryRoot, '.factory')
+  if ((await pathKind(factoryRoot)) !== 'missing') {
+    await ensureDirectory(factoryRoot)
+    const existingManifest = join(factoryRoot, 'manifest.json')
+    if ((await pathKind(existingManifest)) !== 'missing') await readManifest(existingManifest)
+  }
+  const configBytes = await prepareConfigBytes(repositoryRoot, config)
   if ((await pathKind(factoryRoot)) === 'missing') {
     await resolveRuntimeRoot(repositoryRoot, options.runtimeRoot)
   }
@@ -1189,4 +1197,15 @@ export async function initializeRepositoryStore(
     }
   }
   return store
+}
+
+async function prepareConfigBytes(
+  repositoryRoot: string,
+  config: RepositoryConfig,
+): Promise<Uint8Array> {
+  const text = canonicalJson(config)
+  const snapshot = JSON.parse(text) as JsonValue
+  const sanitizer = await discoverRepositorySanitizer(repositoryRoot)
+  if (sanitizer.json(snapshot).redacted) throw new SanitizationError('unsupported-content')
+  return new TextEncoder().encode(text)
 }

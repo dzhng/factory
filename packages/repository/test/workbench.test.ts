@@ -50,6 +50,62 @@ const manifest = {
   createdAt: '2026-09-04T00:00:00Z',
 }
 
+test('refuses sensitive configuration before creating any initialization prefix', async () => {
+  const root = await fixtureRoot()
+  await mkdir(join(root, 'ignored', 'nested'), { recursive: true })
+  await writeFile(join(root, '.gitignore'), 'ignored/\n')
+  await writeFile(join(root, 'ignored', 'nested', '.env.local'), 'MODEL=synthetic-model-secret\n')
+  await expect(
+    initializeRepositoryStore(root, manifest, {
+      reviewer: { provider: 'codex', model: 'synthetic-model-secret' },
+    }),
+  ).rejects.toThrow('unsupported-content')
+  await expect(lstat(join(root, '.factory'))).rejects.toThrow()
+})
+
+test('checks the complete resulting config and preserves its bytes on refusal', async () => {
+  const root = await fixtureRoot()
+  const store = await initializeRepositoryStore(root, manifest, {
+    canonicalBranch: 'main',
+    extension: { 'synthetic-extension-key': ['ordinary'] },
+  })
+  const path = join(root, '.factory', 'config.json')
+  const before = await readFile(path, 'utf8')
+  await writeFile(join(root, '.env'), 'NAME=synthetic-extension-key\n')
+  await expect(store.updateConfig({ automaticReview: true })).rejects.toThrow('unsupported-content')
+  expect(await readFile(path, 'utf8')).toBe(before)
+})
+
+test('refuses sensitive nested config values and labels without redirecting settings', async () => {
+  const root = await fixtureRoot()
+  const store = await initializeRepositoryStore(root, manifest, { canonicalBranch: 'main' })
+  const path = join(root, '.factory', 'config.json')
+  const before = await readFile(path, 'utf8')
+  await writeFile(join(root, '.env'), 'BRANCH=synthetic-branch-secret\nSHORT_TOKEN=xy\n')
+  for (const change of [
+    { canonicalBranch: 'synthetic-branch-secret' },
+    { reviewer: { provider: 'codex' as const, model: 'xy' } },
+    { reviewLimits: { extension: [{ detail: 'xy' }] } },
+    { reviewLimits: { extension: { api_key: 'synthetic-inline-credential' } } },
+  ]) {
+    await expect(store.updateConfig(change)).rejects.toThrow('unsupported-content')
+    expect(await readFile(path, 'utf8')).toBe(before)
+  }
+})
+
+test('discovery failure leaves config initialization and updates untouched', async () => {
+  const root = await fixtureRoot()
+  await writeFile(join(root, '.env'), 'INVALID ASSIGNMENT\n')
+  await expect(initializeRepositoryStore(root, manifest, {})).rejects.toThrow('invalid-env')
+  await expect(lstat(join(root, '.factory'))).rejects.toThrow()
+  await writeFile(join(root, '.env'), 'ORDINARY=unrelated-value\n')
+  const store = await initializeRepositoryStore(root, manifest, { canonicalBranch: 'main' })
+  const before = await readFile(join(root, '.factory', 'config.json'), 'utf8')
+  await writeFile(join(root, '.env'), 'INVALID ASSIGNMENT\n')
+  await expect(store.updateConfig({ automaticReview: true })).rejects.toThrow('invalid-env')
+  expect(await readFile(join(root, '.factory', 'config.json'), 'utf8')).toBe(before)
+})
+
 const trigger = {
   schemaVersion: 1 as const,
   triggerId: recordId('trigger'),
@@ -303,6 +359,7 @@ describe('sole repository writer', () => {
 
   test('stops on a too-new manifest before mutating config', async () => {
     const root = await fixtureRoot()
+    await writeFile(join(root, '.env'), 'INVALID ASSIGNMENT\n')
     await mkdir(join(root, '.factory'))
     await writeFile(
       join(root, '.factory', 'manifest.json'),
