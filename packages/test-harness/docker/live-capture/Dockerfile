@@ -1,4 +1,4 @@
-FROM ghcr.io/dzhng/factory-reviewer@sha256:8b4d1bb63f727a791c5c20084a840cc75963becaa9225612acf6f42858eb561c
+FROM ghcr.io/dzhng/factory-reviewer@sha256:0ecb58ccbec9b1bafa64f403ebc56963a41dec3f905edf37355d6fca9bbc25ee
 
 RUN apt-get update && apt-get install --yes --no-install-recommends git \
   && rm -rf /var/lib/apt/lists/*
