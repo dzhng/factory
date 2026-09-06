@@ -107,3 +107,12 @@ real two-provider repository and proves the interface projection is rebuilt
 from its portable records. A repository-backed action journey sends decision
 and coverage requests through the same HTTP server and verifies that only
 their two declared append-only directories gain files.
+
+The review CLI workbenches accept an already-built synthetic image through
+`FACTORY_REVIEWER_IMAGE`, so an outer Docker harness can exercise the real
+reviewer without rebuilding inside the consumer. Concurrent-command checks need
+a filesystem that implements advisory locks: use Docker-native storage, not a
+Mac-shared bind mount. Its observed daemon mountpoint must remain the same path
+inside the outer harness so sibling reviewers receive the actual prepared files.
+Public synthetic credentials use the fixed unprivileged test identity; the
+outer consumer must share that identity when reading private output files.

@@ -67,7 +67,7 @@ async function main() {
   await command(['bun', 'run', 'build'], cliPackageRoot)
   const root = await realpath(await mkdtemp(join(tmpdir(), 'factory-review-cli-')))
   try {
-    await command(['git', 'init', '-q'], root)
+    await command(['git', 'init', '-q', '-b', 'main'], root)
     const asset = resolve(
       import.meta.dir,
       '../../../specs/done/factory-v1/assets/review-plan/complete-bundle',
@@ -92,17 +92,19 @@ async function main() {
     const auth = join(authRoot, 'auth.json')
     await writeFile(auth, 'factory-test-unsound factory-test-delay\n', { mode: 0o444 })
     await chmod(auth, 0o444)
-    const image = await command(
-      [
-        'docker',
-        'build',
-        '-q',
-        '--file',
-        resolve(import.meta.dir, '../docker/reviewer-isolation/Dockerfile'),
-        resolve(import.meta.dir, '../../..'),
-      ],
-      root,
-    )
+    const image =
+      process.env.FACTORY_REVIEWER_IMAGE ??
+      (await command(
+        [
+          'docker',
+          'build',
+          '-q',
+          '--file',
+          resolve(import.meta.dir, '../docker/reviewer-isolation/Dockerfile'),
+          resolve(import.meta.dir, '../../..'),
+        ],
+        root,
+      ))
     const environment: NodeJS.ProcessEnv = {
       ...process.env,
       FACTORY_CODEX_REVIEW_MODEL: 'gpt-test',

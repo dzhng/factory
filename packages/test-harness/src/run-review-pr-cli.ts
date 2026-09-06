@@ -80,17 +80,19 @@ async function main() {
     await chmod(gh, 0o755)
     const auth = join(root, 'auth.json')
     await writeFile(auth, '{}\n', { mode: 0o444 })
-    const image = await command(
-      [
-        'docker',
-        'build',
-        '-q',
-        '--file',
-        resolve(import.meta.dir, '../docker/reviewer-isolation/Dockerfile'),
-        resolve(import.meta.dir, '../../..'),
-      ],
-      root,
-    )
+    const image =
+      process.env.FACTORY_REVIEWER_IMAGE ??
+      (await command(
+        [
+          'docker',
+          'build',
+          '-q',
+          '--file',
+          resolve(import.meta.dir, '../docker/reviewer-isolation/Dockerfile'),
+          resolve(import.meta.dir, '../../..'),
+        ],
+        root,
+      ))
     const baseEnvironment = {
       ...process.env,
       XDG_CONFIG_HOME: join(root, 'global-config'),
