@@ -2,6 +2,13 @@
 
 Depends on slice 1 and can run in parallel with slice 2.
 
+Implementation checkpoint: the compact domain projection and production browser
+ledger are implemented. [The visual report](../assets/presentation/README.md)
+records red/green probes, deterministic baseline/candidate pixels, complete
+wide/narrow states, and the unavailable-agent adversarial critique fallback.
+An independent integration inspection is still required; no fresh-agent visual
+verification is claimed. The existing responsive/action journey remains green.
+
 ## Contract unlocked
 
 Make the choice ledger—not generic findings or raw provider response—the primary

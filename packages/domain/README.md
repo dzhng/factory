@@ -38,3 +38,12 @@ it does not erase the analyzer's judgment or its corrected/provisional decision.
 Derived decision records are admitted only when their bytes reproduce from an
 accepted review entry and its exact subject. Raw review evidence remains the
 authority; these folds may be rerun after cloning or derived-state loss.
+
+Browser presentation is a projection of that fold, not another ledger. It keeps
+the standalone explanation and exact citation digests but drops structured
+assertions, storage references, and provider submissions. Verdict groups place
+the least-confident choices first; canonical scope breaks confidence ties.
+Existing action targets and state fingerprints pass through unchanged.
+Without canonical policy, verified choices remain readable as unclassified;
+their projection has no action fingerprint, lifecycle, or human status. Missing
+scope authority must disable mutation, not discard the audit explanation.

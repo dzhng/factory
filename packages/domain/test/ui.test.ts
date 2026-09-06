@@ -11,8 +11,9 @@ import {
 } from '@factory/contract'
 
 import { writerChoice, emptyAuditSummary } from '../../test-harness/src/choice-fixtures'
+import { presentationDecisions } from '../../test-harness/src/choice-presentation-fixtures'
 import { deriveDecisionObservations } from '../src/decisions'
-import { buildUiProjection } from '../src/ui'
+import { buildUiProjection, presentDecisions } from '../src/ui'
 
 const identity = {
   schemaVersion: 1,
@@ -151,6 +152,70 @@ const records: RepositoryRecords['records'] = [
 ]
 
 describe('UI projection', () => {
+  test('keeps verified choices readable but unclassified without canonical policy', () => {
+    const snapshot = buildUiProjection({ config: {}, records })
+    if (snapshot.state !== 'ready') throw Error('fixture is ready')
+    expect(snapshot.decisions?.stateFingerprint).toBeNull()
+    const choice = snapshot.decisions?.groups.find(group => group.verdict === 'sound')?.choices[0]
+    expect(choice).toMatchObject({
+      scope: 'unclassified',
+      observation: {
+        headline: 'The repository store is the only writer.',
+        scenario: writerChoice.scenario,
+      },
+    })
+    expect(choice).not.toHaveProperty('humanStatus')
+    expect(choice).not.toHaveProperty('lifecycle')
+  })
+  test('orders verdict then confidence with canonical priority and stable ties', () => {
+    const raw = presentationDecisions()
+    const entries = raw.lineages.flatMap(lineage => lineage.observations)
+    const canonical = entries[0]!
+    const proposal = {
+      ...canonical,
+      scope: 'proposal' as const,
+      observation: { ...canonical.observation, choiceKey: 'aaa-proposal' },
+    }
+    const projected = presentDecisions({
+      ...raw,
+      lineages: [{ choiceKey: 'fixture', observations: [...entries.slice().reverse(), proposal] }],
+    })
+    expect(projected.groups.map(group => group.verdict)).toEqual(['needs-user', 'unsound', 'sound'])
+    expect(projected.groups[0]!.choices.map(item => item.observation.headline)).toEqual([
+      'Keep payment receipts for one year',
+      'Keep payment receipts for one year',
+      'Use email for failed-payment notifications',
+    ])
+    expect(projected.groups[0]!.choices.slice(0, 2).map(item => item.scope)).toEqual([
+      'canonical',
+      'proposal',
+    ])
+    expect(projected.groups[2]!.choices.map(item => item.observation.effect)).toEqual([
+      'remove',
+      'assert',
+    ])
+    expect(projected.groups[1]!.choices[0]!.observation).toMatchObject({
+      correctedDecision:
+        'One logical payment must keep the same idempotency key across all network retries.',
+    })
+  })
+  test('presents standalone needs-user guidance without raw assertions or bundle objects', () => {
+    const view = presentDecisions(presentationDecisions())
+    const choice = view.groups[0]!.choices[0]!.observation
+    if (choice.verdict !== 'needs-user') throw Error('fixture needs a user decision')
+    expect(choice.headline).toBe('Keep payment receipts for one year')
+    expect(choice.provisionalCall).toBe(
+      'Keep receipts for 90 days while the owner chooses a retention policy.',
+    )
+    expect(choice.reversal).toContain('before the first scheduled deletion')
+    expect(choice.scenario).toContain('Keeping it indefinitely')
+    expect(choice).not.toHaveProperty('assertion')
+    expect(choice).not.toHaveProperty('source')
+    expect(choice.evidence[0]).toEqual({
+      role: writerChoice.evidence[0]!.object.role,
+      digest: writerChoice.evidence[0]!.object.sha256,
+    })
+  })
   test('is deterministic and keeps branches as turn context', () => {
     const first = buildUiProjection({ config: { canonicalBranch: 'main' }, records })
     const second = buildUiProjection({
@@ -166,7 +231,9 @@ describe('UI projection', () => {
       active: true,
       turns: [{ branch: 'feature/ui', evidenceWatermark: 2, eventCount: 2 }],
     })
-    expect(first.decisions?.lineages[0]?.observations[0]).toMatchObject({
+    expect(
+      first.decisions?.groups.find(group => group.verdict === 'sound')?.choices[0],
+    ).toMatchObject({
       scope: 'canonical',
       lifecycle: 'canonical-current',
     })

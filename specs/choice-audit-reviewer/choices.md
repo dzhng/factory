@@ -50,6 +50,69 @@ server-side repair behavior. Reach: a damaged attempt must end as partial or
 failed and be retried as another attempt; its valid history remains available.
 Verdict: sound because only validation, not rewriting evidence, can grant authority.
 
+## Sound · high confidence — Missing scope disables actions, not reading
+
+When: slice 3 independent-review correction.
+
+A cloned repository can contain verified receipt-retention choices before its
+owner configures a canonical branch. Those explanations remain readable, marked
+unclassified and read-only. The browser receives neither an action fingerprint
+nor invented lifecycle or human status.
+
+Gap: the old projection withheld the entire fold when policy was absent; the spec
+required readable standalone choices without defining this state. Reach: future
+missing-authority states should not silently erase verified audit explanations.
+Verdict: sound because reading evidence is distinct from authorizing a mutation.
+Confidence: high; projection and real-browser regressions cover both boundaries.
+
+## Sound · medium confidence — Standalone choices get the primary full-width panel
+
+When: slice 3 presentation.
+
+A reader deciding whether to keep a year of payment receipts now sees the
+provisional retention period and how to reverse it next to the scenario. The
+ledger sits above the existing session and PR layout, with two readable cards
+across on wide screens and one on narrow screens. Keeping the old sidebar would
+leave little room for the required explanation or require hiding it behind a
+disclosure. The tradeoff is that session cards move farther down the page.
+
+Gap: the spec made choices primary but did not assign their screen area. Reach:
+future audit fields must fit this reading hierarchy without turning the ledger
+back into headlines alone. Verdict: sound because the main task is judging the
+choice without opening a transcript; comparison captures show that task directly.
+Confidence: medium; independent integration visual inspection remains pending.
+
+## Sound · high confidence — Citation detail is disclosed, decision guidance is not
+
+When: slice 3 presentation.
+
+The receipt-retention card always shows its scenario, gap, reach, and reversible
+provisional decision. Its implementation point and source review/entry IDs are
+also visible. A native disclosure reveals evidence role, full SHA-256 digest,
+and locator. Sending the complete object reference or raw submission preview
+would give the browser storage details without improving this explanation.
+
+Gap: the spec required compact provenance but delegated disclosure mechanics.
+Reach: this is a read-only citation display, not an object browser or new evidence
+authority. Exact references remain in durable records; action IDs and the fold's
+state fingerprint pass through unchanged. Verdict: sound because optional
+provenance detail does not hide the user's required decision. Confidence: high.
+
+## Sound · high confidence — Canonical scope breaks confidence ties
+
+When: slice 3 presentation.
+
+If two needs-user choices both have low confidence, the canonical-branch choice
+appears before a proposal from another branch. A medium-confidence canonical
+choice still follows both: scope does not override the required least-confident
+order. Remaining ties use priority and stable semantic/observation identifiers.
+
+Gap: the spec required canonical priority without defining its interaction with
+confidence ordering. Reach: ordering is owned by the domain projection, so every
+browser receives the same groups without inventing verdict semantics. Verdict:
+sound because it preserves both rules without changing lifecycle or human status.
+Confidence: high.
+
 ## Sound · medium confidence — Failure selection names one verdict
 
 When: slice 1 contract cutover.

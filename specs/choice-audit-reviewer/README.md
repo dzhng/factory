@@ -7,9 +7,9 @@ Factory tool instead of hand-authoring JSONL.
 
 ## Next Agent Prompt
 
-Status: slices 1–2 implemented; provider wiring and full presentation remain. Last updated: 2026-09-06.
+Status: slices 1–3 implemented; provider integration and publication closure remain. Last updated: 2026-09-06.
 
-Implement [slice 3](slices/03-presentation.md) and the provider wiring in [slice 4](slices/04-integration.md) next. Read this README, the
+Integrate [slice 4](slices/04-integration.md) next. Inspect [slice 3's visual checkpoint](assets/presentation/README.md) at integration; fresh-agent visual critique was unavailable. Read this README, the
 [target contract](contract.md), `SECURITY.md`, and the repository's write-tests
 skill before changing behavior. This is a clean cutover for an unlaunched
 product: delete the generic reviewer-output contract as its consumers move; do
@@ -17,7 +17,7 @@ not add compatibility parsing, migration machinery, or dual output modes.
 
 - [x] [1 — Choice-audit semantics and public ledger](slices/01-audit-contract.md)
 - [x] [2 — Typed reviewer submission tool](slices/02-submission-tool.md)
-- [ ] [3 — Human-readable choice presentation](slices/03-presentation.md)
+- [x] [3 — Human-readable choice presentation](slices/03-presentation.md)
 - [ ] [4 — Provider integration and partial-output journey](slices/04-integration.md)
 
 No product decision is blocked. The important warning is that tool calls improve

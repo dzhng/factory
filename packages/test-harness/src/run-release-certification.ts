@@ -232,15 +232,15 @@ async function openAndConfirmDecision(
       state: string
       decisions: {
         stateFingerprint: string
-        lineages: {
-          observations: { humanStatus: string; observation: { observationId: string } }[]
+        groups: {
+          choices: { humanStatus: string; observation: { observationId: string } }[]
         }[]
       }
     }
     if (snapshot.state !== 'ready')
       throw new Error('factory open did not render a ready projection')
-    const decision = snapshot.decisions.lineages
-      .flatMap(lineage => lineage.observations)
+    const decision = snapshot.decisions.groups
+      .flatMap(group => group.choices)
       .find(observation => observation.humanStatus === 'unconfirmed')
     if (decision === undefined) throw new Error('review decision was not visible in factory open')
     const session = (await (await fetch(`${origin}/api/session`, { signal })).json()) as {

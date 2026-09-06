@@ -1,5 +1,10 @@
 import type { DecisionObservation, RecordId } from '@factory/contract'
-import type { DecisionObservationView, UiReadySnapshot, UiSnapshot } from '@factory/domain'
+import {
+  presentDecisions,
+  type DecisionObservationView,
+  type UiReadySnapshot,
+  type UiSnapshot,
+} from '@factory/domain'
 
 import { writerChoice } from './choice-fixtures'
 
@@ -26,12 +31,12 @@ function ready(): UiReadySnapshot {
     associations: [],
     triggers: [],
     reviews: [],
-    decisions: {
+    decisions: presentDecisions({
       canonicalBranch: 'main',
       stateFingerprint: 'a'.repeat(64),
       lineages: [],
       diagnostics: [],
-    },
+    }),
     unresolvedDisputes: [],
     diagnostics: [],
   }
@@ -218,26 +223,11 @@ function withReviews(snapshot: UiReadySnapshot): UiReadySnapshot {
         limitations: [
           { code: 'missing-transcript-range', detail: 'One readable Session range ended early.' },
         ],
-        choices: [
-          {
-            ...writerChoice,
-            entryId: id('entry', '1'),
-            choiceKey: 'payments.retry',
-            verdict: 'unsound',
-            headline: 'Retry payment requests without a shared identity',
-            scenario:
-              'When checkout times out, retrying creates a second payment. Reusing one request identity would let the payment service recognize the retry.',
-            correctedDecision: 'Retries must preserve the original payment identity.',
-          },
-          {
-            ...writerChoice,
-            entryId: id('entry', '2'),
-            headline: 'Keep one owner for durable payment evidence',
-          },
-        ],
-        submissionsPreview:
-          'Reviewed the readable evidence. The payment idempotency path needs attention. <img src=x onerror=alert(1)>',
-        submissionsTruncated: false,
+        choiceCount: 2,
+        summary: {
+          reviewed: 'Reviewed payment retries and durable evidence. <img src=x onerror=alert(1)>',
+          evidence: [],
+        },
       },
       {
         reviewId: id('review', '2'),
@@ -250,9 +240,7 @@ function withReviews(snapshot: UiReadySnapshot): UiReadySnapshot {
         limitations: [
           { code: 'invalid-review-output', detail: 'No semantic entry survived the timeout.' },
         ],
-        choices: [],
-        submissionsPreview: '',
-        submissionsTruncated: false,
+        choiceCount: 0,
       },
     ],
   }
@@ -318,7 +306,7 @@ function withDecisions(snapshot: UiReadySnapshot): UiReadySnapshot {
   return {
     ...snapshot,
     counts: { ...snapshot.counts, highPriorityDecisions: 1 },
-    decisions: {
+    decisions: presentDecisions({
       canonicalBranch: 'main',
       actionHeadId: id('action', '1'),
       stateFingerprint: 'b'.repeat(64),
@@ -341,7 +329,7 @@ function withDecisions(snapshot: UiReadySnapshot): UiReadySnapshot {
         },
       ],
       diagnostics: [],
-    },
+    }),
     unresolvedDisputes: [],
   }
 }

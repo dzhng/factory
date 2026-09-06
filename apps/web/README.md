@@ -10,3 +10,10 @@ closes this server; there is no daemon or hosted authority. The browser sees
 compact presentation records and unresolved action identifiers, never raw
 decision actions or repository storage objects. Repositories that cannot be
 validated render an unavailable, read-only state.
+
+The choice ledger is the primary review surface. Required corrections and
+reversible provisional decisions stay visible alongside the scenario, gap, and
+future reach; citation details may be disclosed without opening provider data.
+Review history describes audit scope and completion, not raw submission text.
+Verdict grouping and confidence order belong to the domain projection, while
+human confirmation and lifecycle remain independent facts.

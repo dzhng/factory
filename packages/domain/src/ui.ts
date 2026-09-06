@@ -1,6 +1,7 @@
 import {
   type ChoiceAuditEntry,
   type ChoiceAuditSummary,
+  type DecisionObservation,
   type AssociationBatch,
   type CoverageAction,
   type LifecycleRecord,
@@ -18,7 +19,7 @@ import {
 import { verifyAssociationBatch } from './associations'
 import { foldCoverage, type PriorCoverageReview } from './coverage'
 import { loadVerifiedDecisionRecords } from './decision-records'
-import { foldDecisions, type DecisionView } from './decisions'
+import { foldDecisions, type DecisionView, type DecisionObservationView } from './decisions'
 import { loadStoredReviews, resolveStoredReviewSubject } from './stored-reviews'
 
 export type UiLimitation = { code: string; detail: string }
@@ -86,10 +87,106 @@ export type UiReview = {
   coverageAccepted: boolean
   failureReason?: string
   limitations: readonly UiLimitation[]
-  choices: readonly ChoiceAuditEntry[]
-  summary?: ChoiceAuditSummary
-  submissionsPreview: string
-  submissionsTruncated: boolean
+  choiceCount: number
+  summary?: Omit<ChoiceAuditSummary, 'evidence'> & { evidence: readonly UiEvidence[] }
+}
+
+export type UiEvidence = { role: string; digest: string; locator?: string }
+export type UiChoiceObservation = Pick<
+  DecisionObservation,
+  | 'observationId'
+  | 'reviewId'
+  | 'reviewEntryId'
+  | 'choiceKey'
+  | 'effect'
+  | 'when'
+  | 'headline'
+  | 'scenario'
+  | 'gap'
+  | 'reach'
+  | 'rationale'
+  | 'confidence'
+  | 'observedAt'
+> & { evidence: readonly UiEvidence[] } & (
+    | Pick<Extract<DecisionObservation, { verdict: 'sound' }>, 'verdict'>
+    | Pick<Extract<DecisionObservation, { verdict: 'unsound' }>, 'verdict' | 'correctedDecision'>
+    | Pick<
+        Extract<DecisionObservation, { verdict: 'needs-user' }>,
+        'verdict' | 'provisionalCall' | 'reversal'
+      >
+  )
+export type UiChoice = { observation: UiChoiceObservation } & (
+  | Omit<DecisionObservationView, 'observation'>
+  | { scope: 'unclassified' }
+)
+export type UiDecisions = {
+  stateFingerprint: DecisionView['stateFingerprint'] | null
+  groups: readonly { verdict: ChoiceAuditEntry['verdict']; choices: readonly UiChoice[] }[]
+}
+
+function presentEvidence(evidence: ChoiceAuditEntry['evidence']): readonly UiEvidence[] {
+  return evidence.map(({ object, locator }) => ({
+    role: object.role,
+    digest: object.sha256,
+    ...(locator === undefined ? {} : { locator }),
+  }))
+}
+
+export function presentDecisions(
+  view: DecisionView | { unclassified: readonly DecisionObservation[] },
+): UiDecisions {
+  const rank = { low: 0, medium: 1, high: 2 }
+  const choices = (
+    'unclassified' in view
+      ? view.unclassified.map(observation => ({ observation, scope: 'unclassified' as const }))
+      : view.lineages.flatMap(lineage => lineage.observations)
+  ).map(
+    ({ observation, ...state }): UiChoice => ({
+      ...state,
+      observation: {
+        observationId: observation.observationId,
+        reviewId: observation.reviewId,
+        reviewEntryId: observation.reviewEntryId,
+        choiceKey: observation.choiceKey,
+        effect: observation.effect,
+        when: observation.when,
+        headline: observation.headline,
+        scenario: observation.scenario,
+        gap: observation.gap,
+        reach: observation.reach,
+        rationale: observation.rationale,
+        confidence: observation.confidence,
+        observedAt: observation.observedAt,
+        ...(observation.verdict === 'unsound'
+          ? { verdict: observation.verdict, correctedDecision: observation.correctedDecision }
+          : observation.verdict === 'needs-user'
+            ? {
+                verdict: observation.verdict,
+                provisionalCall: observation.provisionalCall,
+                reversal: observation.reversal,
+              }
+            : { verdict: observation.verdict }),
+        evidence: presentEvidence(observation.evidence),
+      },
+    }),
+  )
+  return {
+    stateFingerprint: 'unclassified' in view ? null : view.stateFingerprint,
+    groups: (['needs-user', 'unsound', 'sound'] as const).map(verdict => ({
+      verdict,
+      choices: choices
+        .filter(item => item.observation.verdict === verdict)
+        .sort(
+          (a, b) =>
+            rank[a.observation.confidence] - rank[b.observation.confidence] ||
+            Number(b.scope === 'canonical') - Number(a.scope === 'canonical') ||
+            Number('priority' in b && b.priority === 'high') -
+              Number('priority' in a && a.priority === 'high') ||
+            a.observation.choiceKey.localeCompare(b.observation.choiceKey) ||
+            a.observation.observationId.localeCompare(b.observation.observationId),
+        ),
+    })),
+  }
 }
 
 export type UiRepositoryObservation = {
@@ -121,7 +218,7 @@ export type UiReadySnapshot = {
   associations: readonly UiAssociation[]
   triggers: readonly UiTrigger[]
   reviews: readonly UiReview[]
-  decisions: DecisionView | null
+  decisions: UiDecisions | null
   unresolvedDisputes: readonly { actionId: RecordId; targetObservationId: RecordId }[]
   diagnostics: readonly { priority: 'normal' | 'high'; message: string }[]
 }
@@ -134,19 +231,6 @@ export type UiUnavailableSnapshot = {
 }
 
 export type UiSnapshot = UiReadySnapshot | UiUnavailableSnapshot
-
-const textEncoder = new TextEncoder()
-const MAX_RESPONSE_PREVIEW_BYTES = 16 * 1024
-
-function limitText(value: string): { value: string; truncated: boolean } {
-  const bytes = textEncoder.encode(value)
-  if (bytes.byteLength <= MAX_RESPONSE_PREVIEW_BYTES) return { value, truncated: false }
-  const prefix = bytes.subarray(0, MAX_RESPONSE_PREVIEW_BYTES)
-  return {
-    value: new TextDecoder('utf-8', { fatal: false }).decode(prefix).replace(/\uFFFD$/u, ''),
-    truncated: true,
-  }
-}
 
 function limitations(value: { limitations: readonly UiLimitation[] }): readonly UiLimitation[] {
   return [...value.limitations].sort(
@@ -425,7 +509,6 @@ export function buildUiProjection(input: RepositoryRecords): UiSnapshot {
           left.manifest.reviewId.localeCompare(right.manifest.reviewId),
       )
       .map(review => {
-        const preview = limitText(review.submissions)
         return {
           reviewId: review.manifest.reviewId,
           subject: review.manifest.subject,
@@ -437,13 +520,22 @@ export function buildUiProjection(input: RepositoryRecords): UiSnapshot {
             ? {}
             : { failureReason: review.manifest.failureReason }),
           limitations: limitations(review.manifest),
-          choices: review.ledger?.entries ?? [],
-          ...(review.ledger?.summary ? { summary: review.ledger.summary } : {}),
-          submissionsPreview: preview.value,
-          submissionsTruncated: preview.truncated,
+          choiceCount: review.ledger?.entries.length ?? 0,
+          ...(review.ledger?.summary
+            ? {
+                summary: {
+                  ...review.ledger.summary,
+                  evidence: presentEvidence(review.ledger.summary.evidence),
+                },
+              }
+            : {}),
         }
       }),
-    decisions,
+    decisions: decisions
+      ? presentDecisions(decisions)
+      : decisionObservations.length
+        ? presentDecisions({ unclassified: decisionObservations })
+        : null,
     unresolvedDisputes:
       decisions?.lineages
         .flatMap(lineage => lineage.observations)

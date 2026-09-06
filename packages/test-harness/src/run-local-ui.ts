@@ -132,7 +132,7 @@ try {
         if (fixture.id === 'partial-coverage') {
           if ((await page.locator('img').count()) !== 0)
             throw new Error('review text created markup')
-          const responseText = await page.locator('pre.response').textContent()
+          const responseText = await page.locator('.audit-summary').textContent()
           if (!responseText?.includes('<img src=x onerror=alert'))
             throw new Error('review text was not preserved literally')
           assertions.push('repository text rendered literally')
