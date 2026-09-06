@@ -1,0 +1,85 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  identity:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.value }}
+    steps:
+      - id: version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo 'Release tags must be stable vMAJOR.MINOR.PATCH versions.' >&2
+            exit 1
+          fi
+          echo "value=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+  candidate:
+    needs: identity
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/ci.yml
+    with:
+      candidate_version: ${{ needs.identity.outputs.version }}
+
+  publish:
+    needs: [identity, candidate]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      id-token: write
+    env:
+      VERSION: ${{ needs.identity.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - run: bun install --frozen-lockfile
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: bun-*
+          path: candidate
+          merge-multiple: true
+      - name: Package the exact native candidates
+        run: bun run scripts/build-npm.ts --version "$VERSION" --revision "$GITHUB_SHA" --artifacts candidate/release --output "$RUNNER_TEMP/npm-package"
+      - name: Pack and test npm installation
+        run: |
+          npm pack "$RUNNER_TEMP/npm-package" --pack-destination "$RUNNER_TEMP"
+          bun run packages/test-harness/src/run-npm-install.ts "$RUNNER_TEMP/dzhng-factory-$VERSION.tgz" "$VERSION"
+      - name: Publish native GitHub assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            mkdir "$RUNNER_TEMP/published"
+            gh release download "$GITHUB_REF_NAME" --dir "$RUNNER_TEMP/published"
+            for asset in candidate/release/*.tar.gz candidate/release/*.json; do
+              cmp "$asset" "$RUNNER_TEMP/published/$(basename "$asset")"
+            done
+          else
+            gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes candidate/release/*.tar.gz candidate/release/*.json
+          fi
+      - name: Publish npm package with provenance
+        run: npm publish "$RUNNER_TEMP/dzhng-factory-$VERSION.tgz" --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

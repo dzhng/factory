@@ -9,6 +9,10 @@ Provider fixtures preserve raw bytes and provider-native vocabulary. They are
 observations, not a shared provider schema. Empirical oracle evidence informs
 Factory without becoming production behavior.
 
+The npm install journey accepts the actual packed tarball and exercises an
+offline global install in disposable Docker state. It requires no Bun on the
+consumer path and does not enable hooks in the developer's provider homes.
+
 The [authenticated capture certificate](../../specs/done/factory-v1/assets/live-capture/README.md)
 separates real lifecycle callbacks from fixture replay and model-only review
 authority. Its test-only image enables hooks and persistence in disposable

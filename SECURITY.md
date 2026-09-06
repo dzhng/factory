@@ -152,6 +152,14 @@ failures remain in review evidence or private diagnostics.
 
 ## Upgrades require release authority
 
+The npm distribution packages verified native release bytes inside
+`@dzhng/factory`. npm's registry integrity and publishing credentials authorize
+package installation; Factory does not claim its archive manifest independently
+authenticates an npm publisher. Packaging binds both binaries to the tag's exact
+source and version. No npm lifecycle script changes provider settings or fetches
+executables. The launcher selects a bundled binary; hook installation remains
+explicit. npm-managed installations should be updated through npm.
+
 Update discovery is separate from upgrade authority. An explicit
 `factory upgrade --check` can read bounded public release metadata from the
 fixed `dzhng/factory` GitHub release endpoint without authentication or redirects.
@@ -173,7 +181,7 @@ the verified replacement; it must refuse to overwrite bytes that diverged while
 Factory was interrupted. Upgrade never grants authority over repository data or
 provider configuration beyond reconciling Factory's exactly owned hooks.
 
-CI provenance is a separate authority. Main-branch native candidates receive
+CI provenance is a separate authority. Main-branch and release-tag native candidates receive
 GitHub artifact attestations, but an attestation does not replace Factory's
 manifest, archive, target, and executable verification. Pull-request workflows
 remain read-only and cannot mint repository attestations.

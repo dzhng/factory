@@ -386,7 +386,7 @@ try {
   await succeed('git', ['add', '.factory'], repository, environment)
   await succeed('git', ['commit', '-m', 'initialize Factory'], repository, environment)
   const factoryHead = (await succeed('git', ['rev-parse', 'HEAD'], repository, environment)).stdout
-  await succeed(executable, ['install', '--executable', executable], repository, environment)
+  await succeed(executable, ['install'], repository, environment)
   journeys.push({ name: 'install', status: 'passed', detail: 'both provider hooks reconciled' })
 
   await replayProvider('codex', executable, repository, home, environment)

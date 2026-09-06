@@ -9,6 +9,10 @@ The first release has no Factory account or hosted backend. Portable state is
 stored as inspectable, versioned files under `.factory`; credentials, locks,
 caches, and other machine state remain outside Git.
 
+The [npm installation guide](scripts/npm-README.md) explains the packaged CLI
+and explicit hook setup. [Release publishing](scripts/README.md) owns the
+tag-to-package distribution contract.
+
 The [v1 rationale](specs/done/factory-v1/README.md) records product principles,
 trade-offs, and verification provenance. Its [public format](specs/done/factory-v1/format.md)
 is separate so portable data does not depend on one package layout.

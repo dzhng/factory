@@ -799,7 +799,11 @@ export async function runFactoryCli(
       return 0
     }
     if (command === 'install') {
-      const executable = readOption(args, '--executable') ?? (await realpath(process.argv[1]!))
+      const executable =
+        readOption(args, '--executable') ??
+        (await realpath(
+          factoryBuildIdentity.target.startsWith('bun-') ? process.execPath : process.argv[1]!,
+        ))
       const state = await installHooks(executable, environment)
       output.stdout(`${canonicalJson(state)}`)
       return 0
