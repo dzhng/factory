@@ -20,7 +20,8 @@ is separate so portable data does not depend on one package layout.
 The active [evidence sanitization plan](specs/evidence-sanitization/README.md)
 defines the planned cutover from lossless capture to sanitized review evidence.
 The complementary [choice-audit reviewer plan](specs/choice-audit-reviewer/README.md)
-defines typed audit submissions and their human-readable ledger.
+replaces generic findings with cited, standalone judgments of agent-made choices.
+
 The [security model](SECURITY.md) owns repository trust, credentials, container
 isolation, and local interface policy. The implementation follows these ownership
 boundaries:

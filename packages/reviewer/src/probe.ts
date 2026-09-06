@@ -225,7 +225,10 @@ async function readOutputFiles(
       const name = relative(root, path)
       const readableBytes = Math.min(metadata.size, 1024 * 1024)
       state.bytes += readableBytes
-      if ((metadata.size > 1024 * 1024 && name !== 'response.txt') || state.bytes > 2 * 1024 * 1024)
+      if (
+        (metadata.size > 1024 * 1024 && !['response.txt', 'submissions.jsonl'].includes(name)) ||
+        state.bytes > 2 * 1024 * 1024
+      )
         throw new Error('Reviewer output exceeds byte bound')
       const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
       try {
@@ -683,7 +686,7 @@ export async function runObservedReviewerContainer(
   )
   if (
     options.scenario === 'review' &&
-    [...outputFiles.keys()].some(path => path !== 'response.txt')
+    [...outputFiles.keys()].some(path => !['response.txt', 'submissions.jsonl'].includes(path))
   )
     throw new Error('Reviewer output contains a foreign file')
   const leakSurfaces = [capturedLogs, ...outputFiles.values()].map(value => value.toString())

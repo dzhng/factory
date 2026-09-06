@@ -638,12 +638,12 @@ export class RepositoryStore {
       const root = `${dirname(commitPath)}/`
       const manifest = snapshots.find(record => record.path === commitPath)!
       const value = JSON.parse(decodeUtf8(manifest.bytes)) as { disposition: string }
-      const responsePath = `${root}response.txt`
+      const submissionsPath = `${root}submissions.jsonl`
       const ledgerPath = `${root}ledger.json`
       const expectedPaths =
         value.disposition === 'failed'
-          ? [commitPath, responsePath]
-          : [commitPath, responsePath, ledgerPath]
+          ? [commitPath, submissionsPath]
+          : [commitPath, submissionsPath, ledgerPath]
       if (
         snapshots.some(record => !record.path.startsWith(root)) ||
         canonicalJson([...paths].sort()) !== canonicalJson(expectedPaths.sort())
@@ -694,10 +694,10 @@ export class RepositoryStore {
       .disposition
     const expected =
       disposition === 'failed'
-        ? [commitPath, `${root}response.txt`]
-        : [commitPath, `${root}response.txt`, `${root}ledger.json`]
+        ? [commitPath, `${root}submissions.jsonl`]
+        : [commitPath, `${root}submissions.jsonl`, `${root}ledger.json`]
     if (canonicalJson([...paths].sort()) !== canonicalJson(expected.sort()))
-      throw new TypeError('review publication has the wrong manifest/response/ledger shape')
+      throw new TypeError('review publication has the wrong manifest/submissions/ledger shape')
     const ordered = [...snapshots.filter(record => record.path !== commitPath), manifest]
     const authorityRecords = new Map(authority.records.map(record => [record.path, record]))
     const importedPaths = new Set<string>()
@@ -776,6 +776,7 @@ export class RepositoryStore {
         validateStructuredRecord(path, bytes)
         const text = decodeUtf8(bytes)
         if (path.endsWith('.json')) records.push({ path, value: JSON.parse(text) as JsonValue })
+        else if (path.endsWith('/submissions.jsonl')) records.push({ path, value: text })
         else if (path.endsWith('.jsonl') && text.length > 0) {
           for (const line of text.trimEnd().split('\n')) {
             records.push({ path, value: JSON.parse(line) as JsonValue })

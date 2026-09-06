@@ -2,11 +2,16 @@ import { describe, expect, test } from 'bun:test'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import { canonicalJson, type ReviewManifest } from '@factory/contract'
+import { canonicalJson, type ObjectRef, type ReviewManifest } from '@factory/contract'
 import type { RepositoryStore } from '@factory/repository'
 import { openVerifiedReviewBundle, readVerifiedReviewBundle } from '@factory/reviewer'
 
 import { sealReviewerRawAttempt } from '../../reviewer/src/attempt'
+import {
+  writerChoice,
+  summarySubmissions,
+  checkpointChoices,
+} from '../../test-harness/src/choice-fixtures'
 import { acceptReview, validateReview, type RawAttempt } from '../src'
 
 const reviewId = 'review_00000000000000000000000009' as const
@@ -20,7 +25,7 @@ async function fixture() {
   const path = join(root, 'complete-bundle')
   const bundle = await openVerifiedReviewBundle(path, report.bundles.complete)
   const manifest = JSON.parse(await readFile(join(path, 'bundle.json'), 'utf8')) as {
-    inventory: unknown[]
+    inventory: ObjectRef[]
     plan: { policies: { reviewer: { provider: 'codex'; model: string; effort: string } } }
   }
   return { bundle, manifest, sha256: report.bundles.complete }
@@ -34,7 +39,7 @@ async function partialFixture() {
   const path = join(root, 'partial-bundle')
   const bundle = await openVerifiedReviewBundle(path, report.bundles.partial)
   const manifest = JSON.parse(await readFile(join(path, 'bundle.json'), 'utf8')) as {
-    inventory: unknown[]
+    inventory: ObjectRef[]
     plan: { policies: { reviewer: { provider: 'codex'; model: string; effort: string } } }
   }
   return { bundle, manifest, sha256: report.bundles.partial }
@@ -48,7 +53,7 @@ async function incrementalFixture() {
   const path = join(root, 'pr-incremental-bundle')
   const bundle = await openVerifiedReviewBundle(path, report.bundles.pullRequestIncremental)
   const manifest = JSON.parse(await readFile(join(path, 'bundle.json'), 'utf8')) as {
-    inventory: unknown[]
+    inventory: ObjectRef[]
     plan: {
       priorLedger: { path: string; object: unknown }
       policies: { reviewer: { provider: 'codex'; model: string; effort: string } }
@@ -93,17 +98,80 @@ async function authorizedStore(
 }
 
 describe('immutable review acceptance', () => {
+  test('accepts standalone choice audits with all three verdicts and exact citations', async () => {
+    const { bundle, manifest, sha256 } = await fixture()
+    const evidence = [{ object: manifest.inventory[0]! }]
+    const choices = checkpointChoices(evidence)
+    const response = new TextEncoder().encode(
+      [
+        ...choices.map(choice => ({ kind: 'choice', choice })),
+        {
+          kind: 'audit-summary',
+          summary: { reviewed: 'Inspected implementation history and the prior ledger.', evidence },
+        },
+        { kind: 'finish' },
+      ]
+        .map(value => canonicalJson(value))
+        .join(''),
+    )
+    const validated = await validateReview(
+      bundle,
+      sealReviewerRawAttempt({
+        providerOutput: new TextEncoder().encode('private diagnostic must not be published'),
+        reviewId,
+        bundleSha256: sha256,
+        submissions: response,
+        termination: 'completed',
+        exitCode: 0,
+        outputTruncated: false,
+        reviewer: { settings: manifest.plan.policies.reviewer },
+        imageDigest: `sha256:${'b'.repeat(64)}`,
+        providerCliVersion: 'fixture',
+        hostPlatform: 'linux/arm64',
+        startedAt: at,
+        completedAt: at,
+      }),
+    )
+    let ledger: { entries: typeof choices; summary: { reviewed: string } } | undefined
+    const store = await authorizedStore(bundle, {
+      async publishImmutableGroup(records: readonly { path: string; bytes: Uint8Array }[]) {
+        expect(
+          records.some(item =>
+            new TextDecoder()
+              .decode(item.bytes)
+              .includes('private diagnostic must not be published'),
+          ),
+        ).toBeFalse()
+        const record = records.find(item => item.path.endsWith('ledger.json'))
+        if (record) ledger = JSON.parse(new TextDecoder().decode(record.bytes))
+        return { path: '', sha256: '', bytes: 0 }
+      },
+      async createImmutable() {
+        return { path: '', sha256: '', bytes: 0 }
+      },
+    })
+    expect(await acceptReview(validated, store)).toMatchObject({
+      disposition: 'complete',
+      executionFailed: false,
+    })
+    expect(ledger!.entries.map(entry => entry.verdict)).toEqual(['needs-user', 'unsound', 'sound'])
+    expect(ledger!.entries).toEqual(
+      expect.arrayContaining(choices.map(choice => expect.objectContaining(choice))),
+    )
+    expect(ledger!.summary.reviewed).toBe('Inspected implementation history and the prior ledger.')
+  })
   test('rejects forged attempts and a target repository outside the bundle authority', async () => {
     const { bundle, manifest: bundleManifest, sha256 } = await fixture()
     await expect(validateReview(bundle, {} as RawAttempt)).rejects.toThrow(
       'attempt capability is not verified',
     )
-    const citation = bundleManifest.inventory[0]
+    const citation = bundleManifest.inventory[0]!
     const raw = sealReviewerRawAttempt({
+      providerOutput: new Uint8Array(),
       reviewId,
       bundleSha256: sha256,
-      response: new TextEncoder().encode(
-        `${JSON.stringify({ kind: 'summary', summary: 'Review completed', evidence: [{ object: citation }] })}\n`,
+      submissions: new TextEncoder().encode(
+        summarySubmissions([{ object: citation }], 'Review completed'),
       ),
       termination: 'completed',
       exitCode: 0,
@@ -129,16 +197,24 @@ describe('immutable review acceptance', () => {
 
   test('derives a complete manifest and ledger from cited semantic output', async () => {
     const { bundle, manifest: bundleManifest, sha256 } = await fixture()
-    const citation = bundleManifest.inventory[0]
+    const citation = bundleManifest.inventory[0]!
     const response = new TextEncoder().encode(
-      `${JSON.stringify({ kind: 'summary', summary: 'Review completed', evidence: [{ object: citation }] })}\n${JSON.stringify({ kind: 'decision', decisionKey: 'repository.single-writer', effect: 'assert', assertion: { owner: 'repository' }, confidence: 'high', summary: 'Repository owns durable writes', evidence: [{ object: citation }] })}\n`,
+      canonicalJson({
+        kind: 'choice',
+        choice: {
+          ...writerChoice,
+          choiceKey: 'repository.single-writer',
+          evidence: [{ object: citation }],
+        },
+      }) + summarySubmissions([{ object: citation }], 'Review completed'),
     )
     const validated = await validateReview(
       bundle,
       sealReviewerRawAttempt({
+        providerOutput: new Uint8Array(),
         reviewId,
         bundleSha256: sha256,
-        response,
+        submissions: response,
         termination: 'completed',
         exitCode: 0,
         outputTruncated: false,
@@ -174,7 +250,7 @@ describe('immutable review acceptance', () => {
     expect(accepted).toMatchObject({ disposition: 'complete', executionFailed: false })
     expect(published!.commitPath).toBe(manifestRecord.path)
     expect(published!.records.map(record => record.path)).toEqual([
-      `reviews/workspace/${reviewId}/response.txt`,
+      `reviews/workspace/${reviewId}/submissions.jsonl`,
       `reviews/workspace/${reviewId}/ledger.json`,
       `reviews/workspace/${reviewId}/manifest.json`,
     ])
@@ -184,7 +260,7 @@ describe('immutable review acceptance', () => {
     expect(decisionRecords).toHaveLength(1)
     expect(decisionRecords[0]!.path).toMatch(/^decisions\/observations\/decision_.*\.json$/)
     expect(JSON.parse(new TextDecoder().decode(decisionRecords[0]!.bytes))).toMatchObject({
-      decisionKey: 'repository.single-writer',
+      choiceKey: 'repository.single-writer',
       effect: 'assert',
       source: { kind: 'workspace', exactSnapshot: true },
     })
@@ -195,10 +271,14 @@ describe('immutable review acceptance', () => {
     const validated = await validateReview(
       bundle,
       sealReviewerRawAttempt({
+        providerOutput: new Uint8Array(),
         reviewId,
         bundleSha256: sha256,
-        response: new TextEncoder().encode(
-          `${JSON.stringify({ kind: 'summary', summary: 'Incremental review completed', evidence: [{ object: bundleManifest.inventory[0] }] })}\n`,
+        submissions: new TextEncoder().encode(
+          summarySubmissions(
+            [{ object: bundleManifest.inventory[0]! }],
+            'Incremental review completed',
+          ),
         ),
         termination: 'completed',
         exitCode: 0,
@@ -234,14 +314,15 @@ describe('immutable review acceptance', () => {
   test('salvages a valid prefix as partial and reports execution failure separately', async () => {
     const { bundle, manifest: bundleManifest, sha256 } = await fixture()
     const response = new TextEncoder().encode(
-      `${JSON.stringify({ kind: 'summary', summary: 'Useful prefix', evidence: [{ object: bundleManifest.inventory[0] }] })}\n{"bad"`,
+      summarySubmissions([{ object: bundleManifest.inventory[0]! }], 'Useful prefix') + '{"bad"',
     )
     const validated = await validateReview(
       bundle,
       sealReviewerRawAttempt({
+        providerOutput: new Uint8Array(),
         reviewId,
         bundleSha256: sha256,
-        response,
+        submissions: response,
         termination: 'timed-out',
         exitCode: null,
         outputTruncated: true,
@@ -274,14 +355,15 @@ describe('immutable review acceptance', () => {
   test('keeps valid subject coverage when only selected session input is partial', async () => {
     const { bundle, manifest: bundleManifest, sha256 } = await partialFixture()
     const response = new TextEncoder().encode(
-      `${JSON.stringify({ kind: 'summary', summary: 'Reviewed available evidence', evidence: [{ object: bundleManifest.inventory[0] }] })}\n`,
+      summarySubmissions([{ object: bundleManifest.inventory[0]! }], 'Reviewed available evidence'),
     )
     const validated = await validateReview(
       bundle,
       sealReviewerRawAttempt({
+        providerOutput: new Uint8Array(),
         reviewId,
         bundleSha256: sha256,
-        response,
+        submissions: response,
         termination: 'completed',
         exitCode: 0,
         outputTruncated: false,
@@ -310,7 +392,7 @@ describe('immutable review acceptance', () => {
   test('publishes only the bounded valid UTF-8 response prefix', async () => {
     const { bundle, manifest: bundleManifest, sha256 } = await fixture()
     const prefix = new TextEncoder().encode(
-      `${JSON.stringify({ kind: 'summary', summary: 'Useful prefix', evidence: [{ object: bundleManifest.inventory[0] }] })}\n`,
+      summarySubmissions([{ object: bundleManifest.inventory[0]! }], 'Useful prefix'),
     )
     const response = new Uint8Array(2 * 1024 * 1024)
     response.set(prefix)
@@ -318,9 +400,10 @@ describe('immutable review acceptance', () => {
     const validated = await validateReview(
       bundle,
       sealReviewerRawAttempt({
+        providerOutput: new Uint8Array(),
         reviewId,
         bundleSha256: sha256,
-        response,
+        submissions: response,
         termination: 'completed',
         exitCode: 0,
         outputTruncated: false,
@@ -335,7 +418,7 @@ describe('immutable review acceptance', () => {
     let publishedResponse: Uint8Array | undefined
     const store = await authorizedStore(bundle, {
       async publishImmutableGroup(records: readonly { path: string; bytes: Uint8Array }[]) {
-        publishedResponse = records.find(item => item.path.endsWith('response.txt'))!.bytes
+        publishedResponse = records.find(item => item.path.endsWith('submissions.jsonl'))!.bytes
         const record = records.find(item => item.path.endsWith('manifest.json'))!
         return { path: record.path, sha256: '', bytes: 0 }
       },
@@ -349,31 +432,34 @@ describe('immutable review acceptance', () => {
 
   test('persists closed sanitized failures when no semantic entry is valid', async () => {
     const { bundle, manifest: bundleManifest, sha256 } = await fixture()
-    const invalidCitation = `${JSON.stringify({
-      kind: 'summary',
-      summary: 'Unsupported result',
-      evidence: [
-        {
-          object: {
-            ...(bundleManifest.inventory[0] as Record<string, unknown>),
-            role: 'forged-role',
+    const invalidCitation = canonicalJson({
+      kind: 'audit-summary',
+      summary: {
+        reviewed: 'Unsupported result',
+        evidence: [
+          {
+            object: {
+              ...bundleManifest.inventory[0],
+              role: 'forged-role',
+            },
           },
-        },
-      ],
-    })}\n`
+        ],
+      },
+    })
     for (const scenario of [
-      { termination: 'authentication-unavailable' as const, response: '' },
-      { termination: 'docker-unavailable' as const, response: '' },
-      { termination: 'crashed' as const, response: '' },
-      { termination: 'completed' as const, response: '{malformed' },
-      { termination: 'completed' as const, response: invalidCitation },
+      { termination: 'authentication-unavailable' as const, submissions: '' },
+      { termination: 'docker-unavailable' as const, submissions: '' },
+      { termination: 'crashed' as const, submissions: '' },
+      { termination: 'completed' as const, submissions: '{malformed' },
+      { termination: 'completed' as const, submissions: invalidCitation },
     ]) {
       const validated = await validateReview(
         bundle,
         sealReviewerRawAttempt({
+          providerOutput: new Uint8Array(),
           reviewId,
           bundleSha256: sha256,
-          response: new TextEncoder().encode(scenario.response),
+          submissions: new TextEncoder().encode(scenario.submissions),
           termination: scenario.termination,
           exitCode: scenario.termination === 'completed' ? 0 : null,
           outputTruncated: false,
@@ -409,10 +495,14 @@ describe('immutable review acceptance', () => {
     const validated = await validateReview(
       bundle,
       sealReviewerRawAttempt({
+        providerOutput: new Uint8Array(),
         reviewId,
         bundleSha256: sha256,
-        response: new TextEncoder().encode(
-          `${JSON.stringify({ kind: 'summary', summary: 'Useful before cancellation', evidence: [{ object: bundleManifest.inventory[0] }] })}\n`,
+        submissions: new TextEncoder().encode(
+          summarySubmissions(
+            [{ object: bundleManifest.inventory[0]! }],
+            'Useful before cancellation',
+          ),
         ),
         termination: 'cancelled',
         exitCode: null,

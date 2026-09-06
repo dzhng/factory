@@ -17,10 +17,11 @@ describe('review provider adapters', () => {
     expect(invocation.argv.slice(sandbox, sandbox + 2)).toEqual(['--sandbox', 'danger-full-access'])
     expect(invocation.environment.CODEX_HOME).toBe('/auth/codex')
     expect(invocation.prompt).toContain('/review-input')
-    expect(invocation.prompt).toContain('"decisionKey":"explicit stable opaque key"')
-    expect(invocation.prompt).toContain('Omission never means removal')
-    expect(invocation.prompt).toContain('MUST emit at least one cited summary')
-    expect(invocation.prompt).toContain('The remove effect requires assertion to be null')
+    expect(invocation.prompt).toContain('Reuse a choiceKey only when cited evidence')
+    expect(invocation.prompt).toContain('Silence changes nothing')
+    expect(invocation.prompt).toContain('submit_audit_summary')
+    expect(invocation.prompt).toContain('requires a null assertion')
+    expect(invocation.prompt).toContain('finish_audit exactly once')
   })
 
   test('pins restricted Claude argv without fallback or persistence', () => {

@@ -19,8 +19,8 @@ import {
   type VerifiedReviewBundle,
 } from '@factory/reviewer'
 
+import { readAuditDraft } from './audit'
 import { appendDecisionObservations } from './decisions'
-import { parseSemanticOutput } from './output'
 
 export type AttemptTermination = import('@factory/reviewer').ReviewerExecutionTermination
 export type RawAttempt = ReviewerRawAttempt
@@ -45,7 +45,7 @@ export type ValidatedAttempt = { readonly [validatedAttemptBrand]: true }
 type ValidatedState = {
   manifest: ReviewManifest
   ledger?: ReviewLedger
-  response: Uint8Array
+  submissions: Uint8Array
   executionFailed: boolean
   rootSegments: readonly string[]
   repositoryId?: string
@@ -92,8 +92,8 @@ export async function validateReview(
     canonicalJson(verified.manifest.plan.policies.reviewer)
   )
     throw new TypeError('review attempt reviewer differs from the planned policy')
-  const parsed = parseSemanticOutput(
-    observed.response,
+  const parsed = readAuditDraft(
+    observed.submissions,
     verified.manifest.inventory,
     observed.reviewId,
   )
@@ -117,7 +117,7 @@ export async function validateReview(
     )
     .sort(compareCanonical)
   const disposition: ReviewManifest['disposition'] =
-    parsed.entries.length === 0
+    parsed.entries.length === 0 && parsed.summary === undefined
       ? 'failed'
       : canonicalLimitations.length > 0 ||
           verified.manifest.plan.inputProblems.length > 0 ||
@@ -128,7 +128,7 @@ export async function validateReview(
         : 'complete'
   const reason = failureReason(
     observed,
-    parsed.entries.length > 0,
+    parsed.entries.length > 0 || parsed.summary !== undefined,
     parsed.incomplete || observed.outputTruncated,
   )
   const subjectAttempt = {
@@ -171,7 +171,12 @@ export async function validateReview(
   const ledger =
     disposition === 'failed'
       ? undefined
-      : ({ schemaVersion: 1, reviewId: observed.reviewId, entries: parsed.entries } as const)
+      : ({
+          schemaVersion: 1,
+          reviewId: observed.reviewId,
+          entries: parsed.entries,
+          ...(parsed.summary ? { summary: parsed.summary } : {}),
+        } as const)
   const rootSegments =
     manifest.subject.kind === 'workspace'
       ? (['workspace', observed.reviewId] as const)
@@ -186,7 +191,7 @@ export async function validateReview(
   validatedAttempts.set(capability, {
     manifest,
     ...(ledger === undefined ? {} : { ledger }),
-    response: parsed.response,
+    submissions: parsed.submissions,
     executionFailed,
     rootSegments,
     ...(verified.authority.repositoryId === undefined
@@ -207,10 +212,10 @@ export async function acceptReview(
 ): Promise<AcceptedReview> {
   const state = validatedAttempts.get(attempt)
   if (state === undefined) throw new TypeError('review attempt was not validated')
-  const responsePath = makeOwnedPath('reviews', [...state.rootSegments, 'response.txt'])
+  const submissionsPath = makeOwnedPath('reviews', [...state.rootSegments, 'submissions.jsonl'])
   const manifestPath = makeOwnedPath('reviews', [...state.rootSegments, 'manifest.json'])
   const records = [
-    { path: responsePath, bytes: state.response },
+    { path: submissionsPath, bytes: state.submissions },
     ...(state.ledger === undefined
       ? []
       : [

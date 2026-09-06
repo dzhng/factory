@@ -90,14 +90,14 @@ export function deriveDecisionObservations(
   validateCommittedReview(manifest, ledger)
   const source = observationSource(manifest, subjectRecord)
   return ledger.entries
-    .filter(entry => entry.kind === 'decision')
     .map(entry => {
+      const { entryId, ...choice } = entry
       const digest = createHash('sha256')
         .update(manifest.reviewId)
         .update('\0')
         .update(canonicalJson(manifest.subject))
         .update('\0')
-        .update(entry.entryId)
+        .update(entryId)
         .digest()
       const observation: DecisionObservation = {
         schemaVersion: 1,
@@ -107,14 +107,10 @@ export function deriveDecisionObservations(
           digest.subarray(0, 10),
         ),
         reviewId: manifest.reviewId,
-        reviewEntryId: entry.entryId,
-        decisionKey: entry.decisionKey,
-        effect: entry.effect,
-        assertion: entry.assertion,
+        reviewEntryId: entryId,
+        ...choice,
         assertionFingerprint: decisionAssertionFingerprint(entry),
-        summary: entry.summary,
         source,
-        confidence: entry.confidence,
         observedAt: manifest.completedAt,
       }
       validatePublicRecord(
@@ -151,7 +147,7 @@ export type DecisionObservationView = {
 }
 
 export type DecisionLineageView = {
-  decisionKey: string
+  choiceKey: string
   currentObservationId?: RecordId
   observations: readonly DecisionObservationView[]
 }
@@ -185,7 +181,7 @@ type MutableObservationView = {
 }
 
 type MutableLineage = {
-  decisionKey: string
+  choiceKey: string
   currentObservationId?: RecordId
   observations: MutableObservationView[]
 }
@@ -238,15 +234,21 @@ function immutableView(
   actionHeadId: RecordId | undefined,
 ): DecisionView {
   const stableLineages = [...lineages]
-    .sort((left, right) => left.decisionKey.localeCompare(right.decisionKey))
+    .sort((left, right) => left.choiceKey.localeCompare(right.choiceKey))
     .map(lineage => ({
-      decisionKey: lineage.decisionKey,
+      choiceKey: lineage.choiceKey,
       ...(lineage.currentObservationId === undefined
         ? {}
         : { currentObservationId: lineage.currentObservationId }),
       observations: lineage.observations
         .sort((left, right) => chronological(left.observation, right.observation))
-        .map(item => ({ ...item })),
+        .map(item => ({
+          ...item,
+          priority:
+            item.priority === 'high' || item.observation.verdict !== 'sound'
+              ? ('high' as const)
+              : ('normal' as const),
+        })),
     }))
   const stableDiagnostics = [...diagnostics].sort(
     (left, right) =>
@@ -320,10 +322,10 @@ export function foldDecisions(
       })
       return
     }
-    let lineage = lineages.get(observation.decisionKey)
+    let lineage = lineages.get(observation.choiceKey)
     if (lineage === undefined) {
-      lineage = { decisionKey: observation.decisionKey, observations: [] }
-      lineages.set(observation.decisionKey, lineage)
+      lineage = { choiceKey: observation.choiceKey, observations: [] }
+      lineages.set(observation.choiceKey, lineage)
     }
     const canonical = isCanonical(observation, canonicalBranch)
     let item: MutableObservationView
@@ -413,12 +415,12 @@ export function foldDecisions(
     if (action.kind === 'supersede') {
       const from = byObservation.get(action.fromObservationId)
       const to = byObservation.get(action.toObservationId)
-      const lineage = from === undefined ? undefined : lineages.get(from.observation.decisionKey)
+      const lineage = from === undefined ? undefined : lineages.get(from.observation.choiceKey)
       if (
         from === undefined ||
         to === undefined ||
         lineage === undefined ||
-        from.observation.decisionKey !== to.observation.decisionKey ||
+        from.observation.choiceKey !== to.observation.choiceKey ||
         lineage.currentObservationId !== from.observation.observationId ||
         to.lifecycle !== 'pending-supersession' ||
         to.pendingFromObservationId !== from.observation.observationId ||
@@ -456,7 +458,7 @@ export function foldDecisions(
 
     const target = byObservation.get(action.targetObservationId)
     const targetLineage =
-      target === undefined ? undefined : lineages.get(target.observation.decisionKey)
+      target === undefined ? undefined : lineages.get(target.observation.choiceKey)
     const currentTarget =
       targetLineage?.currentObservationId === undefined
         ? undefined

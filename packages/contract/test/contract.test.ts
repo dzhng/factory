@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
+import { writerChoice, emptyAuditSummary } from '../../test-harness/src/choice-fixtures'
 import {
   canonicalJson,
   decisionAssertionFingerprint,
@@ -20,6 +21,21 @@ const recordId = (prefix: string, discriminator = '0') =>
   `${prefix}_${'0'.repeat(25)}${discriminator}`
 
 describe('public repository contract', () => {
+  test('rejects duplicate entry identities even for distinct choice keys', () => {
+    const reviewId = 'review_00000000000000000000000001' as const
+    const entryId = 'entry_00000000000000000000000001' as const
+    const path = makeOwnedPath('reviews', ['workspace', reviewId, 'ledger.json'])
+    expect(() =>
+      validatePublicRecord(path, {
+        schemaVersion: 1,
+        reviewId,
+        entries: [
+          { ...writerChoice, choiceKey: 'a', entryId },
+          { ...writerChoice, choiceKey: 'b', entryId },
+        ],
+      }),
+    ).toThrow('canonical and unique')
+  })
   test('encodes canonical JSON with sorted keys and a final newline', () => {
     expect(canonicalJson({ z: 1, nested: { b: true, a: 'first' }, a: [2, 1] })).toBe(
       '{"a":[2,1],"nested":{"a":"first","b":true},"z":1}\n',
@@ -412,15 +428,17 @@ describe('public repository contract', () => {
           entries: [
             {
               entryId: recordId('entry'),
-              kind: 'finding',
-              severity: 'high',
-              summary: 'A validated finding',
+              ...writerChoice,
+              headline: 'A validated choice',
               evidence: [{ object }],
             },
           ],
         },
       ],
-      [makeOwnedPath('reviews', ['workspace', recordId('review'), 'response.txt']), 'response\n'],
+      [
+        makeOwnedPath('reviews', ['workspace', recordId('review'), 'submissions.jsonl']),
+        { kind: 'finish' },
+      ],
       [
         makeOwnedPath('reviews', ['coverage-actions', `${recordId('action')}.json`]),
         {
@@ -441,14 +459,15 @@ describe('public repository contract', () => {
           observationId: recordId('decision'),
           reviewId: recordId('review'),
           reviewEntryId: recordId('entry'),
-          decisionKey: 'repository.single-writer',
+          ...writerChoice,
+          choiceKey: 'repository.single-writer',
           effect: 'assert',
           assertion: { owner: 'repository' },
           assertionFingerprint: decisionAssertionFingerprint({
             effect: 'assert',
             assertion: { owner: 'repository' },
           }),
-          summary: 'Fixture decision',
+          headline: 'Fixture decision',
           source: { kind: 'workspace', branch: 'main', exactSnapshot: true },
           confidence: 'high',
           observedAt: timestamp,
@@ -555,17 +574,17 @@ describe('public repository contract', () => {
           entries: [
             {
               entryId: recordId('entry'),
-              kind: 'decision',
-              decisionKey: 'repository.single-writer',
+              ...writerChoice,
+              choiceKey: 'repository.single-writer',
               effect,
               assertion: null,
               confidence: 'high',
-              summary: 'Missing meaning',
+              headline: 'Missing meaning',
               evidence: [{ object }],
             },
           ],
         }),
-      ).toThrow('assertion must not be null')
+      ).toThrow('assertion must be null exactly for remove')
 
       expect(() =>
         validatePublicRecord(
@@ -575,17 +594,18 @@ describe('public repository contract', () => {
             observationId: recordId('decision'),
             reviewId,
             reviewEntryId: recordId('entry'),
-            decisionKey: 'repository.single-writer',
+            ...writerChoice,
+            choiceKey: 'repository.single-writer',
             effect,
             assertion: null,
             assertionFingerprint: decisionAssertionFingerprint({ effect, assertion: null }),
-            summary: 'Missing meaning',
+            headline: 'Missing meaning',
             source: { kind: 'workspace', branch: 'main', exactSnapshot: true },
             confidence: 'high',
             observedAt: '2026-09-05T00:00:00Z',
           },
         ),
-      ).toThrow('assertion must not be null')
+      ).toThrow('assertion must be null exactly for remove')
     }
   })
 
@@ -1174,7 +1194,12 @@ describe('public repository contract', () => {
       ],
       [
         makeOwnedPath('reviews', ['workspace', recordId('review', '0'), 'ledger.json']),
-        { schemaVersion: 1, reviewId: recordId('review', '1'), entries: [] },
+        {
+          schemaVersion: 1,
+          reviewId: recordId('review', '1'),
+          entries: [],
+          summary: emptyAuditSummary(writerChoice.evidence),
+        },
       ],
       [
         makeOwnedPath('reviews', ['coverage-actions', `${recordId('action', '0')}.json`]),
@@ -1194,16 +1219,17 @@ describe('public repository contract', () => {
         {
           schemaVersion: 1,
           observationId: recordId('decision', '1'),
+          ...writerChoice,
           reviewId: recordId('review'),
           reviewEntryId: recordId('entry'),
-          decisionKey: 'fixture',
+          choiceKey: 'fixture',
           effect: 'assert',
           assertion: { owner: 'repository' },
           assertionFingerprint: decisionAssertionFingerprint({
             effect: 'assert',
             assertion: { owner: 'repository' },
           }),
-          summary: 'Fixture',
+          headline: 'Fixture',
           source: { kind: 'workspace', branch: 'feature', exactSnapshot: true },
           confidence: 'low',
           observedAt: timestamp,

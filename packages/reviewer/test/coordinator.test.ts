@@ -54,9 +54,10 @@ describe('review attempt coordinator', () => {
       async run(_bundle: unknown, reviewer: typeof choice, input: { reviewId: string }) {
         executions += 1
         return sealReviewerRawAttempt({
+          providerOutput: new Uint8Array(),
           reviewId: input.reviewId as `review_${string}`,
           bundleSha256: sha256,
-          response: new TextEncoder().encode('private provider response'),
+          submissions: new TextEncoder().encode('private provider response'),
           termination: 'completed',
           exitCode: 0,
           outputTruncated: false,
@@ -83,7 +84,7 @@ describe('review attempt coordinator', () => {
     const attemptsRoot = join(runtime, 'review-attempts-v1')
     const [attemptKey] = await readdir(attemptsRoot)
     const statePath = join(attemptsRoot, attemptKey!, 'state.json')
-    expect(await readFile(statePath, 'utf8')).toContain('responseBase64')
+    expect(await readFile(statePath, 'utf8')).toContain('submissionsBase64')
     await coordinator.finalize(bundle, choice, input.imageDigest, {
       reviewId: readReviewerRawAttempt(first).reviewId,
     })
@@ -101,9 +102,10 @@ describe('review attempt coordinator', () => {
       async run(_bundle: unknown, reviewer: typeof choice, input: { reviewId: string }) {
         executions += 1
         return sealReviewerRawAttempt({
+          providerOutput: new Uint8Array(),
           reviewId: input.reviewId as `review_${string}`,
           bundleSha256: sha256,
-          response: new Uint8Array(),
+          submissions: new Uint8Array(),
           termination: 'docker-unavailable' as const,
           exitCode: null,
           outputTruncated: false,
@@ -146,9 +148,10 @@ describe('review attempt coordinator', () => {
       {
         async run(_bundle, reviewer, input) {
           return sealReviewerRawAttempt({
+            providerOutput: new Uint8Array(),
             reviewId: input.reviewId,
             bundleSha256: sha256,
-            response: new Uint8Array(),
+            submissions: new Uint8Array(),
             termination: 'completed',
             exitCode: 0,
             outputTruncated: false,

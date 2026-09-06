@@ -90,7 +90,7 @@ async function main() {
     const authRoot = join(root, 'dedicated-auth')
     await mkdir(authRoot)
     const auth = join(authRoot, 'auth.json')
-    await writeFile(auth, 'factory-test-high-finding factory-test-delay\n', { mode: 0o444 })
+    await writeFile(auth, 'factory-test-unsound factory-test-delay\n', { mode: 0o444 })
     await chmod(auth, 0o444)
     const image = await command(
       [
@@ -184,7 +184,7 @@ async function main() {
     if (accepted === undefined || noOp === undefined)
       throw new Error(`concurrent review did not converge: ${JSON.stringify(firstResults)}`)
     const { FACTORY_REVIEWER_IMAGE: _imageDigest, ...noImageEnvironment } = environment
-    const second = await factory(['review', '--fail-on', 'high'], root, noImageEnvironment)
+    const second = await factory(['review', '--fail-on', 'unsound'], root, noImageEnvironment)
     const retried = JSON.parse(second.output) as Record<string, string>
     if (
       second.code !== 1 ||

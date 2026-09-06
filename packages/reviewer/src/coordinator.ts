@@ -45,8 +45,9 @@ type ReviewAttemptRunInput = Omit<
   retryGeneration?: RecordId
 }
 
-type PersistedSnapshot = Omit<ReviewerRawAttemptSnapshot, 'response'> & {
-  responseBase64: string
+type PersistedSnapshot = Omit<ReviewerRawAttemptSnapshot, 'submissions' | 'providerOutput'> & {
+  submissionsBase64: string
+  providerOutputBase64: string
 }
 
 type AttemptState =
@@ -175,7 +176,8 @@ async function atomicState(path: string, value: AttemptState): Promise<void> {
   }
 }
 
-const MAX_STATE_BYTES = 2 * 1024 * 1024
+// Two bounded 1 MiB streams encoded as base64, plus the fixed attempt facts.
+const MAX_STATE_BYTES = 3 * 1024 * 1024
 
 async function readState(path: string): Promise<AttemptState | undefined> {
   let handle
@@ -247,7 +249,8 @@ function isAttemptState(value: unknown): value is AttemptState {
         'imageDigest',
         'outputTruncated',
         'providerCliVersion',
-        'responseBase64',
+        'submissionsBase64',
+        'providerOutputBase64',
         'reviewId',
         'reviewer',
         'startedAt',
@@ -259,20 +262,29 @@ function isAttemptState(value: unknown): value is AttemptState {
 }
 
 function persisted(attempt: ReviewerRawAttemptSnapshot): PersistedSnapshot {
-  const { response, ...facts } = attempt
-  return { ...facts, responseBase64: Buffer.from(response).toString('base64') }
+  const { submissions, providerOutput, ...facts } = attempt
+  return {
+    ...facts,
+    submissionsBase64: Buffer.from(submissions).toString('base64'),
+    providerOutputBase64: Buffer.from(providerOutput).toString('base64'),
+  }
 }
 
 function restored(attempt: PersistedSnapshot): ReviewerRawAttempt {
-  const { responseBase64, ...facts } = attempt
-  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(responseBase64))
-    throw new Error('review attempt response encoding is corrupt')
-  const response = Buffer.from(responseBase64, 'base64')
-  if (response.toString('base64') !== responseBase64)
-    throw new Error('review attempt response encoding is not canonical')
-  if (response.byteLength > 1024 * 1024)
-    throw new Error('review attempt state exceeds response bound')
-  return sealReviewerRawAttempt({ ...facts, response })
+  const { submissionsBase64, providerOutputBase64, ...facts } = attempt
+  const decode = (value: string) => {
+    if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value))
+      throw new Error('review attempt stream encoding is corrupt')
+    const bytes = Buffer.from(value, 'base64')
+    if (bytes.toString('base64') !== value || bytes.byteLength > 1024 * 1024)
+      throw new Error('review attempt stream exceeds canonical byte bound')
+    return bytes
+  }
+  return sealReviewerRawAttempt({
+    ...facts,
+    submissions: decode(submissionsBase64),
+    providerOutput: decode(providerOutputBase64),
+  })
 }
 
 export class ReviewAttemptCoordinator {

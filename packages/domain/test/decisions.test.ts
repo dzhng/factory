@@ -8,6 +8,7 @@ import {
   type RecordId,
 } from '@factory/contract'
 
+import { writerChoice } from '../../test-harness/src/choice-fixtures'
 import { foldDecisions } from '../src/decisions'
 
 const id = (prefix: string, suffix: string) =>
@@ -16,7 +17,7 @@ const at = (second: number) => `2026-09-05T00:00:${String(second).padStart(2, '0
 
 function observation(input: {
   suffix: string
-  decisionKey?: string
+  choiceKey?: string
   assertion: JsonValue
   effect?: DecisionObservation['effect']
   branch?: string
@@ -24,15 +25,16 @@ function observation(input: {
 }): DecisionObservation {
   const effect = input.effect ?? 'assert'
   return {
+    ...writerChoice,
     schemaVersion: 1,
     observationId: id('decision', input.suffix),
     reviewId: id('review', input.suffix),
     reviewEntryId: id('entry', input.suffix),
-    decisionKey: input.decisionKey ?? 'repository.writer',
+    choiceKey: input.choiceKey ?? 'repository.writer',
     effect,
     assertion: input.assertion,
     assertionFingerprint: decisionAssertionFingerprint({ effect, assertion: input.assertion }),
-    summary: `decision ${input.suffix}`,
+    headline: `decision ${input.suffix}`,
     source:
       input.source ??
       ({ kind: 'workspace', branch: input.branch ?? 'main', exactSnapshot: true } as const),
@@ -82,6 +84,63 @@ function preparedAction(
 }
 
 describe('canonical decision fold', () => {
+  test('keeps verdict attention independent from material history and human confirmation', () => {
+    const first = observation({ suffix: '01', assertion: { owner: 'repository' } })
+    const unsound: DecisionObservation = {
+      ...observation({ suffix: '02', assertion: first.assertion }),
+      verdict: 'unsound',
+      correctedDecision: 'Publication must have one recoverable owner.',
+    }
+    const needsUser: DecisionObservation = {
+      ...observation({ suffix: '03', assertion: first.assertion }),
+      verdict: 'needs-user',
+      provisionalCall: 'Keep the existing owner.',
+      reversal: 'Change the owner before adopting a new provider.',
+    }
+    const observations = [first, unsound, needsUser]
+    const confirm = preparedAction(
+      '01',
+      { kind: 'confirm', targetObservationId: unsound.observationId, actor: { kind: 'human' } },
+      observations,
+      [],
+    )
+    const lineage = foldDecisions(observations, [confirm], 'main').lineages[0]!
+    expect(lineage.currentObservationId).toBe(first.observationId)
+    expect(
+      lineage.observations.map(item => ({
+        lifecycle: item.lifecycle,
+        materiality: item.materiality,
+        priority: item.priority,
+        humanStatus: item.humanStatus,
+      })),
+    ).toEqual([
+      {
+        lifecycle: 'canonical-current',
+        materiality: 'new',
+        priority: 'normal',
+        humanStatus: 'unconfirmed',
+      },
+      {
+        lifecycle: 'canonical-replay',
+        materiality: 'unchanged',
+        priority: 'high',
+        humanStatus: 'confirmed',
+      },
+      {
+        lifecycle: 'canonical-replay',
+        materiality: 'unchanged',
+        priority: 'high',
+        humanStatus: 'unconfirmed',
+      },
+    ])
+    expect(lineage.observations[1]!.observation).toMatchObject({
+      correctedDecision: unsound.correctedDecision,
+    })
+    expect(lineage.observations[2]!.observation).toMatchObject({
+      provisionalCall: needsUser.provisionalCall,
+      reversal: needsUser.reversal,
+    })
+  })
   const proposal = observation({
     suffix: '01',
     assertion: { owner: 'feature' },

@@ -318,7 +318,22 @@ function persistReview(
     disposition,
   }
   store.put(manifestPath, manifest)
-  store.put(ledgerPath, { schemaVersion: 1, reviewId, entries: [] })
+  const evidence = store.putObject(
+    bytes({ explicit: 'synthetic review scope' }),
+    'application/json',
+    'audit-scope',
+  )
+  store.put(ledgerPath, {
+    schemaVersion: 1,
+    reviewId,
+    entries: [],
+    summary: {
+      reviewed: 'Reviewed the synthetic specification and implementation.',
+      noChoiceRationale:
+        'All observed choices were explicitly selected in this fixture specification.',
+      evidence: [{ object: evidence }],
+    },
+  })
   return { reviewId, manifestPath }
 }
 

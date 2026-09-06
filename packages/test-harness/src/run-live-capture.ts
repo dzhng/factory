@@ -121,21 +121,22 @@ for (const entry of await readdir(join(runtime, 'review-attempts-v1'), { withFil
     'attempt credential staging was not cleaned',
   )
 }
-const { response, ...metadata } = result
+const { providerOutput, submissions, ...metadata } = result
 await writeFile(join(root, 'attempt.json'), canonicalJson(metadata), { mode: 0o600 })
-await writeFile(join(root, 'response.json'), result.response, { mode: 0o600 })
+await writeFile(join(root, 'submissions.jsonl'), submissions, { mode: 0o600 })
+await writeFile(join(root, 'response.json'), result.providerOutput, { mode: 0o600 })
 console.log(
   JSON.stringify({
     root,
     termination: result.termination,
     exitCode: result.exitCode,
     providerCliVersion: result.providerCliVersion,
-    responseBytes: result.response.length,
+    responseBytes: result.providerOutput.length,
   }),
 )
 if (result.termination !== 'completed' || result.exitCode !== 0)
   throw new Error('live capture container did not complete')
-const observation = JSON.parse(new TextDecoder().decode(response)) as LiveCaptureObservation
+const observation = JSON.parse(new TextDecoder().decode(providerOutput)) as LiveCaptureObservation
 const certification = certifyLiveCapture(observation)
 await writeFile(
   join(root, 'report.json'),

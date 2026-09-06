@@ -15,6 +15,10 @@ Manual review flags override that same configuration fold. The public contract
 owns the permitted resource ranges; the reviewer verifies Docker's actual
 constraints without making its isolation policy configurable.
 
+Review enforcement selects an exact audit verdict: `--fail-on unsound` or
+`--fail-on needs-user`. These are different judgments, not severity levels;
+neither selection implicitly includes the other. Normal reviews remain advisory.
+
 The [npm upgrade owner](src/npm-upgrade.ts) updates only the global npm prefix
 containing the running executable, and only on explicit request. It shares the
 installation lock with native installation operations. npm owns package replacement; Factory does not

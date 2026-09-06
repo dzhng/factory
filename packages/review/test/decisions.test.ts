@@ -15,6 +15,7 @@ import { DecisionAuthorityConflictError, type RepositoryStore } from '@factory/r
 import { openVerifiedReviewBundle, readVerifiedReviewBundle } from '@factory/reviewer'
 
 import { sealReviewerRawAttempt } from '../../reviewer/src/attempt'
+import { writerChoice, emptyAuditSummary } from '../../test-harness/src/choice-fixtures'
 import {
   acceptReview,
   appendDecisionAction,
@@ -37,44 +38,54 @@ async function fixture() {
   const verified = await readVerifiedReviewBundle(bundle)
   const citation = verified.manifest.inventory[0]!
   const reviewId = id('review', '8')
-  const response = [
+  const choices = [
     {
-      kind: 'decision',
-      decisionKey: 'repository.writer',
+      ...writerChoice,
+      choiceKey: 'repository.writer',
       effect: 'assert',
       assertion: { owner: 'repository' },
       confidence: 'high',
-      summary: 'Repository owns writes',
+      headline: 'Repository owns writes',
       evidence: [{ object: citation }],
     },
     {
-      kind: 'decision',
-      decisionKey: 'repository.writer',
+      ...writerChoice,
+      choiceKey: 'repository.writer',
       effect: 'assert',
       assertion: { owner: 'domain' },
       confidence: 'high',
-      summary: 'Domain owns writes',
+      headline: 'Domain owns writes',
       evidence: [{ object: citation }],
     },
   ]
-    .map(value => JSON.stringify(value))
-    .join('\n')
-  const validated = await validateReview(
-    bundle,
-    sealReviewerRawAttempt({
-      reviewId,
-      bundleSha256: verified.sha256,
-      response: new TextEncoder().encode(`${response}\n`),
-      termination: 'completed',
-      exitCode: 0,
-      outputTruncated: false,
-      reviewer: { settings: verified.manifest.plan.policies.reviewer },
-      imageDigest: `sha256:${'b'.repeat(64)}`,
-      providerCliVersion: 'test',
-      hostPlatform: 'test',
-      startedAt: '2026-09-05T00:00:00Z',
-      completedAt: '2026-09-05T00:00:08Z',
-    }),
+  const validated = await Promise.all(
+    choices.map((choice, index) =>
+      validateReview(
+        bundle,
+        sealReviewerRawAttempt({
+          providerOutput: new Uint8Array(),
+          reviewId: index === 0 ? reviewId : id('review', '9'),
+          bundleSha256: verified.sha256,
+          submissions: new TextEncoder().encode(
+            canonicalJson({ kind: 'choice', choice }) +
+              canonicalJson({
+                kind: 'audit-summary',
+                summary: emptyAuditSummary([{ object: citation }]),
+              }) +
+              canonicalJson({ kind: 'finish' }),
+          ),
+          termination: 'completed',
+          exitCode: 0,
+          outputTruncated: false,
+          reviewer: { settings: verified.manifest.plan.policies.reviewer },
+          imageDigest: `sha256:${'b'.repeat(64)}`,
+          providerCliVersion: 'test',
+          hostPlatform: 'test',
+          startedAt: '2026-09-05T00:00:00Z',
+          completedAt: `2026-09-05T00:00:0${8 + index}Z`,
+        }),
+      ),
+    ),
   )
   const records: Array<{ path: OwnedPath; value: JsonValue | string }> = [
     { path: verified.authority.subjectPath, value: verified.authority.subjectRecord },
@@ -116,10 +127,10 @@ async function fixture() {
       return { path, sha256: 'a'.repeat(64), bytes: 1 }
     },
   } as unknown as RepositoryStore
-  await acceptReview(validated, store)
+  for (const attempt of validated) await acceptReview(attempt, store)
   const observations = records
     .filter(record => record.path.startsWith('decisions/observations/'))
-    .map(record => record.value as DecisionObservation)
+    .map(record => record.value as unknown as DecisionObservation)
   const initial = foldDecisions(observations, [], 'feature/review')
   const current = observations.find(
     item => item.observationId === initial.lineages[0]!.currentObservationId,
@@ -192,7 +203,7 @@ describe('decision action validation', () => {
   test('rejects a stored observation that is not exactly derived from its review', async () => {
     const state = await fixture()
     const forged = state.records.find(record => record.path.startsWith('decisions/observations/'))!
-    forged.value = { ...(forged.value as object), summary: 'forged' } as JsonValue
+    forged.value = { ...(forged.value as object), headline: 'forged' } as JsonValue
     await expect(
       appendDecisionAction(state.store, {
         schemaVersion: 1,

@@ -30,6 +30,7 @@ import { inspectRuntimeJournal } from '@factory/runtime-journal'
 import type { LocalUiHandle } from '@factory/web'
 
 import { sealReviewerRawAttempt } from '../../reviewer/src/attempt'
+import { writerChoice, summarySubmissions } from '../../test-harness/src/choice-fixtures'
 import { runFactoryCli } from '../src'
 import { automaticReviewLockPath } from '../src/automatic-review'
 
@@ -246,28 +247,20 @@ async function acceptBundleReview(
   )
   const verified = await readVerifiedReviewBundle(bundle)
   const citation = verified.manifest.inventory[0]!
-  const semantic =
-    name === 'complete-bundle'
-      ? {
-          kind: 'decision',
-          decisionKey: 'repository.writer',
-          effect: 'assert',
-          assertion: { owner: 'repository' },
-          confidence: 'high',
-          summary: 'Repository owns durable writes',
-          evidence: [{ object: citation }],
-        }
-      : {
-          kind: 'summary',
-          summary: 'Reviewed the readable evidence prefix',
-          evidence: [{ object: citation }],
-        }
+  const submissions =
+    (name === 'complete-bundle'
+      ? canonicalJson({
+          kind: 'choice',
+          choice: { ...writerChoice, evidence: [{ object: citation }] },
+        })
+      : '') + summarySubmissions([{ object: citation }])
   const validated = await validateReview(
     bundle,
     sealReviewerRawAttempt({
+      providerOutput: new Uint8Array(),
       reviewId,
       bundleSha256: name === 'complete-bundle' ? report.bundles.complete : report.bundles.partial,
-      response: new TextEncoder().encode(`${JSON.stringify(semantic)}\n`),
+      submissions: new TextEncoder().encode(submissions),
       termination: 'completed',
       exitCode: 0,
       outputTruncated: false,

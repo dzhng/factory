@@ -40,7 +40,7 @@ export function loadVerifiedDecisionRecords(records: RepositoryRecords): {
   const actions: DecisionAction[] = []
   for (const record of records.records) {
     if (/^decisions\/observations\/[^/]+\.json$/.test(record.path))
-      observations.push(record.value as DecisionObservation)
+      observations.push(record.value as unknown as DecisionObservation)
     if (/^decisions\/actions\/[^/]+\.json$/.test(record.path))
       actions.push(record.value as DecisionAction)
   }

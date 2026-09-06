@@ -215,7 +215,7 @@ async function main() {
           truncated.termination !== 'crashed' ||
           truncated.exitCode !== 1 ||
           !truncated.outputTruncated ||
-          truncated.response.byteLength !== 1024 * 1024
+          truncated.submissions.byteLength !== 1024 * 1024
         )
           throw new Error('production executor did not retain a bounded, explicitly partial prefix')
       }

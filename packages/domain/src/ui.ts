@@ -1,4 +1,6 @@
 import {
+  type ChoiceAuditEntry,
+  type ChoiceAuditSummary,
   type AssociationBatch,
   type CoverageAction,
   type LifecycleRecord,
@@ -84,10 +86,10 @@ export type UiReview = {
   coverageAccepted: boolean
   failureReason?: string
   limitations: readonly UiLimitation[]
-  findings: readonly { entryId: string; severity: string; summary: string }[]
-  decisions: readonly { entryId: string; decisionKey: string; effect: string; summary: string }[]
-  responsePreview: string
-  responseTruncated: boolean
+  choices: readonly ChoiceAuditEntry[]
+  summary?: ChoiceAuditSummary
+  submissionsPreview: string
+  submissionsTruncated: boolean
 }
 
 export type UiRepositoryObservation = {
@@ -423,7 +425,7 @@ export function buildUiProjection(input: RepositoryRecords): UiSnapshot {
           left.manifest.reviewId.localeCompare(right.manifest.reviewId),
       )
       .map(review => {
-        const preview = limitText(review.response)
+        const preview = limitText(review.submissions)
         return {
           reviewId: review.manifest.reviewId,
           subject: review.manifest.subject,
@@ -435,23 +437,10 @@ export function buildUiProjection(input: RepositoryRecords): UiSnapshot {
             ? {}
             : { failureReason: review.manifest.failureReason }),
           limitations: limitations(review.manifest),
-          findings: (review.ledger?.entries ?? [])
-            .filter(entry => entry.kind === 'finding')
-            .map(entry => ({
-              entryId: entry.entryId,
-              severity: entry.severity,
-              summary: entry.summary,
-            })),
-          decisions: (review.ledger?.entries ?? [])
-            .filter(entry => entry.kind === 'decision')
-            .map(entry => ({
-              entryId: entry.entryId,
-              decisionKey: entry.decisionKey,
-              effect: entry.effect,
-              summary: entry.summary,
-            })),
-          responsePreview: preview.value,
-          responseTruncated: preview.truncated,
+          choices: review.ledger?.entries ?? [],
+          ...(review.ledger?.summary ? { summary: review.ledger.summary } : {}),
+          submissionsPreview: preview.value,
+          submissionsTruncated: preview.truncated,
         }
       }),
     decisions,

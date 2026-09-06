@@ -99,7 +99,7 @@ function storeFor(input?: ReviewManifest | readonly ReviewManifest[]) {
               value: review,
             },
             {
-              path: `${root}/response.txt`,
+              path: `${root}/submissions.jsonl`,
               value: '',
             },
             ...(review.disposition === 'failed'

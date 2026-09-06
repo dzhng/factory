@@ -238,12 +238,12 @@ acceptance actions; triggers are never edited to say `reviewed`.
 reviews/workspace/<review-id>/
   manifest.json
   ledger.json
-  response.txt
+  submissions.jsonl
 
 reviews/pull-requests/github/<repository-key>/<number>/<review-id>/
   manifest.json
   ledger.json
-  response.txt
+  submissions.jsonl
 
 reviews/coverage-actions/<action-id>.json
 ```
@@ -261,16 +261,18 @@ Disposition is one of `complete`, `partial`, or `failed`:
 - `partial` inventories every unavailable or excluded input; and
 - `failed` means no meaningful semantic result was accepted.
 
-`ledger.json` contains only validated semantic entries with evidence citations.
-Findings carry an explicit low, medium, high, or critical severity so advisory
-results and opt-in enforcement use the same durable authority. Decision entries
-also carry an explicit stable `decisionKey`, structured `assertion`,
-`assert`/`remove`/`contradict` effect, and confidence. A reviewer may reuse a key
-only when evidence establishes the same semantic decision. Missing output never
-means removal.
-`response.txt` preserves the reviewer response for inspection. Failed attempts
-store a sanitized reason in the manifest; transient full logs remain runtime
-state.
+`ledger.json` contains validated choice-audit entries and an optional cited scope
+summary. Each choice carries a stable `choiceKey`, structured `assertion`,
+`assert`/`remove`/`contradict` effect, standalone scenario, gap, reach, rationale,
+confidence, and a sound/unsound/needs-user verdict. Unsound requires a corrected
+decision; needs-user requires a provisional call and reversal. A reviewer reuses
+a key only when evidence establishes the same semantic choice. Missing output
+never means removal. See the [choice contract](../../choice-audit-reviewer/contract.md).
+
+`submissions.jsonl` preserves only accepted canonical tool events. An explicit
+finish requires a scope summary and, for zero choices, a no-choice rationale.
+Valid prefixes without finish remain partial; no semantic result means failed.
+Provider final text and logs remain private runtime state, never a parsing fallback.
 
 A coverage action accepts one named partial review and its exact limitations.
 It settles only the trigger watermarks that review actually attempted and does
@@ -299,15 +301,19 @@ decisions/actions/<decision-action-id>.json
 ```
 
 An observation references its originating review and validated decision entry.
-Its explicit decision key is the only grouping authority; Factory never matches
-summary prose. The structured assertion and effect have a canonical fingerprint
-that excludes summary wording and confidence, so exact replays and material
+Its explicit choice key is the only grouping authority; Factory never matches
+prose. The structured assertion and effect have a canonical fingerprint
+that excludes wording, verdict, and confidence, so exact replays and material
 changes are reproducible. A derived observation enters the fold only when its
 exact bytes reproduce from the accepted review, entry, and subject record. Its
 source records either an exact/inexact workspace
 branch snapshot or an exact pull-request observation. Pull-request and
 non-canonical workspace observations remain proposals. Only an exact workspace
 snapshot whose branch equals the committed `canonicalBranch` is canonical.
+
+Unsound and needs-user verdicts independently require attention. Human
+confirmation never clears that analyzer judgment; the observation retains the
+full choice explanation and any corrected or provisional decision.
 
 Actions are discriminated append-only records. Confirm, reject, and dispute name
 one exact observation; resolve names one dispute action; supersede names the

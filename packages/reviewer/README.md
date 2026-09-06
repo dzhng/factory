@@ -29,9 +29,12 @@ The host copies and re-verifies the exact declared bundle into a private runtime
 snapshot. Docker mounts that snapshot read-only at `/review-input`; the runner
 enumerates and hashes it before invoking one provider directly with Factory's
 fixed arguments, environment, prompt, and response channel. The provider never
-receives the live bundle path, and only its bounded semantic response can cross
-back into portable history. Logs and crash coordination remain in the Git-common
-private runtime area.
+receives the live bundle path. Only bounded, validated audit submissions can
+cross back into portable history. Provider final text and logs remain diagnostic
+private runtime data, separate from the canonical submission stream. Recovery
+retains both streams until acceptance; final text is never a fallback when
+submissions are absent. The typed submission server and provider tool wiring
+are the next checkpoint in the active choice-audit spec.
 
 The production image is built from `docker/Dockerfile` and published for Linux
 amd64 and arm64 at `ghcr.io/dzhng/factory-reviewer`. Factory ships an exact

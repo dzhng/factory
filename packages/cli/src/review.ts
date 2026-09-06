@@ -14,7 +14,7 @@ import {
   acceptPartialCoverageByReviewId,
   acceptReview,
   recoverDecisionObservations,
-  storedReviewFindingsMeetThreshold,
+  storedReviewHasVerdict,
   storedReviewResult,
   subjectPathLineage,
   validateReview,
@@ -153,7 +153,7 @@ type ReviewCliOptions = {
   automatic: boolean
   pullRequest?: number
   sessionKey?: string
-  failOn?: 'low' | 'medium' | 'high' | 'critical'
+  failOn?: 'unsound' | 'needs-user'
   acceptPartial?: RecordId
 }
 
@@ -192,8 +192,8 @@ function parseReviewOptions(args: readonly string[]): ReviewCliOptions {
   if (sessionKey !== undefined && (!sessionKey.trim() || Buffer.byteLength(sessionKey) > 1024))
     throw new TypeError('--session must be nonblank and bounded')
   const failOn = values.get('--fail-on')
-  if (failOn !== undefined && !['low', 'medium', 'high', 'critical'].includes(failOn))
-    throw new TypeError('--fail-on must be low, medium, high, or critical')
+  if (failOn !== undefined && !['unsound', 'needs-user'].includes(failOn))
+    throw new TypeError('--fail-on must be unsound or needs-user')
   const acceptPartial = values.get('--accept-partial')
   if (acceptPartial !== undefined && !/^review_[0-9A-HJKMNP-TV-Z]{26}$/.test(acceptPartial))
     throw new TypeError('--accept-partial must name a review ID')
@@ -294,7 +294,7 @@ export async function reviewCommand(
     )
     const policies = {
       reviewer: selected.choice.settings,
-      analyzerVersion: 'factory-review-analyzer-v1',
+      analyzerVersion: 'factory-choice-audit-v1',
       promptVersion: REVIEW_PROMPT_VERSION,
       policyVersion: 'factory-review-policy-v1',
       formatVersion: 1 as const,
@@ -313,7 +313,7 @@ export async function reviewCommand(
               decisions: decisionView(stored, currentSettings.canonicalBranch),
             }),
           )
-          return storedReviewFindingsMeetThreshold(prior, options.failOn) ? 1 : 0
+          return storedReviewHasVerdict(prior, options.failOn) ? 1 : 0
         }
       }
       output.stdout(
@@ -353,7 +353,7 @@ export async function reviewCommand(
         review => review.manifest.reviewId === accepted.reviewId && review.lineage === lineage,
       )
       if (acceptedReview === undefined) throw new Error('accepted review manifest is absent')
-      const enforced = storedReviewFindingsMeetThreshold(acceptedReview, options.failOn)
+      const enforced = storedReviewHasVerdict(acceptedReview, options.failOn)
       const currentSettings = await store.readConfig()
       output.stdout(
         canonicalJson({

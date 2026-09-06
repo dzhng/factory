@@ -10,6 +10,8 @@ import {
 } from '@factory/contract'
 import { foldDecisions, type DecisionObservationView, type DecisionView } from '@factory/domain'
 
+import { writerChoice } from './choice-fixtures'
+
 const canonicalBranch = 'main'
 const baseTime = Date.parse('2026-09-05T00:00:00.000Z')
 
@@ -23,7 +25,7 @@ function timestamp(sequence: number): string {
 
 function observation(input: {
   sequence: number
-  decisionKey: string
+  choiceKey: string
   effect?: DecisionObservation['effect']
   assertion: JsonValue
   summary: string
@@ -31,15 +33,16 @@ function observation(input: {
 }): DecisionObservation {
   const effect = input.effect ?? 'assert'
   return {
+    ...writerChoice,
     schemaVersion: 1,
     observationId: id('decision-observation', input.sequence),
     reviewId: id('review', input.sequence),
     reviewEntryId: id('review-entry', input.sequence),
-    decisionKey: input.decisionKey,
+    choiceKey: input.choiceKey,
     effect,
     assertion: input.assertion,
     assertionFingerprint: decisionAssertionFingerprint({ effect, assertion: input.assertion }),
-    summary: input.summary,
+    headline: input.summary,
     source: { kind: 'workspace', branch: input.branch, exactSnapshot: true },
     confidence: 'high',
     observedAt: timestamp(input.sequence),
@@ -48,35 +51,35 @@ function observation(input: {
 
 const featureProposal = observation({
   sequence: 1,
-  decisionKey: 'storage.review-retention',
+  choiceKey: 'storage.review-retention',
   assertion: { retain: '30-days' },
   summary: 'Retain review results for 30 days.',
   branch: 'feature/retention',
 })
 const firstCanonical = observation({
   sequence: 2,
-  decisionKey: 'storage.review-retention',
+  choiceKey: 'storage.review-retention',
   assertion: { retain: 'forever' },
   summary: 'Retain review results without expiry.',
   branch: canonicalBranch,
 })
 const unchangedReplay = observation({
   sequence: 3,
-  decisionKey: 'storage.review-retention',
+  choiceKey: 'storage.review-retention',
   assertion: { retain: 'forever' },
   summary: 'Keep every review result.',
   branch: canonicalBranch,
 })
 const changedCanonical = observation({
   sequence: 4,
-  decisionKey: 'storage.review-retention',
+  choiceKey: 'storage.review-retention',
   assertion: { retain: '365-days' },
   summary: 'Retain review results for one year.',
   branch: canonicalBranch,
 })
 const removedCanonical = observation({
   sequence: 5,
-  decisionKey: 'storage.review-retention',
+  choiceKey: 'storage.review-retention',
   effect: 'remove',
   assertion: null,
   summary: 'Remove the review-retention policy.',
@@ -84,7 +87,7 @@ const removedCanonical = observation({
 })
 const contradictedCanonical = observation({
   sequence: 6,
-  decisionKey: 'storage.review-retention',
+  choiceKey: 'storage.review-retention',
   effect: 'contradict',
   assertion: { retain: 'session-only' },
   summary: 'A newer constraint requires session-only retention.',
@@ -140,7 +143,7 @@ function replayStep(
     explanation,
     focus: {
       observationId: focus.observation.observationId,
-      summary: focus.observation.summary,
+      summary: focus.observation.headline,
       lifecycle: focus.lifecycle,
       humanStatus: focus.humanStatus,
       priority: focus.priority,

@@ -13,7 +13,8 @@ export type ReviewerExecutionTermination =
 export type ReviewerRawAttemptSnapshot = {
   reviewId: RecordId
   bundleSha256: string
-  response: Uint8Array
+  submissions: Uint8Array
+  providerOutput: Uint8Array
   termination: ReviewerExecutionTermination
   exitCode: number | null
   outputTruncated: boolean
@@ -31,10 +32,14 @@ export type ReviewerRawAttempt = { readonly [reviewerRawAttemptBrand]: true }
 const attempts = new WeakMap<object, ReviewerRawAttemptSnapshot>()
 
 function snapshot(value: ReviewerRawAttemptSnapshot): ReviewerRawAttemptSnapshot {
-  const { response: _response, ...facts } = value
+  const { submissions, providerOutput, ...facts } = value
   return {
-    ...(JSON.parse(canonicalJson(facts)) as Omit<ReviewerRawAttemptSnapshot, 'response'>),
-    response: value.response.slice(),
+    ...(JSON.parse(canonicalJson(facts)) as Omit<
+      ReviewerRawAttemptSnapshot,
+      'submissions' | 'providerOutput'
+    >),
+    submissions: submissions.slice(),
+    providerOutput: providerOutput.slice(),
   }
 }
 
@@ -47,7 +52,8 @@ export function sealReviewerRawAttempt(value: ReviewerRawAttemptSnapshot): Revie
   if (
     unavailable &&
     (value.exitCode !== null ||
-      value.response.byteLength !== 0 ||
+      value.submissions.byteLength !== 0 ||
+      value.providerOutput.byteLength !== 0 ||
       value.outputTruncated ||
       value.providerCliVersion !== null)
   )

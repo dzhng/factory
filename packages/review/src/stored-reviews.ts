@@ -8,7 +8,7 @@ import type { StoredReview } from '@factory/domain'
 import type { RepositoryStore } from '@factory/repository'
 
 type RepositoryRecords = Awaited<ReturnType<RepositoryStore['readRecords']>>['records']
-export type ReviewFindingThreshold = 'low' | 'medium' | 'high' | 'critical'
+export type ReviewFailureVerdict = 'unsound' | 'needs-user'
 
 export type StoredReviewResult = {
   schemaVersion: 1
@@ -65,13 +65,12 @@ export function subjectPathLineage(path: OwnedPath, records: RepositoryRecords):
   })
 }
 
-export function storedReviewFindingsMeetThreshold(
+export function storedReviewHasVerdict(
   review: StoredReview,
-  threshold: ReviewFindingThreshold | undefined,
+  verdict: ReviewFailureVerdict | undefined,
 ): boolean {
-  if (threshold === undefined || review.ledger === undefined) return false
-  const ranks = { low: 1, medium: 2, high: 3, critical: 4 } as const
-  return review.ledger.entries.some(
-    entry => entry.kind === 'finding' && ranks[entry.severity] >= ranks[threshold],
+  return (
+    verdict !== undefined &&
+    (review.ledger?.entries.some(entry => entry.verdict === verdict) ?? false)
   )
 }

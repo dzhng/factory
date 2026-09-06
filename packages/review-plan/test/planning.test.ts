@@ -19,6 +19,7 @@ import type {
 } from '@factory/contract'
 import { foldCoverage } from '@factory/domain'
 
+import { emptyAuditSummary, writerChoice } from '../../test-harness/src/choice-fixtures'
 import { planReviewForTesting as planReview, type ReviewInputs } from '../src'
 
 const firstReviewId = newRecordId('review', 0, new Uint8Array(10))
@@ -190,7 +191,12 @@ describe('review planning', () => {
         policies: input.policies,
         head: 'head-1',
         codeManifest: undefined,
-        ledger: { schemaVersion: 1, reviewId: firstReviewId, entries: [] },
+        ledger: {
+          schemaVersion: 1,
+          reviewId: firstReviewId,
+          entries: [],
+          summary: emptyAuditSummary(writerChoice.evidence),
+        },
       },
     ]
     const coverage = foldCoverage(input)

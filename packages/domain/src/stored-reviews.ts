@@ -16,8 +16,8 @@ export type StoredReview = {
   manifest: ReviewManifest
   subject?: CoverageSubject
   lineage: string
-  paths: { manifest: OwnedPath; response: OwnedPath; ledger?: OwnedPath }
-  response: string
+  paths: { manifest: OwnedPath; submissions: OwnedPath; ledger?: OwnedPath }
+  submissions: string
   ledger?: ReviewLedger
 }
 
@@ -90,14 +90,14 @@ export function loadStoredReviews(records: RepositoryRecords['records']): Stored
     const manifestRecord = group.find(record => record.path === `${root}/manifest.json`)
     if (manifestRecord === undefined) continue
     const manifest = manifestRecord.value as unknown as ReviewManifest
-    const responsePath = `${root}/response.txt` as OwnedPath
+    const submissionsPath = `${root}/submissions.jsonl` as OwnedPath
     const ledgerPath = `${root}/ledger.json` as OwnedPath
-    const expected = [manifestRecord.path, responsePath]
+    const expected = [manifestRecord.path, submissionsPath]
     if (manifest.disposition !== 'failed') expected.push(ledgerPath)
     if (canonicalJson(group.map(record => record.path).sort()) !== canonicalJson(expected.sort()))
       throw new Error('stored review does not have an exact committed record group')
-    const response = byPath.get(responsePath)
-    if (typeof response !== 'string') throw new Error('stored review response is absent')
+    const submissions = byPath.get(submissionsPath)
+    if (typeof submissions !== 'string') throw new Error('stored review submissions is absent')
     const ledger =
       manifest.disposition === 'failed'
         ? undefined
@@ -116,10 +116,10 @@ export function loadStoredReviews(records: RepositoryRecords['records']): Stored
       lineage: storedReviewLineage(manifest, byPath),
       paths: {
         manifest: manifestRecord.path,
-        response: responsePath,
+        submissions: submissionsPath,
         ...(manifest.disposition === 'failed' ? {} : { ledger: ledgerPath }),
       },
-      response,
+      submissions,
       ...(ledger === undefined ? {} : { ledger }),
     })
   }

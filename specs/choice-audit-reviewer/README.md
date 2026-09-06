@@ -7,15 +7,15 @@ Factory tool instead of hand-authoring JSONL.
 
 ## Next Agent Prompt
 
-Status: planned, not implemented. Last updated: 2026-09-06.
+Status: slice 1 implemented; submission tools and full presentation remain. Last updated: 2026-09-06.
 
-Implement [slice 1](slices/01-audit-contract.md) first. Read this README, the
+Implement [slice 2](slices/02-submission-tool.md) and [slice 3](slices/03-presentation.md) next. Read this README, the
 [target contract](contract.md), `SECURITY.md`, and the repository's write-tests
 skill before changing behavior. This is a clean cutover for an unlaunched
 product: delete the generic reviewer-output contract as its consumers move; do
 not add compatibility parsing, migration machinery, or dual output modes.
 
-- [ ] [1 — Choice-audit semantics and public ledger](slices/01-audit-contract.md)
+- [x] [1 — Choice-audit semantics and public ledger](slices/01-audit-contract.md)
 - [ ] [2 — Typed reviewer submission tool](slices/02-submission-tool.md)
 - [ ] [3 — Human-readable choice presentation](slices/03-presentation.md)
 - [ ] [4 — Provider integration and partial-output journey](slices/04-integration.md)
@@ -25,6 +25,19 @@ serialization reliability; they do not make model judgments authoritative.
 Factory still validates citations and derives all IDs itself. Update this prompt
 and the owning slice with verification evidence before ending each pass, then
 commit and push each green milestone.
+
+The accepted draft seam is `acceptAuditDraft`/`readAuditDraft` in review; the
+contract exports strict event/submission validators. Public submissions use exact
+ObjectRefs; slice 2 must resolve evidence handles before that boundary. Private
+attempts carry separate `submissions` and `providerOutput` byte streams. Only
+submissions can be accepted. Real providers have no submission server yet and
+therefore fail closed until slice 2 wires it; synthetic fixture providers emit
+events directly and do not prove MCP integration. Preserve the main sanitizer's
+reserved `transformation` metadata when integrating publication.
+
+Load-bearing choices are banked in [choices.md](choices.md). Effect controls
+presence; verdict adds attention without rewriting lifecycle or human status.
+The CLI selects an exact failure verdict, not an invented verdict ordering.
 
 ## Product outcome
 

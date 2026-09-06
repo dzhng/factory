@@ -1,6 +1,8 @@
 import type { DecisionObservation, RecordId } from '@factory/contract'
 import type { DecisionObservationView, UiReadySnapshot, UiSnapshot } from '@factory/domain'
 
+import { writerChoice } from './choice-fixtures'
+
 const id = (prefix: string, digit: string) =>
   `${prefix}_${'0'.repeat(26 - digit.length)}${digit}` as RecordId
 const at = (minute: number) => `2026-09-05T10:${String(minute).padStart(2, '0')}:00Z`
@@ -216,22 +218,26 @@ function withReviews(snapshot: UiReadySnapshot): UiReadySnapshot {
         limitations: [
           { code: 'missing-transcript-range', detail: 'One readable Session range ended early.' },
         ],
-        findings: [
+        choices: [
           {
+            ...writerChoice,
             entryId: id('entry', '1'),
-            severity: 'high',
-            summary: 'Checkout retries can submit the same payment twice.',
+            choiceKey: 'payments.retry',
+            verdict: 'unsound',
+            headline: 'Retry payment requests without a shared identity',
+            scenario:
+              'When checkout times out, retrying creates a second payment. Reusing one request identity would let the payment service recognize the retry.',
+            correctedDecision: 'Retries must preserve the original payment identity.',
           },
           {
+            ...writerChoice,
             entryId: id('entry', '2'),
-            severity: 'low',
-            summary: 'Rename the retry budget for clarity.',
+            headline: 'Keep one owner for durable payment evidence',
           },
         ],
-        decisions: [],
-        responsePreview:
+        submissionsPreview:
           'Reviewed the readable evidence. The payment idempotency path needs attention. <img src=x onerror=alert(1)>',
-        responseTruncated: false,
+        submissionsTruncated: false,
       },
       {
         reviewId: id('review', '2'),
@@ -244,10 +250,9 @@ function withReviews(snapshot: UiReadySnapshot): UiReadySnapshot {
         limitations: [
           { code: 'invalid-review-output', detail: 'No semantic entry survived the timeout.' },
         ],
-        findings: [],
-        decisions: [],
-        responsePreview: '',
-        responseTruncated: false,
+        choices: [],
+        submissionsPreview: '',
+        submissionsTruncated: false,
       },
     ],
   }
@@ -260,15 +265,16 @@ function observation(
   assertion: unknown,
 ): DecisionObservation {
   return {
+    ...writerChoice,
     schemaVersion: 1,
     observationId: id('decision', digit),
     reviewId: id('review', digit),
     reviewEntryId: id('entry', digit),
-    decisionKey: 'payments.idempotency',
+    choiceKey: 'payments.idempotency',
     effect: 'assert',
     assertion: assertion as never,
     assertionFingerprint: digit.repeat(64),
-    summary,
+    headline: summary,
     source: { kind: 'workspace', branch, exactSnapshot: true },
     confidence: 'high',
     observedAt: at(24 + Number(digit)),
@@ -318,7 +324,7 @@ function withDecisions(snapshot: UiReadySnapshot): UiReadySnapshot {
       stateFingerprint: 'b'.repeat(64),
       lineages: [
         {
-          decisionKey: 'payments.idempotency',
+          choiceKey: 'payments.idempotency',
           currentObservationId: current.observationId,
           observations: [
             decisionView(proposal, 'proposal', 'unconfirmed', 'new', 'normal'),

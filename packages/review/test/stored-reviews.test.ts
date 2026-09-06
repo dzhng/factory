@@ -8,7 +8,7 @@ import {
 } from '@factory/contract'
 import { loadStoredReviews } from '@factory/domain'
 
-import { storedReviewFindingsMeetThreshold } from '../src'
+import { storedReviewHasVerdict } from '../src'
 
 function review(
   reviewId: ReviewManifest['reviewId'],
@@ -36,14 +36,14 @@ function group(manifest: ReviewManifest, ledger: ReviewLedger) {
       ? `reviews/workspace/${manifest.reviewId}`
       : `reviews/pull-requests/github/${manifest.subject.repositoryKey}/${manifest.subject.number}/${manifest.reviewId}`
   return [
-    { path: `${root}/response.txt` as OwnedPath, value: '' },
+    { path: `${root}/submissions.jsonl` as OwnedPath, value: '' },
     { path: `${root}/ledger.json` as OwnedPath, value: ledger },
     { path: `${root}/manifest.json` as OwnedPath, value: manifest },
   ]
 }
 
 describe('stored review projection', () => {
-  test('binds findings to the exact committed review root when IDs collide', () => {
+  test('binds verdicts to the exact committed review root when IDs collide', () => {
     const reviewId = newRecordId('review')
     const workspace = review(reviewId, {
       kind: 'workspace',
@@ -64,20 +64,27 @@ describe('stored review projection', () => {
       ...group(workspace, {
         schemaVersion: 1,
         reviewId,
-        entries: [{ kind: 'finding', severity: 'low' } as never],
+        entries: [{ verdict: 'sound' } as never],
       }),
       ...group(pullRequest, {
         schemaVersion: 1,
         reviewId,
-        entries: [{ kind: 'finding', severity: 'critical' } as never],
+        entries: [{ verdict: 'unsound' } as never],
       }),
     ] as Parameters<typeof loadStoredReviews>[0]
 
     const stored = loadStoredReviews(records)
     const workspaceReview = stored.find(item => item.manifest.subject.kind === 'workspace')!
     const pullRequestReview = stored.find(item => item.manifest.subject.kind === 'pull-request')!
-    expect(storedReviewFindingsMeetThreshold(workspaceReview, 'high')).toBeFalse()
-    expect(storedReviewFindingsMeetThreshold(pullRequestReview, 'high')).toBeTrue()
+    expect(storedReviewHasVerdict(workspaceReview, 'unsound')).toBeFalse()
+    expect(storedReviewHasVerdict(pullRequestReview, 'unsound')).toBeTrue()
+    expect(storedReviewHasVerdict(pullRequestReview, 'needs-user')).toBeFalse()
+    pullRequestReview.ledger = {
+      ...pullRequestReview.ledger!,
+      entries: [{ verdict: 'needs-user' } as never],
+    }
+    expect(storedReviewHasVerdict(pullRequestReview, 'needs-user')).toBeTrue()
+    expect(storedReviewHasVerdict(pullRequestReview, 'unsound')).toBeFalse()
   })
 
   test('indexes many committed groups without rescanning the repository per review', () => {

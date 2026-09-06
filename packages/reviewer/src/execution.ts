@@ -38,14 +38,14 @@ export type ReviewerExecutionInput = {
   containerIdentity: { name: string; label: string }
 }
 
-async function readResponsePrefix(
+async function readSubmissionPrefix(
   path: string,
 ): Promise<{ bytes: Uint8Array; truncated: boolean }> {
   try {
     const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
     try {
       const stat = await handle.stat()
-      if (!stat.isFile()) throw new Error('review response is not an ordinary file')
+      if (!stat.isFile()) throw new Error('review submissions is not an ordinary file')
       const length = Math.min(stat.size, 1024 * 1024)
       const bytes = new Uint8Array(length)
       let offset = 0
@@ -56,7 +56,7 @@ async function readResponsePrefix(
       }
       const after = await handle.stat()
       if (after.dev !== stat.dev || after.ino !== stat.ino || after.size !== stat.size) {
-        throw new Error('review response changed while it was read')
+        throw new Error('review submissions changed while it was read')
       }
       return { bytes: bytes.subarray(0, offset), truncated: stat.size > length }
     } finally {
@@ -117,7 +117,8 @@ export function unavailableReviewerExecutor(): ReviewerExecutor {
       return sealReviewerRawAttempt({
         reviewId: input.reviewId,
         bundleSha256: verified.sha256,
-        response: new Uint8Array(),
+        submissions: new Uint8Array(),
+        providerOutput: new Uint8Array(),
         termination: 'authentication-unavailable',
         exitCode: null,
         outputTruncated: false,
@@ -178,13 +179,15 @@ export const dockerReviewerExecutor: ReviewerExecutor = {
         dockerLimits: input.dockerLimits,
         ...(input.signal === undefined ? {} : { signal: input.signal }),
       })
-      const response = await readResponsePrefix(`${outputHostPath}/response.txt`)
+      const response = await readSubmissionPrefix(`${outputHostPath}/submissions.jsonl`)
+      const providerOutput = await readSubmissionPrefix(`${outputHostPath}/response.txt`)
       await readVerifiedReviewBundle(snapshot.bundle)
       await readVerifiedReviewBundle(bundle)
       return sealReviewerRawAttempt({
         reviewId: input.reviewId,
         bundleSha256: before.sha256,
-        response: response.bytes,
+        submissions: response.bytes,
+        providerOutput: providerOutput.bytes,
         termination:
           report.termination === 'timed-out'
             ? 'timed-out'
@@ -208,7 +211,8 @@ export const dockerReviewerExecutor: ReviewerExecutor = {
       return sealReviewerRawAttempt({
         reviewId: input.reviewId,
         bundleSha256: before.sha256,
-        response: new Uint8Array(),
+        submissions: new Uint8Array(),
+        providerOutput: new Uint8Array(),
         termination: reviewerExecutionFailureTermination(error),
         exitCode: null,
         outputTruncated: false,

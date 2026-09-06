@@ -68,7 +68,7 @@ export async function recoverDecisionObservations(
   const existing = new Set(
     records.records
       .filter(record => /^decisions\/observations\/[^/]+\.json$/.test(record.path))
-      .map(record => (record.value as DecisionObservation).observationId),
+      .map(record => (record.value as unknown as DecisionObservation).observationId),
   )
   let created = 0
   for (const observation of deriveStoredDecisionObservations(records)) {

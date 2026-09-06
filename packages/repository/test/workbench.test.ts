@@ -15,6 +15,11 @@ import {
   type RecordId,
 } from '../../contract/src/index'
 import {
+  writerChoice,
+  emptyAuditSummary,
+  summarySubmissions,
+} from '../../test-harness/src/choice-fixtures'
+import {
   ImmutableRecordConflictError,
   initializeRepositoryStore,
   openRepositoryStore,
@@ -97,8 +102,10 @@ function reviewRecords(id: string, disposition: 'complete' | 'failed' = 'complet
     manifestPath: makeOwnedPath('reviews', [...root, 'manifest.json']),
     records: [
       {
-        path: makeOwnedPath('reviews', [...root, 'response.txt']),
-        bytes: new TextEncoder().encode('review response\n'),
+        path: makeOwnedPath('reviews', [...root, 'submissions.jsonl']),
+        bytes: new TextEncoder().encode(
+          disposition === 'failed' ? '' : summarySubmissions(writerChoice.evidence),
+        ),
       },
       ...(disposition === 'failed'
         ? []
@@ -106,7 +113,12 @@ function reviewRecords(id: string, disposition: 'complete' | 'failed' = 'complet
             {
               path: makeOwnedPath('reviews', [...root, 'ledger.json']),
               bytes: new TextEncoder().encode(
-                canonicalJson({ schemaVersion: 1, reviewId: id, entries: [] }),
+                canonicalJson({
+                  schemaVersion: 1,
+                  reviewId: id,
+                  entries: [],
+                  summary: emptyAuditSummary(writerChoice.evidence),
+                }),
               ),
             },
           ]),
@@ -522,6 +534,11 @@ describe('sole repository writer', () => {
   test('does not treat provider-parsed or decision-subject data as authoritative object refs', async () => {
     const root = await fixtureRoot()
     const store = await initializeRepositoryStore(root, manifest, {})
+    const evidence = await store.putObject(
+      (async function* () {
+        yield new TextEncoder().encode('cited evidence')
+      })(),
+    )
     await store.createImmutable(
       makeOwnedPath('decisions', ['observations', `${recordId('decision')}.json`]),
       new TextEncoder().encode(
@@ -530,7 +547,9 @@ describe('sole repository writer', () => {
           observationId: recordId('decision'),
           reviewId: recordId('review'),
           reviewEntryId: recordId('entry'),
-          decisionKey: 'fixture.object-shaped-assertion',
+          ...writerChoice,
+          choiceKey: 'fixture.object-shaped-assertion',
+          evidence: [{ object: evidence }],
           effect: 'assert',
           assertion: {
             algorithm: 'sha256',
@@ -549,7 +568,7 @@ describe('sole repository writer', () => {
               role: 'not-authority',
             },
           }),
-          summary: 'Object-shaped assertion data remains ordinary JSON',
+          headline: 'Object-shaped assertion data remains ordinary JSON',
           source: { kind: 'workspace', branch: 'main', exactSnapshot: true },
           confidence: 'high',
           observedAt: manifest.createdAt,
@@ -564,15 +583,16 @@ describe('sole repository writer', () => {
     const store = await initializeRepositoryStore(root, manifest, { canonicalBranch: 'main' })
     const assertion = { owner: 'repository' }
     const observation = {
+      ...writerChoice,
       schemaVersion: 1 as const,
       observationId: recordId('decision'),
       reviewId: recordId('review'),
       reviewEntryId: recordId('entry'),
-      decisionKey: 'repository.writer',
+      choiceKey: 'repository.writer',
       effect: 'assert' as const,
       assertion,
       assertionFingerprint: decisionAssertionFingerprint({ effect: 'assert', assertion }),
-      summary: 'Repository owns durable writes',
+      headline: 'Repository owns durable writes',
       source: { kind: 'workspace' as const, branch: 'main', exactSnapshot: true },
       confidence: 'high' as const,
       observedAt: manifest.createdAt,
@@ -679,8 +699,13 @@ describe('sole repository writer', () => {
       store.publishImmutableGroup([...complete.records, failed.records[0]!], complete.manifestPath),
     ).rejects.toThrow('only its exact manifest, response, and ledger')
     const conflicting = complete.records.map(record =>
-      record.path.endsWith('response.txt')
-        ? { ...record, bytes: new TextEncoder().encode('different response\n') }
+      record.path.endsWith('submissions.jsonl')
+        ? {
+            ...record,
+            bytes: new TextEncoder().encode(
+              summarySubmissions(writerChoice.evidence, 'Different cited review scope'),
+            ),
+          }
         : record,
     )
     await expect(

@@ -23,6 +23,7 @@ import {
   type TurnManifest,
 } from '@factory/contract'
 
+import { emptyAuditSummary } from '../../test-harness/src/choice-fixtures'
 import {
   buildBundle,
   bindReviewPolicies,
@@ -59,7 +60,11 @@ const object = (bytes: Uint8Array, mediaType: string, role: string): ObjectRef =
   role,
 })
 
-function fixture(): { input: ReviewInputs; objects: Map<string, Uint8Array> } {
+function fixture(): {
+  input: ReviewInputs
+  objects: Map<string, Uint8Array>
+  auditEvidence: { object: ObjectRef }[]
+} {
   const fileBytes = new TextEncoder().encode('review me\n')
   const file = object(fileBytes, 'application/octet-stream', 'workspace-file')
   const codeBytes = new TextEncoder().encode(
@@ -142,6 +147,7 @@ function fixture(): { input: ReviewInputs; objects: Map<string, Uint8Array> } {
     firstObservedAt: observedAt,
   }
   return {
+    auditEvidence: [{ object: raw }],
     input: {
       mode: 'incremental',
       subject: { kind: 'workspace', observation },
@@ -229,6 +235,7 @@ describe('verified review bundles', () => {
       schemaVersion: 1,
       reviewId,
       entries: [],
+      summary: emptyAuditSummary(value.auditEvidence),
     })
     await record(`reviews/workspace/${reviewId}/manifest.json`, {
       schemaVersion: 1,
@@ -622,7 +629,14 @@ describe('verified review bundles', () => {
       [manifestPath, new TextEncoder().encode(canonicalJson(manifest))],
       [
         ledgerPath,
-        new TextEncoder().encode(canonicalJson({ schemaVersion: 1, reviewId, entries: [] })),
+        new TextEncoder().encode(
+          canonicalJson({
+            schemaVersion: 1,
+            reviewId,
+            entries: [],
+            summary: emptyAuditSummary(value.auditEvidence),
+          }),
+        ),
       ],
       [subjectPath, new TextEncoder().encode(canonicalJson(value.input.subject.observation))],
     ])
@@ -786,7 +800,14 @@ describe('verified review bundles', () => {
       [manifestPath, new TextEncoder().encode(canonicalJson(manifest))],
       [
         ledgerPath,
-        new TextEncoder().encode(canonicalJson({ schemaVersion: 1, reviewId, entries: [] })),
+        new TextEncoder().encode(
+          canonicalJson({
+            schemaVersion: 1,
+            reviewId,
+            entries: [],
+            summary: emptyAuditSummary(value.auditEvidence),
+          }),
+        ),
       ],
       [subjectPath, new TextEncoder().encode(canonicalJson(value.input.subject.observation))],
     ])
@@ -828,7 +849,12 @@ describe('verified review bundles', () => {
     records.set(
       otherLedgerPath,
       new TextEncoder().encode(
-        canonicalJson({ schemaVersion: 1, reviewId: otherReviewId, entries: [] }),
+        canonicalJson({
+          schemaVersion: 1,
+          reviewId: otherReviewId,
+          entries: [],
+          summary: emptyAuditSummary(value.auditEvidence),
+        }),
       ),
     )
     records.set(otherSubjectPath, new TextEncoder().encode(canonicalJson(otherObservation)))

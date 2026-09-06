@@ -602,27 +602,162 @@ export type ReviewFailureReason =
 export type ReviewLedger = {
   schemaVersion: 1
   reviewId: RecordId
-  entries: readonly ReviewLedgerEntry[]
+  entries: readonly ChoiceAuditEntry[]
+  summary?: ChoiceAuditSummary
 }
 
-type ReviewLedgerEntryBase = {
-  entryId: RecordId
-  summary: string
-  evidence: readonly { object: ObjectRef; locator?: string }[]
+export type AuditEvidence = readonly { object: ObjectRef; locator?: string }[]
+
+export type ChoiceAuditSubmission = {
+  choiceKey: string
+  effect: 'assert' | 'remove' | 'contradict'
+  assertion: JsonValue
+  when: string
+  headline: string
+  scenario: string
+  gap: string
+  reach: string
+  rationale: string
+  confidence: 'low' | 'medium' | 'high'
+  evidence: AuditEvidence
+} & (
+  | { verdict: 'sound' }
+  | { verdict: 'unsound'; correctedDecision: string }
+  | { verdict: 'needs-user'; provisionalCall: string; reversal: string }
+)
+
+export type ChoiceAuditEntry = ChoiceAuditSubmission & { entryId: RecordId }
+
+export type ChoiceAuditSummary = {
+  reviewed: string
+  trivialDiscretionCount?: number
+  noChoiceRationale?: string
+  evidence: AuditEvidence
 }
 
-export type ReviewLedgerEntry =
-  | (ReviewLedgerEntryBase & { kind: 'finding'; severity: 'low' | 'medium' | 'high' | 'critical' })
-  | (ReviewLedgerEntryBase & { kind: 'summary' })
-  | (ReviewLedgerEntryBase & {
-      kind: 'decision'
-      /** Explicit semantic identity copied across reviews; never inferred from prose. */
-      decisionKey: string
-      effect: 'assert' | 'remove' | 'contradict'
-      /** Structured meaning used for exact material-change detection. */
-      assertion: JsonValue
-      confidence: 'low' | 'medium' | 'high'
-    })
+export type ChoiceAuditEvent =
+  | { kind: 'choice'; choice: ChoiceAuditSubmission }
+  | { kind: 'audit-summary'; summary: ChoiceAuditSummary }
+  | { kind: 'finish' }
+
+export function validateChoiceAuditEvent(value: unknown): asserts value is ChoiceAuditEvent {
+  assertRecord(value, 'audit event')
+  if (value.kind === 'choice') {
+    assertExactKeys(value, ['kind', 'choice'], 'audit event')
+    validateChoiceAuditSubmission(value.choice)
+  } else if (value.kind === 'audit-summary') {
+    assertExactKeys(value, ['kind', 'summary'], 'audit event')
+    validateChoiceAuditSummary(value.summary)
+  } else if (value.kind === 'finish') assertExactKeys(value, ['kind'], 'audit event')
+  else throw new TypeError('unsupported audit event')
+}
+
+/** Presentation ordering is Factory-owned; IDs and evidence order break ties deterministically. */
+export function compareChoiceAuditEntries(left: ChoiceAuditEntry, right: ChoiceAuditEntry): number {
+  const verdict = { 'needs-user': 0, unsound: 1, sound: 2 }
+  const confidence = { low: 0, medium: 1, high: 2 }
+  return (
+    verdict[left.verdict] - verdict[right.verdict] ||
+    confidence[left.confidence] - confidence[right.confidence] ||
+    left.choiceKey.localeCompare(right.choiceKey) ||
+    left.entryId.localeCompare(right.entryId)
+  )
+}
+
+function auditText(value: unknown, label: string, limit = 16 * 1024): asserts value is string {
+  assertString(value, label)
+  if ((value as string).trim().length === 0 || Buffer.byteLength(value as string) > limit)
+    throw new TypeError(`${label} must be nonblank and bounded`)
+}
+
+function auditEvidence(value: unknown): asserts value is AuditEvidence {
+  assertArray(value, 'audit.evidence')
+  if (value.length === 0 || value.length > 128)
+    throw new TypeError('audit requires bounded citations')
+  for (const citation of value) {
+    assertRecord(citation, 'audit citation')
+    assertExactKeys(citation, ['object', 'locator'], 'audit citation')
+    requireFields(citation, ['object'], 'audit citation')
+    assertObjectRef(citation.object, 'audit citation object')
+    if ('locator' in citation) auditText(citation.locator, 'audit citation locator', 1024)
+  }
+  const encoded = value.map(item => canonicalJson(item))
+  if (
+    new Set(encoded).size !== value.length ||
+    canonicalJson([...encoded].sort()) !== canonicalJson(encoded)
+  )
+    throw new TypeError('audit citations must be canonical and unique')
+}
+
+export function validateChoiceAuditSubmission(
+  value: unknown,
+): asserts value is ChoiceAuditSubmission {
+  assertRecord(value, 'choice')
+  const required = [
+    'choiceKey',
+    'effect',
+    'assertion',
+    'when',
+    'headline',
+    'scenario',
+    'gap',
+    'reach',
+    'verdict',
+    'rationale',
+    'confidence',
+    'evidence',
+  ]
+  const verdictFields =
+    value.verdict === 'unsound'
+      ? ['correctedDecision']
+      : value.verdict === 'needs-user'
+        ? ['provisionalCall', 'reversal']
+        : []
+  assertExactKeys(value, [...required, ...verdictFields], 'choice')
+  requireFields(value, [...required, ...verdictFields], 'choice')
+  auditText(value.choiceKey, 'choice.choiceKey', 256)
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/.test(value.choiceKey as string))
+    throw new TypeError('choice.choiceKey is invalid')
+  assertEnum(value.effect, ['assert', 'remove', 'contradict'], 'choice.effect')
+  canonicalJson(value.assertion)
+  if ((value.effect === 'remove') !== (value.assertion === null))
+    throw new TypeError('choice assertion must be null exactly for remove')
+  assertEnum(value.verdict, ['sound', 'unsound', 'needs-user'], 'choice.verdict')
+  assertEnum(value.confidence, ['low', 'medium', 'high'], 'choice.confidence')
+  for (const field of ['when', 'scenario', 'gap', 'reach', 'rationale', ...verdictFields])
+    auditText(value[field], `choice.${field}`)
+  auditText(value.headline, 'choice.headline', 1024)
+  if (/[\r\n]/.test(value.headline as string))
+    throw new TypeError('choice headline must be one line')
+  auditEvidence(value.evidence)
+  if (Buffer.byteLength(canonicalJson(value)) > 64 * 1024)
+    throw new TypeError('choice exceeds submission bound')
+}
+
+export function validateChoiceAuditEntry(value: unknown): asserts value is ChoiceAuditEntry {
+  assertRecord(value, 'choice entry')
+  const { entryId, ...submission } = value
+  assertRecordId(entryId, 'choice entryId')
+  validateChoiceAuditSubmission(submission)
+}
+
+export function validateChoiceAuditSummary(value: unknown): asserts value is ChoiceAuditSummary {
+  assertRecord(value, 'audit summary')
+  assertExactKeys(
+    value,
+    ['reviewed', 'trivialDiscretionCount', 'noChoiceRationale', 'evidence'],
+    'audit summary',
+  )
+  requireFields(value, ['reviewed', 'evidence'], 'audit summary')
+  auditText(value.reviewed, 'audit summary.reviewed')
+  if ('noChoiceRationale' in value)
+    auditText(value.noChoiceRationale, 'audit summary.noChoiceRationale')
+  if ('trivialDiscretionCount' in value)
+    assertNonNegativeInteger(value.trivialDiscretionCount, 'audit summary.trivialDiscretionCount')
+  auditEvidence(value.evidence)
+  if (Buffer.byteLength(canonicalJson(value)) > 64 * 1024)
+    throw new TypeError('audit summary exceeds submission bound')
+}
 
 export type CoverageAction = {
   schemaVersion: 1
@@ -642,18 +777,13 @@ export type CoverageAction = {
   createdAt: string
 }
 
-export type DecisionObservation = {
+export type DecisionObservation = ChoiceAuditSubmission & {
   schemaVersion: 1
   observationId: RecordId
   reviewId: RecordId
   reviewEntryId: RecordId
-  /** Stable identity supplied explicitly by the analyzer or a human link. */
-  decisionKey: string
-  effect: 'assert' | 'remove' | 'contradict'
-  assertion: JsonValue
   /** SHA-256 of the canonical effect and assertion, excluding presentation prose. */
   assertionFingerprint: Sha256
-  summary: string
   source:
     | { kind: 'workspace'; branch: string | null; exactSnapshot: boolean }
     | {
@@ -663,7 +793,6 @@ export type DecisionObservation = {
         number: number
         observationId: RecordId
       }
-  confidence: 'low' | 'medium' | 'high'
   observedAt: string
 }
 
@@ -697,7 +826,7 @@ export type DecisionAction =
       note: string
     })
 
-/** Material equality deliberately excludes summary wording and confidence. */
+/** Material equality deliberately excludes wording, verdict, and confidence. */
 export function decisionAssertionFingerprint(
   value: Pick<DecisionObservation, 'effect' | 'assertion'>,
 ): Sha256 {
@@ -1118,7 +1247,7 @@ const RECORD_KEYS = {
     'disposition',
     'failureReason',
   ],
-  ledger: ['schemaVersion', 'reviewId', 'entries'],
+  ledger: ['schemaVersion', 'reviewId', 'entries', 'summary'],
   coverage: [
     'schemaVersion',
     'actionId',
@@ -1135,11 +1264,21 @@ const RECORD_KEYS = {
     'observationId',
     'reviewId',
     'reviewEntryId',
-    'decisionKey',
+    'choiceKey',
     'effect',
     'assertion',
     'assertionFingerprint',
-    'summary',
+    'when',
+    'headline',
+    'scenario',
+    'gap',
+    'reach',
+    'verdict',
+    'rationale',
+    'evidence',
+    'correctedDecision',
+    'provisionalCall',
+    'reversal',
     'source',
     'confidence',
     'observedAt',
@@ -1202,7 +1341,7 @@ type RecordPath =
         | { kind: 'pull-request'; repositoryKey: string; number: number }
     }
   | {
-      kind: 'response'
+      kind: 'auditEvent'
       reviewId: string
       subject:
         | { kind: 'workspace' }
@@ -1287,7 +1426,9 @@ function parseRecordPath(path: OwnedPath): RecordPath {
     }
   match = /^review-triggers\/([^/]+)\.json$/.exec(path)
   if (match) return { kind: 'trigger', triggerId: match[1]! }
-  match = /^reviews\/workspace\/([^/]+)\/(manifest\.json|ledger\.json|response\.txt)$/.exec(path)
+  match = /^reviews\/workspace\/([^/]+)\/(manifest\.json|ledger\.json|submissions\.jsonl)$/.exec(
+    path,
+  )
   if (match)
     return {
       kind:
@@ -1295,12 +1436,12 @@ function parseRecordPath(path: OwnedPath): RecordPath {
           ? 'review'
           : match[2] === 'ledger.json'
             ? 'ledger'
-            : 'response',
+            : 'auditEvent',
       reviewId: match[1]!,
       subject: { kind: 'workspace' },
     }
   match =
-    /^reviews\/pull-requests\/github\/([^/]+)\/([1-9]\d*)\/([^/]+)\/(manifest\.json|ledger\.json|response\.txt)$/.exec(
+    /^reviews\/pull-requests\/github\/([^/]+)\/([1-9]\d*)\/([^/]+)\/(manifest\.json|ledger\.json|submissions\.jsonl)$/.exec(
       path,
     )
   if (match)
@@ -1310,7 +1451,7 @@ function parseRecordPath(path: OwnedPath): RecordPath {
           ? 'review'
           : match[4] === 'ledger.json'
             ? 'ledger'
-            : 'response',
+            : 'auditEvent',
       reviewId: match[3]!,
       subject: {
         kind: 'pull-request',
@@ -1639,7 +1780,7 @@ function assertWatermarks(value: unknown, label: string): void {
 }
 
 function validateRecordShape(
-  path: Exclude<RecordPath, { kind: 'envelope' | 'response' }>,
+  path: Exclude<RecordPath, { kind: 'envelope' | 'auditEvent' }>,
   value: unknown,
 ): void {
   const kind = path.kind
@@ -1677,9 +1818,11 @@ function validateRecordShape(
     review: RECORD_KEYS.review.filter(
       key => !['head', 'codeManifest', 'priorLedger', 'failureReason'].includes(key),
     ),
-    ledger: RECORD_KEYS.ledger,
+    ledger: RECORD_KEYS.ledger.filter(key => key !== 'summary'),
     coverage: RECORD_KEYS.coverage.filter(key => key !== 'acceptedSubject'),
-    decisionObservation: RECORD_KEYS.decisionObservation,
+    decisionObservation: RECORD_KEYS.decisionObservation.filter(
+      key => !['correctedDecision', 'provisionalCall', 'reversal'].includes(key),
+    ),
     decisionAction: [
       'schemaVersion',
       'actionId',
@@ -2783,76 +2926,20 @@ function validateRecordShape(
     case 'ledger':
       assertRecordId(value.reviewId, 'ledger.reviewId')
       assertArray(value.entries, 'ledger.entries')
-      value.entries.forEach((entry, index) => {
-        const label = `ledger.entries[${index}]`
-        assertRecord(entry, label)
-        assertExactKeys(
-          entry,
-          entry.kind === 'finding'
-            ? ['entryId', 'kind', 'severity', 'summary', 'evidence']
-            : entry.kind === 'decision'
-              ? [
-                  'entryId',
-                  'kind',
-                  'decisionKey',
-                  'effect',
-                  'assertion',
-                  'confidence',
-                  'summary',
-                  'evidence',
-                ]
-              : ['entryId', 'kind', 'summary', 'evidence'],
-          label,
-        )
-        requireFields(entry, ['entryId', 'kind', 'summary', 'evidence'], label)
-        assertRecordId(entry.entryId, `${label}.entryId`)
-        assertEnum(entry.kind, ['decision', 'finding', 'summary'], `${label}.kind`)
-        if (entry.kind === 'finding') {
-          requireFields(entry, ['severity'], label)
-          assertEnum(entry.severity, ['low', 'medium', 'high', 'critical'], `${label}.severity`)
-        }
-        if (entry.kind === 'decision') {
-          requireFields(entry, ['decisionKey', 'effect', 'assertion', 'confidence'], label)
-          assertString(entry.decisionKey, `${label}.decisionKey`)
-          if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/.test(entry.decisionKey as string))
-            throw new TypeError(`${label}.decisionKey is invalid`)
-          assertEnum(entry.effect, ['assert', 'remove', 'contradict'], `${label}.effect`)
-          canonicalJson(entry.assertion)
-          if (entry.effect === 'remove' && entry.assertion !== null)
-            throw new TypeError(`${label}.remove assertion must be null`)
-          if (entry.effect !== 'remove' && entry.assertion === null)
-            throw new TypeError(`${label}.${entry.effect as string} assertion must not be null`)
-          assertEnum(entry.confidence, ['low', 'medium', 'high'], `${label}.confidence`)
-        }
-        assertString(entry.summary, `${label}.summary`)
-        assertArray(entry.evidence, `${label}.evidence`)
-        if (entry.evidence.length === 0)
-          throw new TypeError(`${label}.evidence must contain at least one citation`)
-        entry.evidence.forEach((citation, citationIndex) => {
-          const citationLabel = `${label}.evidence[${citationIndex}]`
-          assertRecord(citation, citationLabel)
-          assertExactKeys(citation, ['object', 'locator'], citationLabel)
-          requireFields(citation, ['object'], citationLabel)
-          assertObjectRef(citation.object, `${citationLabel}.object`)
-          if ('locator' in citation) assertString(citation.locator, `${citationLabel}.locator`)
-        })
-        const orderedEvidence = [...entry.evidence].sort((left, right) =>
-          canonicalJson(left).localeCompare(canonicalJson(right)),
-        )
-        if (
-          canonicalJson(orderedEvidence) !== canonicalJson(entry.evidence) ||
-          new Set(entry.evidence.map(citation => canonicalJson(citation))).size !==
-            entry.evidence.length
-        ) {
-          throw new TypeError(`${label}.evidence must be canonical and unique`)
-        }
-      })
-      const orderedEntries = [...value.entries].sort((left, right) =>
-        (left as { entryId: string }).entryId.localeCompare((right as { entryId: string }).entryId),
+      value.entries.forEach(validateChoiceAuditEntry)
+      if ('summary' in value) validateChoiceAuditSummary(value.summary)
+      if (value.entries.length === 0 && !value.summary)
+        throw new TypeError('choice ledger requires a choice or cited summary')
+      if (value.entries.length > 500 || Buffer.byteLength(canonicalJson(value)) > 1024 * 1024)
+        throw new TypeError('choice ledger exceeds aggregate bound')
+      const orderedEntries = [...(value.entries as ChoiceAuditEntry[])].sort(
+        compareChoiceAuditEntries,
       )
       if (
         canonicalJson(orderedEntries) !== canonicalJson(value.entries) ||
-        new Set(value.entries.map(entry => (entry as { entryId: string }).entryId)).size !==
+        new Set(value.entries.map(entry => (entry as ChoiceAuditEntry).entryId)).size !==
+          value.entries.length ||
+        new Set(value.entries.map(entry => (entry as ChoiceAuditEntry).choiceKey)).size !==
           value.entries.length
       ) {
         throw new TypeError('ledger.entries must be canonical and unique')
@@ -2914,20 +3001,27 @@ function validateRecordShape(
       assertIdentity(value.actionId, path.actionId, 'coverage.actionId')
       break
     case 'decisionObservation':
+      {
+        validateChoiceAuditSubmission(
+          Object.fromEntries(
+            Object.entries(value).filter(
+              ([key]) =>
+                ![
+                  'schemaVersion',
+                  'observationId',
+                  'reviewId',
+                  'reviewEntryId',
+                  'assertionFingerprint',
+                  'source',
+                  'observedAt',
+                ].includes(key),
+            ),
+          ),
+        )
+      }
       assertRecordId(value.observationId, 'decisionObservation.observationId')
       assertRecordId(value.reviewId, 'decisionObservation.reviewId')
       assertRecordId(value.reviewEntryId, 'decisionObservation.reviewEntryId')
-      assertString(value.decisionKey, 'decisionObservation.decisionKey')
-      if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/.test(value.decisionKey as string))
-        throw new TypeError('decisionObservation.decisionKey is invalid')
-      assertEnum(value.effect, ['assert', 'remove', 'contradict'], 'decisionObservation.effect')
-      canonicalJson(value.assertion)
-      if (value.effect === 'remove' && value.assertion !== null)
-        throw new TypeError('decisionObservation.remove assertion must be null')
-      if (value.effect !== 'remove' && value.assertion === null)
-        throw new TypeError(
-          `decisionObservation.${value.effect as string} assertion must not be null`,
-        )
       assertSha256(value.assertionFingerprint, 'decisionObservation.assertionFingerprint')
       if (
         value.assertionFingerprint !==
@@ -2937,7 +3031,6 @@ function validateRecordShape(
         })
       )
         throw new TypeError('decisionObservation.assertionFingerprint must match its assertion')
-      assertString(value.summary, 'decisionObservation.summary')
       assertRecord(value.source, 'decisionObservation.source')
       if (value.source.kind === 'workspace') {
         assertExactKeys(
@@ -3061,8 +3154,8 @@ function validateRecordShape(
 /** Validate the exact top-level schema selected by an owned record path. */
 export function validatePublicRecord(path: OwnedPath, value: unknown): void {
   const selected = parseRecordPath(path)
-  if (selected.kind === 'response') {
-    if (typeof value !== 'string') throw new TypeError('review response must be UTF-8 text')
+  if (selected.kind === 'auditEvent') {
+    validateChoiceAuditEvent(value)
     return
   }
   if (selected.kind === 'envelope') {

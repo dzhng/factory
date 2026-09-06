@@ -10,6 +10,7 @@ import {
   type ReviewManifest,
 } from '@factory/contract'
 
+import { writerChoice, emptyAuditSummary } from '../../test-harness/src/choice-fixtures'
 import { deriveDecisionObservations } from '../src/decisions'
 import { buildUiProjection } from '../src/ui'
 
@@ -93,11 +94,11 @@ const ledger: ReviewLedger = {
   entries: [
     {
       entryId: `entry_${'0'.repeat(25)}1`,
-      kind: 'decision',
-      decisionKey: 'storage.authority',
+      ...writerChoice,
+      choiceKey: 'storage.authority',
       effect: 'assert',
       assertion,
-      summary: 'The repository store is the only writer.',
+      headline: 'The repository store is the only writer.',
       confidence: 'high',
       evidence: [
         {
@@ -142,7 +143,7 @@ const records: RepositoryRecords['records'] = [
     path: `reviews/workspace/${reviewId}/ledger.json` as never,
     value: ledger as unknown as JsonValue,
   },
-  { path: `reviews/workspace/${reviewId}/response.txt` as never, value: 'review response' },
+  { path: `reviews/workspace/${reviewId}/submissions.jsonl` as never, value: 'review response' },
   {
     path: `decisions/observations/${decision.observationId}.json` as never,
     value: decision as unknown as JsonValue,
@@ -264,10 +265,11 @@ describe('UI projection', () => {
             schemaVersion: 1,
             reviewId: laterReviewId,
             entries: [],
+            summary: JSON.parse(canonicalJson(emptyAuditSummary(writerChoice.evidence))),
           },
         },
         {
-          path: `reviews/workspace/${laterReviewId}/response.txt` as never,
+          path: `reviews/workspace/${laterReviewId}/submissions.jsonl` as never,
           value: 'later response',
         },
       ],
