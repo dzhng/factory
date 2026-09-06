@@ -34,6 +34,41 @@ const submit = { kind: 'choice', choice }
 const finish = { kind: 'finish' }
 
 describe('choice audit submissions', () => {
+  test('exact retries after finish preserve the completed canonical audit', () => {
+    const events = [submit, { kind: 'audit-summary', summary }, finish]
+    const completed = readAuditDraft(
+      Buffer.from(events.map(canonicalJson).join('')),
+      [object],
+      reviewId,
+    )
+    const retried = readAuditDraft(
+      Buffer.from(
+        [...events, submit, { kind: 'audit-summary', summary }, finish].map(canonicalJson).join(''),
+      ),
+      [object],
+      reviewId,
+    )
+    expect(completed.incomplete).toBeFalse()
+    expect(retried).toEqual(completed)
+  })
+
+  test('new or conflicting submissions after finish cannot change accepted choices or summary', () => {
+    const events = [submit, { kind: 'audit-summary', summary }, finish]
+    const completed = acceptAuditDraft(events, [object], reviewId)
+    for (const later of [
+      { kind: 'choice', choice: { ...choice, choiceKey: 'different.choice' } },
+      { kind: 'choice', choice: { ...choice, assertion: { writer: 'hook' } } },
+      { kind: 'audit-summary', summary: { ...summary, reviewed: 'A different review scope.' } },
+    ]) {
+      const rejected = acceptAuditDraft([...events, later], [object], reviewId)
+      expect(rejected).toEqual({
+        ...completed,
+        incomplete: true,
+        rejections: ['audit is finished'],
+      })
+    }
+  })
+
   test('snapshots caller-owned nested submission data before deriving immutable identities', () => {
     const mutable = JSON.parse(JSON.stringify(submit))
     const accepted = acceptAuditDraft([mutable], [object], reviewId)

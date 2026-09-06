@@ -81,17 +81,15 @@ export function acceptAuditDraft(
         finished = true
         continue
       }
-      if (finished) throw new TypeError('audit is finished')
       if (value.kind === 'choice') {
         if (!value.choice.evidence.every(citation => authority.has(canonicalJson(citation.object))))
           throw new TypeError('unknown citation')
         const choice = value.choice
         const prior = entries.get(choice.choiceKey)
         const id = entryId(reviewId, choice)
-        if (prior) {
-          if (prior.entryId !== id) throw new TypeError('conflicting choice key')
-          continue
-        }
+        if (prior?.entryId === id) continue
+        if (finished) throw new TypeError('audit is finished')
+        if (prior) throw new TypeError('conflicting choice key')
         if (entries.size >= 500) throw new TypeError('choice limit')
         const entry = { ...choice, entryId: id }
         const addedBytes =
@@ -105,11 +103,9 @@ export function acceptAuditDraft(
           !value.summary.evidence.every(citation => authority.has(canonicalJson(citation.object)))
         )
           throw new TypeError('unknown citation')
-        if (summary) {
-          if (canonicalJson(summary) !== canonicalJson(value.summary))
-            throw new TypeError('conflicting summary')
-          continue
-        }
+        if (summary && canonicalJson(summary) === canonicalJson(value.summary)) continue
+        if (finished) throw new TypeError('audit is finished')
+        if (summary) throw new TypeError('conflicting summary')
         const addedBytes =
           Buffer.byteLength(canonicalJson(value.summary)) - 1 + ',"summary":'.length
         if (ledgerBytes + addedBytes > 1024 * 1024) throw new TypeError('ledger byte limit')
