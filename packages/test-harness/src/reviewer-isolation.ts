@@ -58,6 +58,7 @@ async function command(args: readonly string[]): Promise<string> {
 }
 
 function hostVersion(executable: string): string {
+  if (Bun.which(executable) === null) return 'unavailable'
   const result = Bun.spawnSync([executable, '--version'], {
     stdout: 'pipe',
     stderr: 'pipe',
