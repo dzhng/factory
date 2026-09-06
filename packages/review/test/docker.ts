@@ -2,7 +2,7 @@ import { mkdir } from 'node:fs/promises'
 
 const repositoryRoot = new URL('../../..', import.meta.url).pathname.replace(/\/$/, '')
 const report = process.argv.includes('--report')
-const output = `${repositoryRoot}/specs/evidence-sanitization/assets/review-publication`
+const output = `${repositoryRoot}/specs/done/evidence-sanitization/assets/review-publication`
 if (report) await mkdir(output, { recursive: true })
 const child = Bun.spawn(
   [

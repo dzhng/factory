@@ -36,11 +36,11 @@ Trigger/manifest-last publication makes earlier prefixes logically invisible,
 not physically private. Unreferenced objects and temporary publication files can
 still enter Git, so preparation must cover them too.
 
-The relevant owners are the [capture package](../../packages/capture/README.md),
-[journal](../../packages/runtime-journal/README.md),
-[repository](../../packages/repository/README.md),
-[review planning](../../packages/review-plan/README.md), and
-[acceptance](../../packages/review/README.md).
+The relevant owners are the [capture package](../../../packages/capture/README.md),
+[journal](../../../packages/runtime-journal/README.md),
+[repository](../../../packages/repository/README.md),
+[review planning](../../../packages/review-plan/README.md), and
+[acceptance](../../../packages/review/README.md).
 
 ## Rejected shortcuts
 
@@ -50,16 +50,16 @@ Rewriting serialized records after hashing breaks their references. Blanket
 hash removal breaks Git and Factory identities. Re-running sanitization during
 crash recovery can conflict with an immutable prefix after env rotation.
 
-The product has not launched: no compatibility readers, data migration, cleanup
-command, or Git-history rewrite is part of this work.
+The product was unlaunched when this boundary was introduced. The cutover needed
+no compatibility readers, data migration, cleanup command, or Git-history rewrite.
 
 ## Independent draft synthesis
 
 Two independent Codex drafts optimized fewest slices and risk-first sequencing;
 one Claude draft optimized seam ownership. All found the raw-journal/public-hash
-coupling and the duplicate response/ledger publication surface. The canonical
-plan combines the smaller ladder with explicit source-identity and crash-replay
-checkpoints, rather than adding a general publication transaction framework.
+coupling and the duplicate response/ledger publication surface. Factory keeps
+source identity and prepared recovery distinct rather than adding a general
+publication transaction framework.
 
 Accepted from the seam draft: keep ObjectRef's equality contract intact, explicitly
 teach the reviewer about reduced evidence, and avoid adding public raw-payload
@@ -70,7 +70,7 @@ binary bytes, and adding a common-word exception to the agreed env threshold.
 Those narrow the requested protection. Structural exemptions belong to typed
 fields, not to strings throughout a transcript.
 
-The drafts suggested per-leaf tool budgets. The plan instead budgets a whole
+The drafts suggested per-leaf tool budgets. Factory instead budgets a whole
 recognized result across its text blocks: otherwise a many-block response can
 still grow without the intended bound. This retains provider structure without
 turning each array element into another full-size allowance.

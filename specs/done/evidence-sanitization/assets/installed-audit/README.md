@@ -40,9 +40,8 @@ Its packaged audit server SHA-256 was
 With networking disabled, actual Claude `2.1.261` advertised the three tools,
 Codex `0.144.4` registered them for deferred discovery, and the packaged server
 accepted a three-verdict draft of 3,582 bytes. These are image-content and client
-registration probes, not real inference. Their retained logs are
-`/private/tmp/factory-published-audit-submissions.log` and
-`/private/tmp/factory-published-provider-tools.log`.
+registration probes, not real inference. The harness's `provider-tools-probe.ts`
+and `audit-submission-probe.ts` own those reproducible checks.
 
 ## Reproduction
 
@@ -65,3 +64,25 @@ An environment-cleared native `--version` returned `0.1.0-audit`; this is build
 and launch authority, not a host capture journey. Platform CI and repository-wide
 closeout gates are recorded separately. These artifacts are local certification
 candidates, not a tagged or published release.
+
+## Complementary closeout gates
+
+[CI run 34050364687](https://github.com/dzhng/factory/actions/runs/34050364687)
+passed at `8b7407a`: repository quality checks, native Linux release certification,
+native macOS packaging, and both artifact-attestation jobs. The macOS CI job
+explicitly has package-only authority; it does not run a Docker review journey.
+
+Local closeout also passed the repository build, format, lint, type, and test
+gates on the final production revision, alongside the existing review CLI/PR
+workbenches, isolation journey, and responsive browser gates. The isolated
+release fixture uses private synthetic credentials so its container identity
+matches the consumer that reads private submissions. Its nine-step installed
+journey passed after reproducing the public-fixture ownership failure with the
+same native archive. These checks complement, rather than replace, the feature
+journey's physical-byte and recovery assertions.
+
+Whole-feature code review and two fresh archived-claim audits completed. The
+claim audits corrected the distinction between pre-merge match candidates and
+merged spans, and between an unfinished empty summary and a completed empty
+audit. Those corrections describe the verified behavior; they do not relax
+publication or completion validation.

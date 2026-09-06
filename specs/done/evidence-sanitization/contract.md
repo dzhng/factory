@@ -1,6 +1,7 @@
 # Portable evidence contract
 
-This is the target contract, not a claim about the current implementation.
+This contract records the portable boundary enforced by the sanitization and
+repository owners. The [rationale](README.md) explains why it has this shape.
 
 ## Boundary and ownership
 
@@ -32,8 +33,8 @@ verification do not consult live env files or rerun sanitization.
   `target`, `.next`, `.nuxt`, `.turbo`, or `coverage` directories.
 - Bound discovery by 100,000 visited entries, depth 64, 1,000 env files, 1 MiB
   per file, and 8 MiB total env input. Use descriptor-relative no-follow reads
-  and detect replacement/races. These initial limits are delegated for tuning
-  only with a synthetic performance probe and a recorded rationale.
+  and detect replacement/races. Tuning these limits requires
+  a synthetic performance probe and a recorded rationale.
 - Parse assignments as data using the [research baseline](research.md). Collect
   every nonempty decoded value of at least eight Unicode code points. Also
   collect shorter nonempty values when the variable name contains `TOKEN`,
@@ -64,10 +65,11 @@ values and later discoveries cannot be retroactively guaranteed without history
 rewriting, which is out of scope.
 
 Preparation also bounds in-memory matching: 500,000 dictionary states, 200,000
-disjoint match/marker spans, and 64 MiB per text input. Exceeding those ceilings
-returns `sanitization-limit`, never partial matching. Consecutive/overlapping
-matches coalesce before counting; tool-result trimming counts Unicode with a
-fixed-size tail buffer rather than allocating one array element per character.
+markers or match candidates, and 64 MiB per text input. Exact env matches coalesce
+before their span limit; the combined list also bounds credential-pattern
+candidates before its final coalescing pass. Exceeding a ceiling returns
+`sanitization-limit`, never partial matching. Tool-result trimming counts Unicode
+with a fixed-size tail buffer rather than one array element per character.
 
 ## Tool-result reduction
 
@@ -94,16 +96,15 @@ lines, sequence membership, and missing-evidence limitations.
 
 ## Schemas and identity
 
-Introduce a shared portable transformation summary: policy identifier, whether
+A shared portable transformation summary records the policy identifier, whether
 redaction occurred, omitted character count, and fixed omission reasons. Attach
 it to transformed leaf evidence and source entries through contract-owned types;
 aggregate it into Turn/review limitations. Do not invent per-secret records.
 Keep `ObjectRef` as the exact-byte reference it is today; transformation metadata
 belongs on its containing evidence envelope, source entry, or owning record,
 not on an alternative reference type that changes citation inventory equality.
-Rename public `raw`/`rawObjects` fields that now refer to transformed evidence to
-`evidence`/`evidenceObjects` and update every producer, parser, and consumer in
-the same owning slice. Private journal `raw` retains its literal meaning.
+Public transformed-content references use `evidence`/`evidenceObjects`.
+Private journal `raw` retains its literal meaning.
 
 Object digests and lengths describe exactly the sanitized stored bytes. Build
 parent records, inventories, manifests, fingerprints, and citation authority

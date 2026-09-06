@@ -25,7 +25,7 @@ import { createSanitizer } from '@factory/sanitization'
 const repositoryRoot = resolve(import.meta.dir, '../../..')
 const evidenceRoot =
   process.env.FACTORY_PR_REPORT_ROOT ??
-  resolve(repositoryRoot, 'specs/evidence-sanitization/assets/pr-workbench')
+  resolve(repositoryRoot, 'specs/done/evidence-sanitization/assets/pr-workbench')
 if (process.env.FACTORY_DOCKER_TEST !== '1') {
   const tests = Bun.spawn(['bun', 'run', '--cwd', 'packages/github', 'test'], {
     cwd: repositoryRoot,

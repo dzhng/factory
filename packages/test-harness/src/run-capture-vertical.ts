@@ -2,7 +2,10 @@ import { mkdir, rm } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
 const repositoryRoot = resolve(import.meta.dir, '../../..')
-const evidenceRoot = resolve(repositoryRoot, 'specs/evidence-sanitization/assets/capture-vertical')
+const evidenceRoot = resolve(
+  repositoryRoot,
+  'specs/done/evidence-sanitization/assets/capture-vertical',
+)
 await rm(evidenceRoot, { recursive: true, force: true })
 await mkdir(evidenceRoot, { recursive: true })
 

@@ -1,4 +1,4 @@
-# Target contract
+# Choice-audit contract
 
 ## Audit behavior
 
@@ -28,8 +28,7 @@ JSON response. Prompt injection defenses and evidence immutability remain explic
 
 ## Durable schema
 
-Replace generic `summary`, `finding`, and `decision` entries with one constrained
-choice-audit entry plus one audit summary:
+The portable ledger has one constrained choice-audit entry and one audit summary:
 
 ```text
 ChoiceAuditEntry
@@ -53,10 +52,11 @@ ChoiceAuditEntry
 
 The audit summary records a cited, bounded account of what was reviewed and any
 trivial discretion compressed rather than itemized. It is not a substitute for
-nontrivial entries. A zero-entry summary must explicitly explain why no undeclared
-choice exists.
+nontrivial entries. A completed zero-entry audit must explicitly explain why no
+undeclared choice exists; an unfinished summary can still be retained as partial
+work without that completion claim.
 
-`choiceKey` replaces the current generic decision key. Reuse is permitted only
+`choiceKey` identifies the conceptual choice across reviews. Reuse is permitted only
 when cited evidence establishes the same conceptual choice. Factory derives
 entry IDs and material fingerprints from validated semantic fields; the model
 never supplies them. The decision observation/fold consumes `sound` choices as

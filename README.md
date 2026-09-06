@@ -17,10 +17,10 @@ The [v1 rationale](specs/done/factory-v1/README.md) records product principles,
 trade-offs, and verification provenance. Its [public format](specs/done/factory-v1/format.md)
 is separate so portable data does not depend on one package layout.
 
-The active [evidence sanitization plan](specs/evidence-sanitization/README.md)
-records the sanitized-evidence contract and its remaining certification gates.
-The complementary [choice-audit reviewer plan](specs/choice-audit-reviewer/README.md)
-replaces generic findings with cited, standalone judgments of agent-made choices.
+The [evidence sanitization rationale](specs/done/evidence-sanitization/README.md)
+records the committable-data boundary and its verification evidence.
+The complementary [choice-audit rationale](specs/done/choice-audit-reviewer/README.md)
+explains cited, standalone judgments of agent-made choices.
 
 The [security model](SECURITY.md) owns repository trust, credentials, container
 isolation, and local interface policy. The implementation follows these ownership
@@ -30,7 +30,7 @@ boundaries:
   [capture](packages/capture/README.md) adapts provider events and the
   [runtime journal](packages/runtime-journal/README.md) owns their durability.
 - [Sanitization](packages/sanitization/README.md) owns the shared secret-matching
-  and evidence-reduction policy used by the active sanitization work.
+  and evidence-reduction policy used across portable publication.
 - The [public contract](packages/contract/README.md) defines portable records;
   the [repository store](packages/repository/README.md) owns their writes and Git
   snapshots; [GitHub](packages/github/README.md) supplies optional PR observations.

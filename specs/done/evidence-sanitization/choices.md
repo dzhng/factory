@@ -28,9 +28,11 @@ raising a per-file limit alone cannot disable its aggregate bound.
 When: shared policy.
 
 A small env file can generate a larger search structure, and repetitive text can
-produce many matches. Factory limits dictionary states and distinct match spans
-as well as input bytes. Adjacent and overlapping matches coalesce. Exceeding a
-ceiling fails preparation rather than publishing partially matched text.
+produce many matches. Factory limits dictionary states, merged exact-match spans,
+and the combined credential-candidate list as well as input bytes. Adjacent and
+overlapping matches coalesce, but candidate storage is bounded before the final
+merge too. Exceeding a ceiling fails preparation rather than publishing partially
+matched text.
 
 The plan did not specify internal matcher storage limits. This is sound because
 bounding filesystem input alone does not prevent an out-of-memory hook. Unusual

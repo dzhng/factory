@@ -15,10 +15,10 @@ A Factory stdio server fits that boundary without granting a general shell.
 
 ## Ownership
 
-The [reviewer](../../packages/reviewer/README.md) owns the shared prompt,
+The [reviewer](../../../packages/reviewer/README.md) owns the shared prompt,
 provider configuration, and isolated submission server. The
-[public contract](../../packages/contract/README.md) owns the canonical draft
-fold; [review acceptance](../../packages/review/README.md) validates and publishes
+[public contract](../../../packages/contract/README.md) owns the canonical draft
+fold; [review acceptance](../../../packages/review/README.md) validates and publishes
 its prepared result. Typed tools improve encoding reliability without making
 model judgments authoritative or creating another container trust boundary.
 

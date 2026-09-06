@@ -278,7 +278,7 @@ summary. Each choice carries a stable `choiceKey`, structured `assertion`,
 confidence, and a sound/unsound/needs-user verdict. Unsound requires a corrected
 decision; needs-user requires a provisional call and reversal. A reviewer reuses
 a key only when evidence establishes the same semantic choice. Missing output
-never means removal. See the [choice contract](../../choice-audit-reviewer/contract.md).
+never means removal. See the [choice contract](../choice-audit-reviewer/contract.md).
 
 `submissions.jsonl` preserves only accepted canonical tool events. An explicit
 finish requires a scope summary and, for zero choices, a no-choice rationale.

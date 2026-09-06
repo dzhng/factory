@@ -23,4 +23,4 @@ best-effort detection, not proof that arbitrary content contains no secrets.
 
 The [policy probe](../test-harness/src/run-sanitization-policy.ts) uses synthetic
 inputs only. Production publication boundaries are integrated by the active
-[feature plan](../../specs/evidence-sanitization/README.md).
+[feature rationale](../../specs/done/evidence-sanitization/README.md).

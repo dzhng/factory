@@ -10,7 +10,7 @@ confused with the analyzer's verdict.
 The production HTTP server and browser assets were exercised in the existing
 networkless Playwright Docker image, using synthetic domain presentation inputs.
 The capture entry point is
-[`run-choice-presentation.ts`](../../../../packages/test-harness/src/run-choice-presentation.ts).
+[`run-choice-presentation.ts`](../../../../../packages/test-harness/src/run-choice-presentation.ts).
 Run it inside the local-UI Docker image with an output directory and `--assert`.
 The existing `run-local-ui.ts --check` also exercises the twelve prior responsive
 states, keyboard anchors, and decision/partial-coverage actions.
@@ -66,8 +66,9 @@ no remaining finding was reported in this slice's owned code.
 A fresh-context reviewer could not be allocated: all four agent slots were in
 use, and the parent received an agent-limit refusal. This is the
 `screenshot-critique` skill's explicitly recorded self-critique fallback, **not an
-unprimed-agent verification**. Independent integration inspection remains with
-the parent agent.
+unprimed-agent verification**. This historical limitation was resolved by the fresh integration and
+[confirmation review](../confirmation/README.md); the original fallback is
+retained here with its actual authority.
 
 The strongest visible case against each feature was considered before judging:
 

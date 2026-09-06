@@ -30,6 +30,7 @@ import {
   readConfinedFile,
 } from '@factory/repository'
 import type { StoredReviewResult } from '@factory/review'
+import { DEFAULT_REVIEWER_IMAGE_REFERENCE } from '@factory/reviewer'
 
 import { command, replayProvider, succeed, openAndConfirmDecision } from './release-fixtures'
 
@@ -822,10 +823,7 @@ if (!process.argv.includes('--inside')) {
   )
   assert.notEqual(defaultSelection.code, 0)
   const selectedImage = (await readFile(`${dockerTrap}.pull`, 'utf8')).trimEnd().split('\n')
-  assert.deepEqual(selectedImage, [
-    'pull',
-    'ghcr.io/dzhng/factory-reviewer@sha256:0ecb58ccbec9b1bafa64f403ebc56963a41dec3f905edf37355d6fca9bbc25ee',
-  ])
+  assert.deepEqual(selectedImage, ['pull', DEFAULT_REVIEWER_IMAGE_REFERENCE])
   await unlink(dockerTrap)
   await checked('installed-default-image-selection-without-override-pull-trap')
   const physicalFiles = await scanPortableTree(join(repository, '.factory'))
