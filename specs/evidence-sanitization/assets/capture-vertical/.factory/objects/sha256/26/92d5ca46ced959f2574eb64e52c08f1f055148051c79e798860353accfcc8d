@@ -1,0 +1,6 @@
+{"type":"user","uuid":"user-1","sessionId":"claude-fixture-session","message":{"role":"user","content":"Exercise capture."}}
+{"type":"assistant","uuid":"assistant-1","sessionId":"claude-fixture-session","requestId":"request-1","message":{"role":"assistant","model":"claude-fixture","content":[{"type":"tool_use","id":"tool-1","name":"Bash","input":{"command":"printf fidelity"}}]}}
+{"type":"user","uuid":"tool-result-1","sessionId":"claude-fixture-session","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool-1","content":"fidelity","is_error":false}]}}
+{"type":"system","uuid":"compact-1","sessionId":"claude-fixture-session","subtype":"compact_boundary","content":"Fixture compacted."}
+{"type":"assistant","uuid":"assistant-2","sessionId":"claude-fixture-session","message":{"role":"assistant","content":[{"type":"text","text":"Stale transcript answer."}]}}
+{"type":"future_claude_record","sessionId":"claude-fixture-session","opaque":{"nested":["a","b"]},"must_survive":"byte-for-byte"}

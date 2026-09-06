@@ -72,8 +72,8 @@ export function certifyLiveCapture(observed: LiveCaptureObservation) {
     assert.ok(turn, 'each native Stop must match its immutable Turn')
     assert.equal(turn.sessionKey, identity.sessionKey)
     assert.ok(
-      turn.rawObjects.some(value => value.sha256 === stop.rawSha256),
-      'native Stop bytes must survive unchanged',
+      turn.evidenceObjects.some(value => value.bytes > 0),
+      'native Stop must retain readable prepared evidence',
     )
     assert.ok(turn.transcriptObservations.some(value => value.bytes > 0))
   }
@@ -84,7 +84,7 @@ export function certifyLiveCapture(observed: LiveCaptureObservation) {
     provider: observed.provider,
     nativeSessionPreserved: true,
     distinctNativeStops: true,
-    rawStopBytesPreserved: true,
+    preparedStopEvidencePresent: true,
     readableStopTranscripts: true,
     readerRefusalFailOpen: true,
     events: callbacks.map(row => row.event),

@@ -67,7 +67,7 @@ describe('Stop materialization', () => {
       claim,
       events: events.map((event, index) => ({
         event,
-        raw: ref(String(index + 1).repeat(64), 2, 'provider-hook'),
+        evidence: ref(String(index + 1).repeat(64), 2, 'provider-hook'),
       })),
       observation,
       materializedAt: '2026-09-04T00:00:02Z',

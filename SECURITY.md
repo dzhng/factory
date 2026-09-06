@@ -38,8 +38,9 @@ paths and unsafe symlink targets are omitted. These are UTF-8 review snapshots,
 not promises of executable or byte-identical source. Original Git race state
 remains separate from sanitized object identity. Discovery or preparation failure
 does not authorize raw source publication. Detection remains best effort, not an
-anonymization guarantee. Provider capture and reviewer output are separate
-publication boundaries still being converted by the active sanitization plan.
+anonymization guarantee. Provider capture uses the same policy before portable
+publication; reviewer output remains a separate boundary being converted by the
+active sanitization plan.
 
 Credentials, transient locks, live databases, operational machine-specific
 paths, and temporary files never belong in `.factory`. Runtime-only state lives
@@ -47,11 +48,12 @@ outside the committed data, under the repository's Git metadata where
 practical. Factory-generated portable metadata uses repository-relative paths,
 stable IDs, or hashes.
 
-Lossless provider evidence is the deliberate exception to the path rule. A raw
-hook payload or transcript may itself contain an absolute path, source fragment,
-environment detail, tool output, or secret. Factory preserves those bytes and
-does not claim that committed traces are anonymized. Initialization must make
-this consequence clear before capture begins.
+Provider evidence can still contain absolute paths, source fragments and other
+environment detail. Exact originals remain in the private journal and provider
+home. Portable hook/transcript evidence is redacted before hashing and recognized
+tool results are shortened. Frozen private preparation makes crash recovery reuse
+the same safe bytes rather than rediscovering an altered env dictionary. This is
+best-effort credential removal, not a claim that committed traces are anonymized.
 
 ## Provider authentication stays provider-owned
 

@@ -65,7 +65,7 @@ const session = (
     materializedAt: '2026-09-05T00:00:00Z',
     eventRange: { first: 0, last: 0 },
     transcriptObservations: [],
-    rawObjects: [],
+    evidenceObjects: [],
     repositoryObservationId: observationId,
     limitations: [],
     captureAdapterVersion: 'fixture',

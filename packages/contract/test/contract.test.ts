@@ -237,7 +237,7 @@ describe('public repository contract', () => {
           sessionKey: 'session_01',
           providerEvent: 'SessionStart',
           observedAt: timestamp,
-          raw: object,
+          evidence: object,
         },
       ],
       [
@@ -248,7 +248,7 @@ describe('public repository contract', () => {
           recordId('turn'),
           'events.jsonl',
         ]),
-        { sequence: 0, observedAt: timestamp, raw: object },
+        { sequence: 0, observedAt: timestamp, evidence: object },
       ],
       [
         makeOwnedPath('sessions', [
@@ -267,7 +267,7 @@ describe('public repository contract', () => {
           materializedAt: timestamp,
           eventRange: { first: 0, last: 0 },
           transcriptObservations: [],
-          rawObjects: [object],
+          evidenceObjects: [object],
           limitations: [],
           captureAdapterVersion: '0.1.0',
           formatVersion: 1,
@@ -629,17 +629,17 @@ describe('public repository contract', () => {
       sessionKey: 'session_01',
       providerEvent: 'SessionStart',
       observedAt: '2026-09-04T00:00:00Z',
-      raw,
+      evidence: raw,
     }
     expect(() =>
-      validatePublicRecord(path, { ...record, raw: { ...raw, sha256: '0'.repeat(63) } }),
+      validatePublicRecord(path, { ...record, evidence: { ...raw, sha256: '0'.repeat(63) } }),
     ).toThrow('sha256')
-    expect(() => validatePublicRecord(path, { ...record, raw: { ...raw, bytes: -1 } })).toThrow(
-      'bytes',
-    )
-    expect(() => validatePublicRecord(path, { ...record, raw: { ...raw, mediaType: 7 } })).toThrow(
-      'mediaType',
-    )
+    expect(() =>
+      validatePublicRecord(path, { ...record, evidence: { ...raw, bytes: -1 } }),
+    ).toThrow('bytes')
+    expect(() =>
+      validatePublicRecord(path, { ...record, evidence: { ...raw, mediaType: 7 } }),
+    ).toThrow('mediaType')
   })
 
   test('binds a session identity provider and key to its owned path', () => {
@@ -1021,7 +1021,7 @@ describe('public repository contract', () => {
           sessionKey: 'session_payload',
           providerEvent: 'SessionStart',
           observedAt: timestamp,
-          raw: object,
+          evidence: object,
         },
       ],
       [
@@ -1041,7 +1041,7 @@ describe('public repository contract', () => {
           materializedAt: timestamp,
           eventRange: { first: 0, last: 0 },
           transcriptObservations: [],
-          rawObjects: [],
+          evidenceObjects: [],
           limitations: [],
           captureAdapterVersion: '1',
           formatVersion: 1,

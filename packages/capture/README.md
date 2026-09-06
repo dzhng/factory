@@ -4,15 +4,19 @@ Capture is the provider boundary for Factory. It retains exact hook input in the
 private runtime journal, then turns a frozen Stop claim into one portable Turn,
 repository observation, and review trigger.
 
-Planning is pure. The repository package executes the resulting immutable write
-plan, with the trigger as its logical commit point. A crash may leave an
-unreferenced physical prefix, but readers expose only complete trigger-linked
-graphs and later repair converges the same deterministic bytes.
+Planning is pure. Provider adapters prepare every retained message using the
+shared sanitization policy and reduce recognized tool results without trimming
+ordinary reasoning. Transcript completeness is assessed on original bytes.
+The private journal freezes the entire prepared graph before the repository
+publishes any of it, with the trigger as its logical commit point. A crash may
+leave an unreferenced safe prefix; recovery replays the frozen bytes even after
+env values or provider transcripts change. A committed but damaged graph is
+refused rather than silently rewritten.
 
 Event positions belong to the shared repository journal. One Session's ordered
 events may therefore have gaps occupied by another Session. The frozen claim
 owns exact event membership during capture; the portable Turn preserves those
-positions, range endpoints, and its ordered raw-object inventory for every
+positions, range endpoints, and its ordered evidence-object inventory for every
 later reader. A gap in global positions alone never means evidence was lost.
 
 Provider adapters own classification, fail-open responses, and hook patch

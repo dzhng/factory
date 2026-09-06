@@ -1,0 +1,123 @@
+{
+  "schemaVersion": 1,
+  "selectedEngine": "sqlite-with-external-raw-cas",
+  "runtime": {
+    "bun": "1.3.14",
+    "platform": "linux",
+    "nodePackagingSmoke": "pass on exact Node v22.13.1",
+    "linkedWorktreeSmoke": "pass with real Git linked worktree"
+  },
+  "engines": {
+    "sqlite": {
+      "durability": "pass",
+      "contention": {
+        "writers": 8,
+        "eventsPerWriter": 25,
+        "exits": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "rows": 200,
+        "elapsedMs": 305.992042
+      },
+      "latencyMs": {
+        "nonStop": {
+          "p50": 1.4661669999999987,
+          "p95": 2.646000000000001,
+          "max": 2.7551249999999996
+        },
+        "stop": {
+          "p50": 1.5019169999999917,
+          "p95": 2.4380000000000024,
+          "max": 2.4380000000000024
+        }
+      },
+      "packaging": "Bun 1.3.14 pass; Node smoke reported separately"
+    },
+    "segmentedAppendLog": {
+      "durability": "fail: killed owner leaves a lock that cannot be stolen safely",
+      "contention": {
+        "writers": 8,
+        "eventsPerWriter": 25,
+        "exits": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "rows": 200,
+        "elapsedMs": 99.72254199999998
+      },
+      "packaging": "dependency-free Node/Bun filesystem APIs"
+    }
+  },
+  "crashMatrix": {
+    "raw-file-synced": {
+      "retrySequence": 0,
+      "orphansBeforeRetry": 1,
+      "orphansAfterRetry": 1
+    },
+    "raw-published": {
+      "retrySequence": 0,
+      "orphansBeforeRetry": 2,
+      "orphansAfterRetry": 1
+    },
+    "raw-directory-synced": {
+      "retrySequence": 0,
+      "orphansBeforeRetry": 2,
+      "orphansAfterRetry": 1
+    },
+    "journal-transaction-staged": {
+      "retrySequence": 0,
+      "orphansBeforeRetry": 1,
+      "orphansAfterRetry": 0
+    },
+    "journal-commit-attempt": {
+      "retrySequence": 0,
+      "orphansBeforeRetry": 1,
+      "orphansAfterRetry": 0
+    },
+    "journal-transaction-committed": {
+      "retrySequence": 0,
+      "orphansBeforeRetry": 0,
+      "orphansAfterRetry": 0
+    }
+  },
+  "stateMachine": {
+    "claimId": "claim_ed8f0b0381b597ce34225d9a64fd4bd97d63a82c714cc5740285721a133997bd",
+    "recoveredSameClaim": true,
+    "pendingAfterCompletion": 0
+  },
+  "diskFull": {
+    "rejectedBeforeAcknowledgement": true,
+    "retrySequence": 0
+  },
+  "databaseFull": {
+    "commitRejectedBeforeAcknowledgement": true,
+    "retrySequence": 0,
+    "claimRejectedBeforeAcknowledgement": true,
+    "claimRetryAcquired": true,
+    "completionRejectedBeforeAcknowledgement": true,
+    "completionStillPending": 1
+  },
+  "acceptance": {
+    "nodePackaging": true,
+    "linkedWorktree": true,
+    "contiguous": true,
+    "everyRetryAtZero": true,
+    "staleLockCounterexample": true,
+    "claimRecovery": true,
+    "diskFullRecovery": true,
+    "databaseFullRecovery": true
+  }
+}

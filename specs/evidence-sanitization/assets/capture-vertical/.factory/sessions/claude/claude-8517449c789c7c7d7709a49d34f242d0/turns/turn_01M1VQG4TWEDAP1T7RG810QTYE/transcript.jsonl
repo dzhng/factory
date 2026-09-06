@@ -1,0 +1,1 @@
+{"evidence":{"algorithm":"sha256","bytes":1016,"mediaType":"application/x-ndjson","role":"provider-transcript-observation","sha256":"2692d5ca46ced959f2574eb64e52c08f1f055148051c79e798860353accfcc8d"},"observedAt":"2026-09-06T16:05:53.116Z","sequence":0,"transformation":{"omissionReasons":[],"omittedCharacters":0,"policy":"evidence-sanitization-1","redacted":false}}

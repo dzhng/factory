@@ -13,7 +13,7 @@ import {
 import { verifyTurnEvidenceGraph, type TurnEvidenceGraph } from '../src/index'
 
 const bytes = new TextEncoder().encode('{"event":true}\n')
-const raw: ObjectRef = {
+const evidence: ObjectRef = {
   algorithm: 'sha256',
   sha256: Bun.CryptoHasher.hash('sha256', bytes, 'hex'),
   bytes: bytes.byteLength,
@@ -43,8 +43,8 @@ const identity: SessionIdentity = {
   firstObservedAt: observation.observedAt,
 }
 const events: EvidenceEnvelope[] = [
-  { sequence: 1, observedAt: observation.observedAt, raw },
-  { sequence: 2, observedAt: observation.observedAt, raw },
+  { sequence: 1, observedAt: observation.observedAt, evidence },
+  { sequence: 2, observedAt: observation.observedAt, evidence },
 ]
 const turn: TurnManifest = {
   schemaVersion: 1,
@@ -55,12 +55,12 @@ const turn: TurnManifest = {
   materializedAt: observation.observedAt,
   eventRange: { first: 1, last: 2 },
   transcriptObservations: [],
-  rawObjects: [raw, raw],
+  evidenceObjects: [evidence, evidence],
   repositoryObservationId: observation.observationId,
   limitations: [],
   captureAdapterVersion: 'capture-v1',
   formatVersion: 1,
-  inventory: [raw],
+  inventory: [evidence],
 }
 const trigger: ReviewTrigger = {
   schemaVersion: 1,
@@ -97,7 +97,7 @@ describe('portable Turn evidence graph', () => {
   test('accepts one exact ordered transitive closure', async () => {
     await expect(
       verifyTurnEvidenceGraph(graph(), async reference => {
-        expect(canonicalJson(reference)).toBe(canonicalJson(raw))
+        expect(canonicalJson(reference)).toBe(canonicalJson(evidence))
         return bytes
       }),
     ).resolves.toBeUndefined()
@@ -114,7 +114,7 @@ describe('portable Turn evidence graph', () => {
     [
       'extra inventory',
       (value: TurnEvidenceGraph) =>
-        (value.turn.inventory = [...value.turn.inventory, { ...raw, role: 'other' }]),
+        (value.turn.inventory = [...value.turn.inventory, { ...evidence, role: 'other' }]),
     ],
     ['wrong identity', (value: TurnEvidenceGraph) => (value.identity.sessionKey = 'session-b')],
     [

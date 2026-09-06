@@ -6,21 +6,23 @@ is hashed or written, not just before the reviewer sees it.
 
 ## Next Agent Prompt
 
-Status: policy and source checkpoints complete; PR observations in progress. Last updated: 2026-09-06.
+Status: policy, observations and provider capture implemented; publication closure in progress. Last updated: 2026-09-06.
 
 The active implementation goal includes both this spec and the
 [choice-audit reviewer](../choice-audit-reviewer/README.md). Finish and verify
-both before marking the goal complete. The audit-contract pass is running in
-parallel in an isolated worktree; coordinate ownership of the shared public
-contract and acceptance files before integrating changes.
+both before marking the goal complete. Typed submission tools and choice
+presentation are running in parallel; coordinate shared contract and acceptance
+files before integrating changes.
 
 You are implementing a clean cutover for an unlaunched product. Continue
-[slice 2](slices/02-observations.md), after reading the target [contract](contract.md)
+[slice 4](slices/04-publication.md), after reading the target [contract](contract.md)
 and current `SECURITY.md`. There are no migration or compatibility requirements.
-Source preparation is green. Integrate the parallel GitHub pass and wire its
-required sanitizer context through acquisition callers next. Provider adapter
-preparation is independently underway; durable capture/journal integration
-follows the safe observation seams.
+Source, PR and provider preparation are green. The existing private journal now
+freezes the complete publication graph before CAS writes and replays it without
+rediscovery. Its SQLite rows hold compact bindings; complete plans and evidence
+use private CAS and become reclaimable after verified completion. Next integrate
+the parallel review/action preparation pass, then close every remaining writer
+admission surface (including config/init) before installed certification.
 Invoke write-tests before behavior changes and follow red/green in the owning
 Docker environment. Do not inspect real secrets or alter live provider homes.
 
@@ -32,8 +34,8 @@ that all committable paths are protected. Do not publish an npm release until
 the final journey is green.
 
 - [x] [1 — Shared policy and safe discovery](slices/01-policy.md)
-- [ ] [2 — Sanitized code and PR observations](slices/02-observations.md)
-- [ ] [3 — Provider capture and durable replay](slices/03-capture.md)
+- [x] [2 — Sanitized code and PR observations](slices/02-observations.md)
+- [x] [3 — Provider capture and durable replay](slices/03-capture.md)
 - [ ] [4 — Review output, actions, and publication closure](slices/04-publication.md)
 - [ ] [5 — Installed-CLI certification](slices/05-certification.md)
 - [ ] Complete the complementary [choice-audit reviewer](../choice-audit-reviewer/README.md)

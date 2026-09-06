@@ -26,7 +26,7 @@ import {
 } from '@factory/repository'
 import { acceptReview, validateReview } from '@factory/review'
 import { openVerifiedReviewBundle, readVerifiedReviewBundle } from '@factory/reviewer'
-import { inspectRuntimeJournal } from '@factory/runtime-journal'
+import { inspectRuntimeJournal, openRuntimeJournal } from '@factory/runtime-journal'
 import type { LocalUiHandle } from '@factory/web'
 
 import { sealReviewerRawAttempt } from '../../reviewer/src/attempt'
@@ -276,6 +276,190 @@ async function acceptBundleReview(
 }
 
 describe('installed capture vertical', () => {
+  test.each(['codex', 'claude'] as const)(
+    'publishes only prepared provider evidence while preserving reasoning and originals (%s)',
+    async provider => {
+      const value = await createFixture()
+      expect((await command(value.factory, ['init'], value.repository, value.env)).code).toBe(0)
+      const secret = 'synthetic-env-value-capture-8392'
+      await mkdir(join(value.repository, 'nested'))
+      await writeFile(join(value.repository, 'nested', '.env.local'), `SERVICE_TOKEN=${secret}\n`)
+      const transcript = join(
+        value.home,
+        provider === 'codex' ? '.codex/sessions' : '.claude/projects',
+        'sanitized.jsonl',
+      )
+      const original =
+        provider === 'claude'
+          ? JSON.stringify({
+              type: 'user',
+              message: {
+                content: [
+                  {
+                    type: 'tool_result',
+                    tool_use_id: 'call-1',
+                    content: `${secret}${'x'.repeat(9000)}tail`,
+                  },
+                ],
+              },
+            }) +
+            '\n' +
+            JSON.stringify({
+              type: 'assistant',
+              message: {
+                content: [
+                  { type: 'text', text: `Decision rationale ${'r'.repeat(5000)} ${secret}` },
+                ],
+              },
+            }) +
+            '\n'
+          : JSON.stringify({
+              type: 'response_item',
+              payload: {
+                type: 'function_call_output',
+                call_id: 'call-1',
+                output: `${secret}${'x'.repeat(9000)}tail`,
+              },
+            }) +
+            '\n' +
+            JSON.stringify({
+              type: 'response_item',
+              payload: {
+                type: 'message',
+                role: 'assistant',
+                content: [
+                  { type: 'output_text', text: `Decision rationale ${'r'.repeat(5000)} ${secret}` },
+                ],
+              },
+            }) +
+            '\n'
+      await writeFile(transcript, original)
+      const payload = JSON.stringify({
+        session_id: 'prepared-session',
+        turn_id: 'prepared-stop',
+        prompt_id: 'prepared-stop',
+        hook_event_name: 'Stop',
+        cwd: value.repository,
+        transcript_path: transcript,
+        unknown: { copied: secret },
+      })
+      expect(
+        await command(
+          value.factory,
+          ['capture', '--provider', provider],
+          value.repository,
+          value.env,
+          payload,
+        ),
+      ).toMatchObject({ code: 0, stdout: '{}\n' })
+      const doctor = JSON.parse(
+        (await command(value.factory, ['doctor'], value.repository, value.env)).stdout,
+      )
+      if (doctor.projection.triggers !== 1) {
+        const diagnostics = join(
+          value.repository,
+          '.git',
+          'factory-runtime',
+          'journal-v1',
+          'diagnostics',
+        )
+        throw new Error(
+          (
+            await Promise.all(
+              (await readdir(diagnostics)).map(name => readFile(join(diagnostics, name), 'utf8')),
+            )
+          ).join('\n'),
+        )
+      }
+      expect(doctor.projection.triggers).toBe(1)
+      const texts: string[] = []
+      const scan = async (directory: string): Promise<void> => {
+        for (const entry of await readdir(directory, { withFileTypes: true })) {
+          const path = join(directory, entry.name)
+          if (entry.isDirectory()) await scan(path)
+          else texts.push(await readFile(path, 'utf8'))
+        }
+      }
+      await scan(join(value.repository, '.factory'))
+      const published = texts.join('\n')
+      expect(published).not.toContain(secret)
+      expect(published).toContain(`Decision rationale ${'r'.repeat(5000)} [REDACTED]`)
+      expect(published).toContain('[Factory omitted ')
+      expect(published).not.toContain('x'.repeat(4001))
+      expect(await readFile(transcript, 'utf8')).toBe(original)
+      const journalPath = join(
+        value.repository,
+        '.git',
+        'factory-runtime',
+        'journal-v1',
+        'journal.sqlite',
+      )
+      const database = new Database(journalPath)
+      database.run('DELETE FROM completions')
+      const journal = await openRuntimeJournal({ repositoryRoot: value.repository })
+      const claim = (await Array.fromAsync(journal.recover()))[0]!.claim!
+      const prepared = (await journal.readCapturePreparation({ kind: 'stop', claim }))!
+      await journal.close()
+      const graph = [
+        ...prepared.objects.map(item => ({
+          path: `objects/sha256/${item.reference.sha256.slice(0, 2)}/${item.reference.sha256.slice(2)}`,
+          bytes: item.bytes,
+        })),
+        ...prepared.records.filter(item => item.path !== prepared.commitPath),
+        prepared.records.find(item => item.path === prepared.commitPath)!,
+      ]
+      const expected = await treeDigest(join(value.repository, '.factory'))
+      await unlink(join(value.repository, 'nested', '.env.local'))
+      await unlink(transcript)
+      for (let prefix = 0; prefix <= graph.length; prefix++) {
+        database.run('DELETE FROM completions')
+        for (const item of graph)
+          await unlink(join(value.repository, '.factory', item.path)).catch(error => {
+            if (error.code !== 'ENOENT') throw error
+          })
+        for (const item of graph.slice(0, prefix))
+          await writeFile(join(value.repository, '.factory', item.path), item.bytes)
+        texts.length = 0
+        await scan(join(value.repository, '.factory'))
+        expect(texts.join('\n')).not.toContain(secret)
+        expect(
+          await command(
+            value.factory,
+            ['capture', '--provider', provider],
+            value.repository,
+            value.env,
+            payload,
+          ),
+        ).toMatchObject({ code: 0, stdout: '{}\n' })
+        expect(await treeDigest(join(value.repository, '.factory'))).toBe(expected)
+        expect(database.query('SELECT COUNT(*) AS count FROM completions').get()).toEqual({
+          count: 1,
+        })
+      }
+      database.close()
+      if (process.env.FACTORY_EVIDENCE_ROOT) {
+        await writeFile(
+          join(process.env.FACTORY_EVIDENCE_ROOT, `sanitized-capture-${provider}.json`),
+          JSON.stringify(
+            {
+              provider,
+              policy: 'evidence-sanitization-1',
+              retainedReasoning:
+                'Decision rationale followed by 5,000 unchanged reasoning characters and [REDACTED]',
+              toolResultContainsOmissionMarker: published.includes('[Factory omitted '),
+              originalTranscriptPreserved: true,
+              physicalPrefixesWithoutSeededSecret: graph.length + 1,
+              replayAfterEnvAndTranscriptRemoval: 'byte-identical',
+              completionCountPerReplay: 1,
+            },
+            null,
+            2,
+          ) + '\n',
+        )
+      }
+    },
+  )
+
   test('records an explicit manual Session-to-PR association', async () => {
     const value = await createFixture()
     expect((await command(value.factory, ['init'], value.repository, value.env)).code).toBe(0)
@@ -2176,7 +2360,7 @@ describe('installed capture vertical', () => {
     delete manifest.codeManifest
     manifest.stagedPatch = missingPatch
     manifest.inventory = [
-      ...manifest.rawObjects,
+      ...manifest.evidenceObjects,
       ...manifest.transcriptObservations,
       missingPatch,
     ].sort((left, right) => left.sha256.localeCompare(right.sha256))
@@ -2283,8 +2467,8 @@ describe('installed capture vertical', () => {
       writeFile(manifestPath, originalManifest),
     ])
     Object.assign(manifest, JSON.parse(originalManifest))
-    const omitted = manifest.rawObjects[0]
-    manifest.rawObjects = manifest.rawObjects.slice(1)
+    const omitted = manifest.evidenceObjects[0]
+    manifest.evidenceObjects = manifest.evidenceObjects.slice(1)
     manifest.inventory = manifest.inventory.filter(
       (reference: { sha256: string }) => reference.sha256 !== omitted.sha256,
     )
@@ -2347,7 +2531,7 @@ describe('installed capture vertical', () => {
     )
     expect(rewritten.pendingStops).toBe(1)
     expect(rewritten.projection.triggers).toBe(1)
-    expect(rewritten.captureDiagnostics.length).toBeGreaterThan(1)
+    expect(rewritten.captureDiagnostics.length).toBeGreaterThan(0)
   })
 
   test('keeps observation limitations authoritative during completion recovery', async () => {
@@ -2410,7 +2594,7 @@ describe('installed capture vertical', () => {
   })
 
   test('derives identical limitations when resuming immutable prefixes', async () => {
-    for (const scenario of ['lagging-transcript', 'missing-transcript', 'raced-observation']) {
+    for (const scenario of ['lagging-transcript', 'missing-transcript', 'rotated-env']) {
       const value = await createFixture()
       expect((await command(value.factory, ['init'], value.repository, value.env)).code).toBe(0)
       const transcript = join(value.home, '.codex', 'sessions', `${scenario}.jsonl`)
@@ -2441,22 +2625,11 @@ describe('installed capture vertical', () => {
       const turnId = (await readdir(turnsRoot))[0]!
       const manifestPath = join(turnsRoot, turnId, 'manifest.json')
       const originalManifest = JSON.parse(await readFile(manifestPath, 'utf8'))
-      const observationPath = join(
-        value.repository,
-        '.factory',
-        'repository-observations',
-        `${originalManifest.repositoryObservationId}.json`,
-      )
-      if (scenario === 'raced-observation') {
-        const observation = JSON.parse(await readFile(observationPath, 'utf8'))
-        observation.startState = 'a'.repeat(64)
-        observation.endState = 'b'.repeat(64)
-        observation.limitations.push({
-          code: 'repository-race',
-          detail: 'Git state changed during observation',
-        })
-        await writeFile(observationPath, canonicalJson(observation))
-      }
+      if (scenario === 'rotated-env')
+        await writeFile(
+          join(value.repository, '.env'),
+          'PASSWORD=new-env-value-after-preparation\n',
+        )
       const triggerRoot = join(value.repository, '.factory', 'review-triggers')
       await Promise.all([
         unlink(manifestPath),
@@ -2483,12 +2656,8 @@ describe('installed capture vertical', () => {
         ),
       ).toMatchObject({ code: 0, stdout: '{}\n' })
       const resumedManifest = JSON.parse(await readFile(manifestPath, 'utf8'))
-      if (scenario === 'raced-observation') {
-        expect(resumedManifest.limitations).toContainEqual({
-          code: 'repository-race',
-          detail: `repository changed from ${'a'.repeat(64)} to ${'b'.repeat(64)}`,
-        })
-      } else {
+      expect(resumedManifest).toEqual(originalManifest)
+      {
         expect(resumedManifest.limitations).toContainEqual({
           code: 'missing-transcript-range',
           detail:

@@ -76,14 +76,14 @@ const candidate = (watermark: number) => ({
     {
       sequence: watermark,
       observedAt: `2026-09-05T00:00:0${watermark}Z`,
-      raw: turn(watermark).rawObjects[0]!,
+      evidence: turn(watermark).evidenceObjects[0]!,
     },
   ],
   transcript: [
     {
       sequence: watermark,
       observedAt: `2026-09-05T00:00:0${watermark}Z`,
-      raw: turn(watermark).transcriptObservations[0]!,
+      evidence: turn(watermark).transcriptObservations[0]!,
     },
   ],
 })
@@ -97,7 +97,7 @@ const turn = (watermark: number): TurnManifest => ({
   materializedAt: `2026-09-05T00:00:0${watermark}Z`,
   eventRange: { first: watermark, last: watermark },
   transcriptObservations: [ref(`${watermark}`)],
-  rawObjects: [ref(`${watermark + 1}`)],
+  evidenceObjects: [ref(`${watermark + 1}`)],
   repositoryObservationId: id('observation', watermark),
   limitations: [],
   captureAdapterVersion: 'capture-v1',
@@ -148,7 +148,7 @@ describe('review planning', () => {
     input.subject = { kind: 'workspace', observation: observation(3) }
     value.turn.eventRange.first = 1
     value.events = [{ ...value.events[0]!, sequence: 1 }, value.events[0]!]
-    value.turn.rawObjects = value.events.map(event => event.raw)
+    value.turn.evidenceObjects = value.events.map(event => event.evidence)
     input.candidates = [value]
     const plan = planReview(input)
     expect(plan.status).toBe('ready')

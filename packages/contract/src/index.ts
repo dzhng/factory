@@ -213,13 +213,15 @@ export type LifecycleRecord = {
   sessionKey: string
   providerEvent: string
   observedAt: string
-  raw: ObjectRef
+  evidence: ObjectRef
+  transformation?: EvidenceTransformation
 }
 
 export type EvidenceEnvelope = {
   sequence: number
   observedAt: string
-  raw: ObjectRef
+  evidence: ObjectRef
+  transformation?: EvidenceTransformation
   parsed?: JsonValue
 }
 
@@ -232,7 +234,7 @@ export type TurnManifest = {
   materializedAt: string
   eventRange: { first: number; last: number }
   transcriptObservations: readonly ObjectRef[]
-  rawObjects: readonly ObjectRef[]
+  evidenceObjects: readonly ObjectRef[]
   repositoryObservationId?: RecordId
   branch?: string
   codeManifest?: ObjectRef
@@ -1103,7 +1105,15 @@ const RECORD_KEYS = {
     'repositoryId',
     'firstObservedAt',
   ],
-  lifecycle: ['schemaVersion', 'eventId', 'sessionKey', 'providerEvent', 'observedAt', 'raw'],
+  lifecycle: [
+    'schemaVersion',
+    'eventId',
+    'sessionKey',
+    'providerEvent',
+    'observedAt',
+    'evidence',
+    'transformation',
+  ],
   turn: [
     'schemaVersion',
     'turnId',
@@ -1113,7 +1123,7 @@ const RECORD_KEYS = {
     'materializedAt',
     'eventRange',
     'transcriptObservations',
-    'rawObjects',
+    'evidenceObjects',
     'repositoryObservationId',
     'branch',
     'codeManifest',
@@ -1791,7 +1801,7 @@ function validateRecordShape(
   assertBaseRecord(value, kind)
   const required: Record<RecordKind, readonly string[]> = {
     sessionIdentity: RECORD_KEYS.sessionIdentity,
-    lifecycle: RECORD_KEYS.lifecycle,
+    lifecycle: RECORD_KEYS.lifecycle.filter(key => key !== 'transformation'),
     turn: RECORD_KEYS.turn.filter(
       key =>
         ![
@@ -1859,7 +1869,8 @@ function validateRecordShape(
       assertString(value.sessionKey, 'lifecycle.sessionKey')
       assertString(value.providerEvent, 'lifecycle.providerEvent')
       assertTimestamp(value.observedAt, 'lifecycle.observedAt')
-      assertObjectRef(value.raw, 'lifecycle.raw')
+      assertObjectRef(value.evidence, 'lifecycle.evidence')
+      if (value.transformation !== undefined) parseEvidenceTransformation(value.transformation)
       assertIdentity(value.sessionKey, path.sessionKey, 'lifecycle.sessionKey')
       assertIdentity(value.eventId, path.eventId, 'lifecycle.eventId')
       if (!['codex', 'claude'].includes(path.provider))
@@ -1879,7 +1890,7 @@ function validateRecordShape(
       if (value.eventRange.last < value.eventRange.first)
         throw new TypeError('turn.eventRange must be ordered')
       assertObjectRefs(value.transcriptObservations, 'turn.transcriptObservations')
-      assertObjectRefs(value.rawObjects, 'turn.rawObjects')
+      assertObjectRefs(value.evidenceObjects, 'turn.evidenceObjects')
       if ('repositoryObservationId' in value) {
         assertRecordId(value.repositoryObservationId, 'turn.repositoryObservationId')
       }
@@ -3171,11 +3182,16 @@ export function validatePublicRecord(path: OwnedPath, value: unknown): void {
   }
   if (selected.kind === 'envelope') {
     assertRecord(value, 'evidence envelope')
-    assertExactKeys(value, ['sequence', 'observedAt', 'raw', 'parsed'], 'evidence envelope')
-    requireFields(value, ['sequence', 'observedAt', 'raw'], 'evidence envelope')
+    assertExactKeys(
+      value,
+      ['sequence', 'observedAt', 'evidence', 'parsed', 'transformation'],
+      'evidence envelope',
+    )
+    requireFields(value, ['sequence', 'observedAt', 'evidence'], 'evidence envelope')
     assertNonNegativeInteger(value.sequence, 'evidence envelope sequence')
     assertTimestamp(value.observedAt, 'evidence envelope observedAt')
-    assertObjectRef(value.raw, 'evidence envelope raw')
+    assertObjectRef(value.evidence, 'evidence envelope evidence')
+    if (value.transformation !== undefined) parseEvidenceTransformation(value.transformation)
     if ('parsed' in value) canonicalJson(value.parsed)
     if (!['codex', 'claude'].includes(selected.provider))
       throw new TypeError('evidence envelope path provider is unsupported')

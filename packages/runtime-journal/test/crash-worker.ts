@@ -56,6 +56,19 @@ if (operation === 'append' || operation === 'append-stop') {
   const claim = JSON.parse(process.env.FACTORY_TEST_CLAIM ?? '') as MaterializationClaim
   const turn = JSON.parse(process.env.FACTORY_TEST_TURN ?? '') as RuntimeRecordRef
   await journal.complete(claim, turn)
+} else if (operation === 'prepare') {
+  const claim = JSON.parse(process.env.FACTORY_TEST_CLAIM ?? '') as MaterializationClaim
+  const turn = JSON.parse(process.env.FACTORY_TEST_TURN ?? '') as RuntimeRecordRef
+  const bytes = new Uint8Array(await readFile(join(turn.repositoryRoot, '.factory', turn.path)))
+  await journal.prepareCapture(
+    { kind: 'stop', claim },
+    {
+      objects: [],
+      records: [{ path: turn.path, bytes }],
+      commitPath: turn.path,
+      completion: { path: turn.path, sha256: turn.sha256 },
+    },
+  )
 } else {
   throw new Error(`Unknown operation: ${operation}`)
 }

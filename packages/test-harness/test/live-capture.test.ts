@@ -1,29 +1,97 @@
 import { expect, test } from 'bun:test'
 
-import claudeObservation from '../../../specs/done/factory-v1/assets/live-capture/claude-observation.json'
-import observation from '../../../specs/done/factory-v1/assets/live-capture/codex-observation.json'
 import {
   certifyLiveCapture,
   liveCaptureCompleted,
   type LiveCaptureObservation,
 } from '../src/live-capture-contract'
 
-test('live capture certification requires real matching Stop bytes and valid callback responses', () => {
-  const actual = structuredClone(observation) as LiveCaptureObservation
+function observation(provider: 'codex' | 'claude'): LiveCaptureObservation {
+  const at = '2026-09-04T00:00:00Z'
+  const evidence = {
+    algorithm: 'sha256' as const,
+    sha256: 'a'.repeat(64),
+    bytes: 12,
+    mediaType: 'application/json',
+    role: 'provider-hook',
+  }
+  return {
+    provider,
+    firstCompleted: true,
+    secondCompleted: true,
+    faultCompleted: true,
+    faultPreservedRepository: true,
+    identities: [
+      {
+        schemaVersion: 1,
+        provider,
+        nativeSessionId: 'native-session',
+        sessionKey: 'session',
+        captureGeneration: 0,
+        repositoryId: 'repo_fixture',
+        firstObservedAt: at,
+      },
+    ],
+    manifests: [1, 2].map(index => ({
+      schemaVersion: 1,
+      turnId: `turn_01K4A1M600000000000000000${index}`,
+      sessionKey: 'session',
+      nativeStopId: `stop-${index}`,
+      capturedAt: at,
+      materializedAt: at,
+      eventRange: { first: index, last: index },
+      transcriptObservations: [evidence],
+      evidenceObjects: [evidence],
+      limitations: [],
+      captureAdapterVersion: 'fixture',
+      formatVersion: 1,
+      inventory: [evidence],
+    })),
+    callbacks: [
+      ...[1, 2].flatMap(index =>
+        ['SessionStart', 'Stop'].map(event => ({
+          phase: 'capture' as const,
+          event,
+          sessionId: 'native-session',
+          stopId: event === 'Stop' ? `stop-${index}` : null,
+          rawSha256: 'b'.repeat(64),
+          transcriptBytes: 12,
+          code: 0,
+          stdout: '{}\n',
+        })),
+      ),
+      {
+        phase: 'reader-refusal',
+        event: 'Stop',
+        sessionId: 'native-session',
+        stopId: 'fault',
+        rawSha256: 'b'.repeat(64),
+        transcriptBytes: 12,
+        code: 0,
+        stdout: '{}\n',
+      },
+    ],
+  }
+}
+
+test('live capture certification requires matching native Stops, prepared evidence, and valid callback responses', () => {
+  const actual = observation('codex')
   expect(certifyLiveCapture(actual).readerRefusalFailOpen).toBe(true)
   const missing = structuredClone(actual)
   missing.callbacks = missing.callbacks.filter(row => row.event !== 'Stop')
   expect(() => certifyLiveCapture(missing)).toThrow()
   const changed = structuredClone(actual)
-  changed.callbacks.find(row => row.event === 'Stop')!.rawSha256 = '0'.repeat(64)
-  expect(() => certifyLiveCapture(changed)).toThrow('native Stop bytes must survive unchanged')
+  changed.manifests[0]!.evidenceObjects = []
+  expect(() => certifyLiveCapture(changed)).toThrow(
+    'native Stop must retain readable prepared evidence',
+  )
   const blocked = structuredClone(actual)
   blocked.callbacks.find(row => row.phase === 'reader-refusal')!.code = 1
   expect(() => certifyLiveCapture(blocked)).toThrow('capture must be fail-open')
 })
 
 test('live Claude certification preserves native prompt identity across resume', () => {
-  const actual = structuredClone(claudeObservation) as LiveCaptureObservation
+  const actual = observation('claude')
   expect(certifyLiveCapture(actual).nativeSessionPreserved).toBe(true)
   actual.callbacks.find(row => row.event === 'Stop')!.sessionId = 'different-native-session'
   expect(() => certifyLiveCapture(actual)).toThrow()

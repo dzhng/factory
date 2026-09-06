@@ -1,1 +1,1 @@
-{"observedAt":"2026-09-05T00:00:00Z","raw":{"algorithm":"sha256","bytes":15,"mediaType":"application/json","role":"provider-event","sha256":"1ddca71ad68c294a0f95c6c7e5c5810f3139ac0b5bf0d4a86fb4dd03ef36e69c"},"sequence":1}
+{"evidence":{"algorithm":"sha256","bytes":15,"mediaType":"application/json","role":"provider-event","sha256":"1ddca71ad68c294a0f95c6c7e5c5810f3139ac0b5bf0d4a86fb4dd03ef36e69c"},"observedAt":"2026-09-05T00:00:00Z","sequence":1}

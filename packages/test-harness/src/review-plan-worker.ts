@@ -205,7 +205,7 @@ function addCandidate(
     materializedAt: at,
     eventRange: { first: n, last: n },
     transcriptObservations: [],
-    rawObjects: [raw],
+    evidenceObjects: [raw],
     repositoryObservationId: repositoryObservation.observationId,
     codeManifest: repositoryObservation.codeManifest,
     limitations: partial ? [limitation] : [],
@@ -234,7 +234,7 @@ function addCandidate(
   store.put(makeOwnedPath('review-triggers', [`${trigger.triggerId}.json`]), trigger)
   store.put(makeOwnedPath('sessions', [...root, 'manifest.json']), turn)
   store.putJsonl(makeOwnedPath('sessions', [...root, 'events.jsonl']), [
-    { sequence: n, observedAt: at, raw },
+    { sequence: n, observedAt: at, evidence: raw },
   ])
   store.putJsonl(makeOwnedPath('sessions', [...root, 'transcript.jsonl']), [])
   addObservation(store, repositoryObservation)

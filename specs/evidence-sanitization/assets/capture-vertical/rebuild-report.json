@@ -1,0 +1,543 @@
+{
+  "canonicalBranch": "main",
+  "canonicalBranchDrift": false,
+  "captureDiagnostics": [],
+  "diagnostics": [
+    {
+      "code": "reviewer-docker-unavailable",
+      "severity": "high",
+      "summary": "Docker reviewer is unavailable: missing"
+    },
+    {
+      "code": "codex-cli-unavailable",
+      "severity": "low",
+      "summary": "codex CLI is unavailable: missing"
+    },
+    {
+      "code": "codex-reviewer-credentials-unconfigured",
+      "severity": "low",
+      "summary": "codex reviewer credential file is not configured"
+    },
+    {
+      "code": "claude-cli-unavailable",
+      "severity": "low",
+      "summary": "claude CLI is unavailable: missing"
+    },
+    {
+      "code": "claude-reviewer-credentials-unconfigured",
+      "severity": "low",
+      "summary": "claude reviewer credential file is not configured"
+    },
+    {
+      "code": "github-unavailable",
+      "severity": "low",
+      "summary": "GitHub default branch is unavailable: gh-missing"
+    }
+  ],
+  "github": {
+    "availability": "unavailable",
+    "reason": "gh-missing"
+  },
+  "installation": {
+    "executable": {
+      "path": "<packaged-fixture>",
+      "state": "ready"
+    },
+    "ownership": "available",
+    "providers": {
+      "claude": {
+        "config": "available",
+        "hooks": {
+          "events": [
+            {
+              "desiredFingerprint": "020295f87b0f4e4247d7a894f4b7b807e80284484fe874180e2273ec41a846f1",
+              "event": "SessionStart",
+              "exactMatches": 1,
+              "exactOwnedMatches": 1,
+              "factoryLikeUnownedMatches": 0,
+              "priorOwnedMatches": 1,
+              "staleOwnedMatches": 0,
+              "state": "installed"
+            },
+            {
+              "desiredFingerprint": "458281c1c368aa5335981bda935188e1b75b0434b4b3fe7472f228d986933af2",
+              "event": "SessionEnd",
+              "exactMatches": 1,
+              "exactOwnedMatches": 1,
+              "factoryLikeUnownedMatches": 0,
+              "priorOwnedMatches": 1,
+              "staleOwnedMatches": 0,
+              "state": "installed"
+            },
+            {
+              "desiredFingerprint": "dd764a19b9d3cac5ea498d0f9e6b96ab8e15a697a3550fbd673691cfbd3336e7",
+              "event": "UserPromptSubmit",
+              "exactMatches": 1,
+              "exactOwnedMatches": 1,
+              "factoryLikeUnownedMatches": 0,
+              "priorOwnedMatches": 1,
+              "staleOwnedMatches": 0,
+              "state": "installed"
+            },
+            {
+              "desiredFingerprint": "9e4a713c361d0c8cc9e00bec59bfd2390c7dd6ab2fe69585c4c519ab77013f39",
+              "event": "PreToolUse",
+              "exactMatches": 1,
+              "exactOwnedMatches": 1,
+              "factoryLikeUnownedMatches": 0,
+              "priorOwnedMatches": 1,
+              "staleOwnedMatches": 0,
+              "state": "installed"
+            },
+            {
+              "desiredFingerprint": "753bb75239b0c60c4d51ef120cfc5f247b24d1f4948d0022b8e5ee0a3fb0653c",
+              "event": "PermissionRequest",
+              "exactMatches": 1,
+              "exactOwnedMatches": 1,
+              "factoryLikeUnownedMatches": 0,
+              "priorOwnedMatches": 1,
+              "staleOwnedMatches": 0,
+              "state": "installed"
+            },
+            {
+              "desiredFingerprint": "fb9e4a30e9890f79e9b6d818d055045afa6ee04dabd204c770a22aad29097239",
+              "event": "PostToolUse",
+              "exactMatches": 1,
+              "exactOwnedMatches": 1,
+              "factoryLikeUnownedMatches": 0,
+              "priorOwnedMatches": 1,
+              "staleOwnedMatches": 0,
+              "state": "installed"
+            },
+            {
+              "desiredFingerprint": "a8ecda0e55d360472f5ecaa80fd3161b3ffb7ab0fb99430b9f610e6c271d5d29",
+              "event": "PreCompact",
+              "exactMatches": 1,
+              "exactOwnedMatches": 1,
+              "factoryLikeUnownedMatches": 0,
+              "priorOwnedMatches": 1,
+              "staleOwnedMatches": 0,
+              "state": "installed"
+            },
+            {
+              "desiredFingerprint": "eca18b6c926d8e617514665269ee207df65e38f8a0ce741c56f424557c2a2a91",
+              "event": "PostCompact",
+              "exactMatches": 1,
+              "exactOwnedMatches": 1,
+              "factoryLikeUnownedMatches": 0,
+              "priorOwnedMatches": 1,
+              "staleOwnedMatches": 0,
+              "state": "installed"
+            },
+            {
+              "desiredFingerprint": "f8a5255db9096401b71ed9d52c7a28699d83c76345b13da0157051a76a212b2b",
+              "event": "SubagentStart",
+              "exactMatches": 1,
+              "exactOwnedMatches": 1,
+              "factoryLikeUnownedMatches": 0,
+              "priorOwnedMatches": 1,
+              "staleOwnedMatches": 0,
+              "state": "installed"
+            },
+            {
+              "desiredFingerprint": "6b9cc1654bdfd72c52aa01e81262f4c0f59d91ed4c81fff4ae27ed9439645968",
+              "event": "SubagentStop",
+              "exactMatches": 1,
+              "exactOwnedMatches": 1,
+              "factoryLikeUnownedMatches": 0,
+              "priorOwnedMatches": 1,
+              "staleOwnedMatches": 0,
+              "state": "installed"
+            },
+            {
+              "desiredFingerprint": "52d04d266d4ac82076c5b234981c5cc27ae2cd5e574f3c74731e3ef0a59774c3",
+              "event": "Stop",
+              "exactMatches": 1,
+              "exactOwnedMatches": 1,
+              "factoryLikeUnownedMatches": 0,
+              "priorOwnedMatches": 1,
+              "staleOwnedMatches": 0,
+              "state": "installed"
+            },
+            {
+              "desiredFingerprint": "5de2b887a5ed035839f0dcc8a3f416add9988af876fd3edcec8a51457bef0734",
+              "event": "Setup",
+              "exactMatches": 1,
+              "exactOwnedMatches": 1,
+              "factoryLikeUnownedMatches": 0,
+              "priorOwnedMatches": 1,
+              "staleOwnedMatches": 0,
+              "state": "installed"
+            },
+            {
+              "desiredFingerprint": "703011f936127e1d10297fa6c60ea6a09b12357712a01389072844b45314a1a2",
+              "event": "InstructionsLoaded",
+              "exactMatches": 1,
+              "exactOwnedMatches": 1,
+              "factoryLikeUnownedMatches": 0,
+              "priorOwnedMatches": 1,
+              "staleOwnedMatches": 0,
+              "state": "installed"
+            },
+            {
+              "desiredFingerprint": "cafff93b75a3530cc60a75fe372a53253f38815c51d0ba942e9b16a946fe5ee6",
+              "event": "UserPromptExpansion",
+              "exactMatches": 1,
+              "exactOwnedMatches": 1,
+              "factoryLikeUnownedMatches": 0,
+              "priorOwnedMatches": 1,
+              "staleOwnedMatches": 0,
+              "state": "installed"
+            },
+            {
+              "desiredFingerprint": "198fa7f458d47adf64454b022fd62cb5b833a7d92eb65ac9287c8660a18ed3e1",
+              "event": "PermissionDenied",
+              "exactMatches": 1,
+              "exactOwnedMatches": 1,
+              "factoryLikeUnownedMatches": 0,
+              "priorOwnedMatches": 1,
+              "staleOwnedMatches": 0,
+              "state": "installed"
+            },
+            {
+              "desiredFingerprint": "3ec4165175bae10f48e3f266aa90a4f612c9a25c2d64d8fad171c222f3faecac",
+              "event": "PostToolUseFailure",
+              "exactMatches": 1,
+              "exactOwnedMatches": 1,
+              "factoryLikeUnownedMatches": 0,
+              "priorOwnedMatches": 1,
+              "staleOwnedMatches": 0,
+              "state": "installed"
+            },
+            {
+              "desiredFingerprint": "adef9d6501924491d7f308ec78b8a0c7af9370a2956c7e9af16c892931bc7f99",
+              "event": "PostToolBatch",
+              "exactMatches": 1,
+              "exactOwnedMatches": 1,
+              "factoryLikeUnownedMatches": 0,
+              "priorOwnedMatches": 1,
+              "staleOwnedMatches": 0,
+              "state": "installed"
+            },
+            {
+              "desiredFingerprint": "37746b4e57e1cb2e777ee6aa981d37672d4f6769d51f66cbf0dace79c0d5c14d",
+              "event": "Notification",
+              "exactMatches": 1,
+              "exactOwnedMatches": 1,
+              "factoryLikeUnownedMatches": 0,
+              "priorOwnedMatches": 1,
+              "staleOwnedMatches": 0,
+              "state": "installed"
+            },
+            {
+              "desiredFingerprint": "48395865f0e217d4565995f67e2e80a5cc9a23b69397259e6d49853b6567d19d",
+              "event": "TaskCreated",
+              "exactMatches": 1,
+              "exactOwnedMatches": 1,
+              "factoryLikeUnownedMatches": 0,
+              "priorOwnedMatches": 1,
+              "staleOwnedMatches": 0,
+              "state": "installed"
+            },
+            {
+              "desiredFingerprint": "ace15977ecb94a68a0ad5b8621626800aef2acc09ea7208092a788bf6da8f96d",
+              "event": "TaskCompleted",
+              "exactMatches": 1,
+              "exactOwnedMatches": 1,
+              "factoryLikeUnownedMatches": 0,
+              "priorOwnedMatches": 1,
+              "staleOwnedMatches": 0,
+              "state": "installed"
+            },
+            {
+              "desiredFingerprint": "5caec0e3b1f30070fdbd0833fe91268f73173b2517127265a4fadc1d46610a1c",
+              "event": "StopFailure",
+              "exactMatches": 1,
+              "exactOwnedMatches": 1,
+              "factoryLikeUnownedMatches": 0,
+              "priorOwnedMatches": 1,
+              "staleOwnedMatches": 0,
+              "state": "installed"
+            },
+            {
+              "desiredFingerprint": "53ea769774d624dbde4e0f956d6fb3581fbb2fbe94f782a4026dfd16e0f945ec",
+              "event": "TeammateIdle",
+              "exactMatches": 1,
+              "exactOwnedMatches": 1,
+              "factoryLikeUnownedMatches": 0,
+              "priorOwnedMatches": 1,
+              "staleOwnedMatches": 0,
+              "state": "installed"
+            },
+            {
+              "desiredFingerprint": "8f8ed8fc3b26cec6c938babd5a57c8b0c2526e3125b27229128a680f216cbf24",
+              "event": "ConfigChange",
+              "exactMatches": 1,
+              "exactOwnedMatches": 1,
+              "factoryLikeUnownedMatches": 0,
+              "priorOwnedMatches": 1,
+              "staleOwnedMatches": 0,
+              "state": "installed"
+            },
+            {
+              "desiredFingerprint": "a0a7e4e97c91bf2fb07a40570cd305c51bfa1dce54ba829a883514d3301584fb",
+              "event": "CwdChanged",
+              "exactMatches": 1,
+              "exactOwnedMatches": 1,
+              "factoryLikeUnownedMatches": 0,
+              "priorOwnedMatches": 1,
+              "staleOwnedMatches": 0,
+              "state": "installed"
+            },
+            {
+              "desiredFingerprint": "c1e48818e2c99ea28d07c771421d4784abf38b9e7710b2024ca4034471df867e",
+              "event": "DirectoryAdded",
+              "exactMatches": 1,
+              "exactOwnedMatches": 1,
+              "factoryLikeUnownedMatches": 0,
+              "priorOwnedMatches": 1,
+              "staleOwnedMatches": 0,
+              "state": "installed"
+            },
+            {
+              "desiredFingerprint": "c1fb70ee8ad248dfc0a0657cef7e2e9a45f885e7c5efaff3fae4e36662953766",
+              "event": "WorktreeCreate",
+              "exactMatches": 1,
+              "exactOwnedMatches": 1,
+              "factoryLikeUnownedMatches": 0,
+              "priorOwnedMatches": 1,
+              "staleOwnedMatches": 0,
+              "state": "installed"
+            },
+            {
+              "desiredFingerprint": "80d5609c7c3a8118be0c018ace2753eb8f15276a0790e818f24f7e74470abc92",
+              "event": "WorktreeRemove",
+              "exactMatches": 1,
+              "exactOwnedMatches": 1,
+              "factoryLikeUnownedMatches": 0,
+              "priorOwnedMatches": 1,
+              "staleOwnedMatches": 0,
+              "state": "installed"
+            },
+            {
+              "desiredFingerprint": "0de181f223523ff2789593c00950af77b63d238487e1d333ebc9b8db1148706c",
+              "event": "Elicitation",
+              "exactMatches": 1,
+              "exactOwnedMatches": 1,
+              "factoryLikeUnownedMatches": 0,
+              "priorOwnedMatches": 1,
+              "staleOwnedMatches": 0,
+              "state": "installed"
+            },
+            {
+              "desiredFingerprint": "210fcaf963942b3b631023ecb6ec16add30e2e6f1d2840de290e4a7f67ce2503",
+              "event": "ElicitationResult",
+              "exactMatches": 1,
+              "exactOwnedMatches": 1,
+              "factoryLikeUnownedMatches": 0,
+              "priorOwnedMatches": 1,
+              "staleOwnedMatches": 0,
+              "state": "installed"
+            },
+            {
+              "desiredFingerprint": "8b00529ecd55f4946feaf37e3bf1057e8e7b27b3608d9f9df030fb0b94574e82",
+              "event": "MessageDisplay",
+              "exactMatches": 1,
+              "exactOwnedMatches": 1,
+              "factoryLikeUnownedMatches": 0,
+              "priorOwnedMatches": 1,
+              "staleOwnedMatches": 0,
+              "state": "installed"
+            },
+            {
+              "desiredFingerprint": "5b481da267b369bdafedd496b72ceeafa2d523a800fce88c5220db01dc2dc5f9",
+              "event": "FileChanged",
+              "exactMatches": 1,
+              "exactOwnedMatches": 1,
+              "factoryLikeUnownedMatches": 0,
+              "priorOwnedMatches": 1,
+              "staleOwnedMatches": 0,
+              "state": "installed"
+            }
+          ]
+        },
+        "path": "$CLAUDE_CONFIG_DIR/settings.json"
+      },
+      "codex": {
+        "config": "available",
+        "hooks": {
+          "events": [
+            {
+              "desiredFingerprint": "b0ab89a14e77a18e0bcd230e1b1141a4414a0143c7221c7fd0dfbb62b25d5f5d",
+              "event": "SessionStart",
+              "exactMatches": 1,
+              "exactOwnedMatches": 1,
+              "factoryLikeUnownedMatches": 0,
+              "priorOwnedMatches": 1,
+              "staleOwnedMatches": 0,
+              "state": "installed"
+            },
+            {
+              "desiredFingerprint": "75dce0e22d24ff8b7674d2ae8e0b7011c703f41d41a17a74a347e9dec700e6e6",
+              "event": "SessionEnd",
+              "exactMatches": 1,
+              "exactOwnedMatches": 1,
+              "factoryLikeUnownedMatches": 0,
+              "priorOwnedMatches": 1,
+              "staleOwnedMatches": 0,
+              "state": "installed"
+            },
+            {
+              "desiredFingerprint": "b91279f3640cd70a0cd4b7c022e9df2712beda561cc1caf87616fa7b43e03f16",
+              "event": "UserPromptSubmit",
+              "exactMatches": 1,
+              "exactOwnedMatches": 1,
+              "factoryLikeUnownedMatches": 0,
+              "priorOwnedMatches": 1,
+              "staleOwnedMatches": 0,
+              "state": "installed"
+            },
+            {
+              "desiredFingerprint": "97267d0e3f8c53f3c34b6e04e927a99bd79ef3e157a8681521799697bab0a171",
+              "event": "PreToolUse",
+              "exactMatches": 1,
+              "exactOwnedMatches": 1,
+              "factoryLikeUnownedMatches": 0,
+              "priorOwnedMatches": 1,
+              "staleOwnedMatches": 0,
+              "state": "installed"
+            },
+            {
+              "desiredFingerprint": "43b7e811452e0e7ffeacf3251d4ff6922227b58c5f8830e987d2d1699e0d71d3",
+              "event": "PermissionRequest",
+              "exactMatches": 1,
+              "exactOwnedMatches": 1,
+              "factoryLikeUnownedMatches": 0,
+              "priorOwnedMatches": 1,
+              "staleOwnedMatches": 0,
+              "state": "installed"
+            },
+            {
+              "desiredFingerprint": "b86d88971773a753f2abbd4d0baaaf10313d75d546b1c3d7aa34793909d87567",
+              "event": "PostToolUse",
+              "exactMatches": 1,
+              "exactOwnedMatches": 1,
+              "factoryLikeUnownedMatches": 0,
+              "priorOwnedMatches": 1,
+              "staleOwnedMatches": 0,
+              "state": "installed"
+            },
+            {
+              "desiredFingerprint": "914861ca4d90156d7c1b89d2acabd94fa6600a0e2765afd640fa85420151e7ec",
+              "event": "PreCompact",
+              "exactMatches": 1,
+              "exactOwnedMatches": 1,
+              "factoryLikeUnownedMatches": 0,
+              "priorOwnedMatches": 1,
+              "staleOwnedMatches": 0,
+              "state": "installed"
+            },
+            {
+              "desiredFingerprint": "957e7281e0774c5e1161706428b236623851765fa21d3b911a0666a977960263",
+              "event": "PostCompact",
+              "exactMatches": 1,
+              "exactOwnedMatches": 1,
+              "factoryLikeUnownedMatches": 0,
+              "priorOwnedMatches": 1,
+              "staleOwnedMatches": 0,
+              "state": "installed"
+            },
+            {
+              "desiredFingerprint": "915b62c312eb236d885c7db0ab248fb1416024a1d9ebcb4a389569b388d2996a",
+              "event": "SubagentStart",
+              "exactMatches": 1,
+              "exactOwnedMatches": 1,
+              "factoryLikeUnownedMatches": 0,
+              "priorOwnedMatches": 1,
+              "staleOwnedMatches": 0,
+              "state": "installed"
+            },
+            {
+              "desiredFingerprint": "f7ceabc5392ab0607eac69b31b3d9a39aec1b7c27b04e732f67863557d2cf21a",
+              "event": "SubagentStop",
+              "exactMatches": 1,
+              "exactOwnedMatches": 1,
+              "factoryLikeUnownedMatches": 0,
+              "priorOwnedMatches": 1,
+              "staleOwnedMatches": 0,
+              "state": "installed"
+            },
+            {
+              "desiredFingerprint": "cfa0bc4f35738d51981cb21b775e4bc029dc47899db7fea187d993d2210f81bf",
+              "event": "Stop",
+              "exactMatches": 1,
+              "exactOwnedMatches": 1,
+              "factoryLikeUnownedMatches": 0,
+              "priorOwnedMatches": 1,
+              "staleOwnedMatches": 0,
+              "state": "installed"
+            }
+          ]
+        },
+        "path": "$CODEX_HOME/hooks.json"
+      }
+    },
+    "transaction": "absent"
+  },
+  "issues": [],
+  "observedDefaultBranch": "main",
+  "pendingLifecycle": 0,
+  "pendingStops": 0,
+  "projection": {
+    "issues": [],
+    "sessions": [
+      {
+        "nativeSessionId": "claude-fixture-session",
+        "provider": "claude",
+        "sessionKey": "claude-8517449c789c7c7d7709a49d34f242d0",
+        "stops": [
+          "prompt-1"
+        ],
+        "turns": 1
+      },
+      {
+        "nativeSessionId": "codex-fixture-session",
+        "provider": "codex",
+        "sessionKey": "codex-0aafdd4a38b7d813ad95c5f15a6b3535",
+        "stops": [
+          "turn-1"
+        ],
+        "turns": 1
+      }
+    ],
+    "triggers": 2
+  },
+  "providers": {
+    "claude": {
+      "availability": "unavailable",
+      "reason": "missing"
+    },
+    "codex": {
+      "availability": "unavailable",
+      "reason": "missing"
+    }
+  },
+  "repair": false,
+  "repository": "ok",
+  "repositoryStorageBytes": 19986,
+  "reviewer": {
+    "credentials": {
+      "claude": {
+        "state": "unconfigured"
+      },
+      "codex": {
+        "state": "unconfigured"
+      }
+    },
+    "docker": {
+      "availability": "unavailable",
+      "reason": "missing"
+    }
+  },
+  "runtimeStorageBytes": 117047
+}

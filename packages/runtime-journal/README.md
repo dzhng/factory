@@ -11,6 +11,14 @@ reference them; SQLite owns ordering, idempotency, and the Stop state machine.
 Its transaction locks are released by the operating system after process death,
 which is the property a user-space stale-lock protocol could not safely provide.
 
+Before portable publication, the same private object store holds prepared bytes
+and SQLite binds their complete write plan to the durable claim or lifecycle
+event. This preparation is create-once: retries cannot rediscover env values or
+replace already-selected evidence. Completion requires both repository
+verification and an exact match to the preparation's completion reference.
+The journal stores no secret dictionary. Provider originals and safe publication
+bytes remain different facts even when their contents happen to match.
+
 A Stop claim is a permanent fence, not a lease. It freezes one Session
 generation's event identities through the claimed Stop, survives restart, and
 is completed only with a repository-store-verified immutable Turn reference.

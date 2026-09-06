@@ -2,6 +2,40 @@
 
 ## Sound
 
+### Bound the whole prepared capture, not just each leaf
+
+- **When:** durable capture pass.
+- **Choice:** A capture may contain many individually readable objects. Factory
+  refuses preparation if their combined bytes exceed 512 MiB or the frozen plan
+  exceeds 16 MiB, instead of holding an unlimited graph in memory. Each leaf
+  still obeys the existing 64 MiB ceiling. The private journal retains the
+  original capture so this failure cannot become a raw publication fallback.
+- **Gap:** The plan required bounded private preparation without specifying an
+  aggregate allowance for source, hooks, transcripts and portable records.
+- **Reach:** Very large captures can remain pending instead of exhausting the
+  hook process. Future tuning must preserve a whole-operation bound, not only
+  increase per-file limits.
+- **Verdict:** sound; the operation needs a finite resource budget before it can
+  promise to prepare the entire graph before publication.
+- **Confidence:** medium.
+
+### Mark combined stdout and stderr instead of preserving a false split
+
+- **When:** provider adapter pass.
+- **Choice:** When a Claude hook reports both output streams, Factory joins their
+  text, redacts and trims it as one tool result, and stores it with an explicit
+  combined-output label. The second stream field is empty. Splitting the shortened
+  result back at the original character offset would invent a boundary after
+  redaction changed the lengths, and separate budgets could retain twice as much
+  low-value output. Tool-call identity and error status remain in the envelope.
+- **Gap:** The policy required one result budget but did not specify how to
+  represent native stream fields after text reduction.
+- **Reach:** Reviewers keep the combined context but cannot infer which stream
+  originally contained a retained character. This is review evidence, not a
+  byte-faithful terminal recording.
+- **Verdict:** sound; the explicit label makes that information loss visible.
+- **Confidence:** high.
+
 ### Bound the matcher's memory as well as filesystem input
 
 - **When:** policy/discovery pass.

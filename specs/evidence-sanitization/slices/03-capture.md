@@ -2,6 +2,23 @@
 
 Depends on slice 2; this slice publishes the full sanitized Turn graph.
 
+Implemented. Provider-native leaves carry transformation summaries and public
+capture references use `evidence` / `evidenceObjects`. Original hook bytes stay
+private. The journal freezes bounded plans in its private CAS with compact
+SQLite bindings; completion requires the exact prepared completion reference.
+
+Verification: `bun run --cwd packages/test-harness lab:capture-vertical` and
+`bun run lab:journal-crash` pass. The active capture reports show both providers,
+retained long reasoning, reduced results, unchanged originals and every physical
+publication prefix replayed byte-identically after env/transcript removal.
+The journal suite covers SIGKILL on both sides of preparation commit and permits
+completed plan/blob reclamation. The replay test was falsified by bypassing
+prepared-plan loading and failed on the resulting tree mismatch before restoration.
+Independent review found completed-inventory SQLite growth; compact CAS-backed
+bindings replace that design, with a red/green reclamation regression. Rereview
+found no actionable issue. Exact Node 22.13.1 import/append and native linked
+worktree probes pass; the Node artifact bundles its executable schema dependency.
+
 ## Contract and seam
 
 Provider adapters recognize native result payloads and transform all retained

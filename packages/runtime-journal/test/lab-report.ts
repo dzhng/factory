@@ -126,6 +126,15 @@ await mkdir(join(stateRoot, '.factory', 'sessions/claude/state-session/turns/sto
   recursive: true,
 })
 await writeFile(join(stateRoot, '.factory', turnPath), turnBytes, { flag: 'wx' })
+await stateJournal.prepareCapture(
+  { kind: 'stop', claim: firstClaim },
+  {
+    objects: [],
+    records: [{ path: turnPath, bytes: turnBytes }],
+    commitPath: turnPath,
+    completion: { path: turnPath, sha256: createHash('sha256').update(turnBytes).digest('hex') },
+  },
+)
 await stateJournal.complete(firstClaim, {
   path: turnPath,
   sha256: createHash('sha256').update(turnBytes).digest('hex'),
@@ -248,6 +257,17 @@ const databaseTurn = {
   repositoryRoot: databaseStateRoot,
   repositoryId: 'repo_fixture',
 }
+await (
+  await openRuntimeJournal({ testRuntimeRoot: databaseStateRoot })
+).prepareCapture(
+  { kind: 'stop', claim: databaseClaimResult.claim },
+  {
+    objects: [],
+    records: [{ path: databaseTurnPath, bytes: databaseTurnBytes }],
+    commitPath: databaseTurnPath,
+    completion: { path: databaseTurnPath, sha256: databaseTurn.sha256 },
+  },
+)
 let databaseCompletionRejected = false
 try {
   await (
@@ -392,7 +412,9 @@ if (
   !report.acceptance.diskFullRecovery ||
   !report.acceptance.databaseFullRecovery
 )
-  throw new Error('journal lab acceptance failed')
+  throw new Error(
+    `journal lab acceptance failed: ${JSON.stringify(report.acceptance)}; runtime: ${JSON.stringify(report.runtime)}`,
+  )
 await mkdir(output, { recursive: true })
 await writeFile(join(output, 'report.json'), `${JSON.stringify(report, null, 2)}\n`)
 const escaped = JSON.stringify(report, null, 2)

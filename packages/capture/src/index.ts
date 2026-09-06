@@ -10,6 +10,7 @@ import {
   makeOwnedPath,
   newRecordId,
   type EvidenceEnvelope,
+  type EvidenceTransformation,
   type JsonValue,
   type LifecycleRecord,
   type Limitation,
@@ -23,6 +24,7 @@ import {
 } from '@factory/contract'
 import {
   GitObserver,
+  discoverRepositorySanitizer,
   loadCodeManifestObject,
   readConfinedFile,
   type ImmutableGroupRecord,
@@ -31,12 +33,14 @@ import {
 } from '@factory/repository'
 import type {
   CaptureEventKind,
+  CapturePreparation,
   CaptureProvider,
   DurableCaptureEvent,
   MaterializationClaim,
   TurnRef,
 } from '@factory/runtime-journal'
 import type { RuntimeJournal } from '@factory/runtime-journal'
+import { SanitizationError } from '@factory/sanitization'
 
 import { prepareEvidence } from './evidence'
 
@@ -407,13 +411,15 @@ export function removeOwnedHooks(
 
 export type StopMaterializationEvent = {
   event: DurableCaptureEvent
-  raw: ObjectRef
+  evidence: ObjectRef
+  transformation?: EvidenceTransformation
   parsed?: JsonValue
 }
 
 export type TranscriptObservation = {
   observedAt: string
-  raw: ObjectRef
+  evidence: ObjectRef
+  transformation?: EvidenceTransformation
   parsed?: JsonValue
 }
 
@@ -480,7 +486,7 @@ export type TurnEvidenceGraph = {
 }
 
 export function verifyTurnEventInventory(
-  turn: Pick<TurnManifest, 'eventRange' | 'rawObjects'>,
+  turn: Pick<TurnManifest, 'eventRange' | 'evidenceObjects'>,
   events: readonly EvidenceEnvelope[],
 ): void {
   // Global journal positions between these endpoints can belong to other Sessions.
@@ -488,9 +494,9 @@ export function verifyTurnEventInventory(
     events[0]?.sequence !== turn.eventRange.first ||
     events.at(-1)?.sequence !== turn.eventRange.last ||
     events.some((event, index) => index > 0 && event.sequence <= events[index - 1]!.sequence) ||
-    canonicalJson(events.map(event => event.raw)) !== canonicalJson(turn.rawObjects)
+    canonicalJson(events.map(event => event.evidence)) !== canonicalJson(turn.evidenceObjects)
   ) {
-    throw new Error('Turn envelope order and raw-object arrays must match exactly')
+    throw new Error('Turn envelope order and evidence-object arrays must match exactly')
   }
 }
 
@@ -543,9 +549,10 @@ export async function verifyTurnEvidenceGraph(
   if (
     canonicalJson(transcript.map(event => event.sequence)) !==
       canonicalJson(transcript.map((_, index) => index)) ||
-    canonicalJson(transcript.map(event => event.raw)) !== canonicalJson(turn.transcriptObservations)
+    canonicalJson(transcript.map(event => event.evidence)) !==
+      canonicalJson(turn.transcriptObservations)
   ) {
-    throw new Error('Turn envelope order and raw-object arrays must match exactly')
+    throw new Error('Turn envelope order and evidence-object arrays must match exactly')
   }
   const codeObjects: ObjectRef[] = []
   if (repositoryObservation?.codeManifest !== undefined) {
@@ -564,7 +571,7 @@ export async function verifyTurnEvidenceGraph(
     repositoryObservation?.unstagedPatch,
   ].filter((reference): reference is ObjectRef => reference !== undefined)
   const expectedInventory = uniqueRefs([
-    ...turn.rawObjects,
+    ...turn.evidenceObjects,
     ...turn.transcriptObservations,
     ...observationRefs,
     ...codeObjects,
@@ -599,9 +606,7 @@ export function planTurn(input: StopMaterializationInput): TurnWritePlan | PlanR
       item.event.provider !== input.claim.stop.provider ||
       item.event.sessionId !== input.claim.stop.sessionId ||
       item.event.generation !== input.claim.stop.generation ||
-      (index > 0 && item.event.sequence <= input.events[index - 1]!.event.sequence) ||
-      item.raw.sha256 !== item.event.rawSha256 ||
-      item.raw.bytes !== item.event.byteLength
+      (index > 0 && item.event.sequence <= input.events[index - 1]!.event.sequence)
     ) {
       return { reason: 'claim-events-mismatch', detail: 'claim event metadata is inconsistent' }
     }
@@ -619,10 +624,10 @@ export function planTurn(input: StopMaterializationInput): TurnWritePlan | PlanR
     }
   }
   const { sessionKey, turnId, triggerId } = materializationIdentity(input.claim)
-  const rawObjects = input.events.map(event => event.raw)
-  const transcriptObjects = input.transcript.map(item => item.raw)
+  const evidenceObjects = input.events.map(event => event.evidence)
+  const transcriptObjects = input.transcript.map(item => item.evidence)
   const inventory = uniqueRefs([
-    ...rawObjects,
+    ...evidenceObjects,
     ...transcriptObjects,
     ...(input.observation.codeManifest === undefined ? [] : [input.observation.codeManifest]),
     ...(input.observation.stagedPatch === undefined ? [] : [input.observation.stagedPatch]),
@@ -642,13 +647,15 @@ export function planTurn(input: StopMaterializationInput): TurnWritePlan | PlanR
   const eventEnvelopes: EvidenceEnvelope[] = input.events.map(item => ({
     sequence: item.event.sequence,
     observedAt: item.event.occurredAt,
-    raw: item.raw,
+    evidence: item.evidence,
+    ...(item.transformation === undefined ? {} : { transformation: item.transformation }),
     ...(item.parsed === undefined ? {} : { parsed: item.parsed }),
   }))
   const transcriptEnvelopes: EvidenceEnvelope[] = input.transcript.map((item, sequence) => ({
     sequence,
     observedAt: item.observedAt,
-    raw: item.raw,
+    evidence: item.evidence,
+    ...(item.transformation === undefined ? {} : { transformation: item.transformation }),
     ...(item.parsed === undefined ? {} : { parsed: item.parsed }),
   }))
   const turn: TurnManifest = {
@@ -663,7 +670,7 @@ export function planTurn(input: StopMaterializationInput): TurnWritePlan | PlanR
       last: input.claim.throughSequence,
     },
     transcriptObservations: transcriptObjects,
-    rawObjects,
+    evidenceObjects,
     repositoryObservationId: input.observation.observationId,
     ...(input.observation.git.branch === undefined ? {} : { branch: input.observation.git.branch }),
     ...(input.observation.codeManifest === undefined
@@ -1085,346 +1092,163 @@ async function materializationLimitations(
   return limitations
 }
 
-async function verifyMaterializedTurnGraph(
-  options: MaterializeStopOptions,
-  claimed: readonly { event: DurableCaptureEvent; raw: Uint8Array }[],
-  identity: ReturnType<typeof materializationIdentity>,
-  turnPath: OwnedPath,
-): Promise<{ bytes: Uint8Array; manifest: TurnManifest }> {
-  const bytes = await options.store.readImmutable(turnPath)
-  const manifest = JSON.parse(decoder.decode(bytes)) as TurnManifest
-  const identityPath = makeOwnedPath('sessions', [
-    options.claim.stop.provider,
-    identity.sessionKey,
-    'identity.json',
-  ])
-  const base = [options.claim.stop.provider, identity.sessionKey, 'turns', identity.turnId]
-  const [identityBytes, eventBytes, transcriptBytes, observationBytes] = await Promise.all([
-    options.store.readImmutable(identityPath),
-    options.store.readImmutable(makeOwnedPath('sessions', [...base, 'events.jsonl'])),
-    options.store.readImmutable(makeOwnedPath('sessions', [...base, 'transcript.jsonl'])),
-    options.store.readImmutable(
-      makeOwnedPath('repository-observations', [`${manifest.repositoryObservationId!}.json`]),
-    ),
-  ])
-  const session = JSON.parse(decoder.decode(identityBytes)) as SessionIdentity
-  const eventEnvelopes = decoder
-    .decode(eventBytes)
-    .trimEnd()
-    .split('\n')
-    .filter(Boolean)
-    .map(line => JSON.parse(line) as EvidenceEnvelope)
-  const transcriptEnvelopes = decoder
-    .decode(transcriptBytes)
-    .trimEnd()
-    .split('\n')
-    .filter(Boolean)
-    .map(line => JSON.parse(line) as EvidenceEnvelope)
-  const observation = JSON.parse(decoder.decode(observationBytes)) as RepositoryObservation
-  if (
-    session.provider !== options.claim.stop.provider ||
-    session.nativeSessionId !== options.claim.stop.sessionId ||
-    session.captureGeneration !== options.claim.stop.generation ||
-    session.sessionKey !== identity.sessionKey ||
-    session.repositoryId !== options.store.manifest.repositoryId ||
-    session.firstObservedAt !== options.sessionFirstObservedAt ||
-    manifest.turnId !== identity.turnId ||
-    manifest.sessionKey !== identity.sessionKey ||
-    manifest.nativeStopId !== options.claim.stop.stopId ||
-    manifest.capturedAt !== claimed.at(-1)?.event.occurredAt ||
-    manifest.materializedAt !== options.claim.claimedAt ||
-    manifest.captureAdapterVersion !== (options.adapterVersion ?? 'capture-v1') ||
-    manifest.formatVersion !== 1 ||
-    manifest.eventRange.first !== claimed[0]?.event.sequence ||
-    manifest.eventRange.last !== options.claim.throughSequence ||
-    eventEnvelopes.length !== options.claim.eventKeys.length ||
-    manifest.repositoryObservationId !== identity.observationId ||
-    manifest.branch !== observation.git.branch ||
-    canonicalJson(manifest.codeManifest ?? null) !==
-      canonicalJson(observation.codeManifest ?? null) ||
-    canonicalJson(manifest.stagedPatch ?? null) !==
-      canonicalJson(observation.stagedPatch ?? null) ||
-    canonicalJson(manifest.unstagedPatch ?? null) !==
-      canonicalJson(observation.unstagedPatch ?? null) ||
-    observation.observationId !== manifest.repositoryObservationId ||
-    observation.repositoryId !== options.store.manifest.repositoryId
-  ) {
-    throw new Error('Interrupted materialization graph does not match its durable claim')
-  }
-  await verifyTurnEvidenceGraph(
-    {
-      identity: session,
-      trigger: {
-        schemaVersion: 1,
-        triggerId: identity.triggerId,
-        sessionKey: identity.sessionKey,
-        turnId: identity.turnId,
-        repositoryObservationId: identity.observationId,
-        evidenceWatermark: options.claim.throughSequence,
-        provider: options.claim.stop.provider,
-        createdAt: options.claim.claimedAt,
-        materialization: manifest.limitations.length === 0 ? 'complete' : 'partial',
-        limitations: manifest.limitations,
-      },
-      turn: manifest,
-      repositoryObservation: observation,
-      events: eventEnvelopes,
-      transcript: transcriptEnvelopes,
-    },
-    async reference => await options.store.getObject(reference),
-  )
-  for (let index = 0; index < eventEnvelopes.length; index += 1) {
-    const envelope = eventEnvelopes[index]!
-    const durable = claimed[index]
-    const expectedRaw: ObjectRef | undefined =
-      durable === undefined
-        ? undefined
-        : {
-            algorithm: 'sha256',
-            sha256: durable.event.rawSha256,
-            bytes: durable.event.byteLength,
-            mediaType: 'application/json',
-            role: 'provider-hook',
-          }
-    const expectedEnvelope =
-      durable === undefined
-        ? undefined
-        : {
-            sequence: durable.event.sequence,
-            observedAt: durable.event.occurredAt,
-            raw: expectedRaw!,
-          }
-    if (durable === undefined || canonicalJson(envelope) !== canonicalJson(expectedEnvelope!)) {
-      throw new Error('Interrupted Turn event inventory does not match its durable claim')
-    }
-    await options.store.getObject(envelope.raw)
-  }
-  const transcriptObjectBytes: Uint8Array[] = []
-  for (let index = 0; index < transcriptEnvelopes.length; index += 1) {
-    const envelope = transcriptEnvelopes[index]!
-    const expectedEnvelope = {
-      sequence: index,
-      observedAt: options.claim.claimedAt,
-      raw: envelope.raw,
-    }
-    if (
-      canonicalJson(envelope) !== canonicalJson(expectedEnvelope) ||
-      envelope.raw.algorithm !== 'sha256' ||
-      envelope.raw.mediaType !== 'application/x-ndjson' ||
-      envelope.raw.role !== 'provider-transcript-observation'
-    ) {
-      throw new Error('Interrupted Turn transcript inventory does not match its durable claim')
-    }
-    transcriptObjectBytes.push(await options.store.getObject(envelope.raw))
-  }
-  const expectedLimitations = await materializationLimitations(
-    options,
-    claimed,
-    observation,
-    transcriptObjectBytes,
-  )
-  if (canonicalJson(manifest.limitations) !== canonicalJson(expectedLimitations)) {
-    throw new Error('Interrupted Turn limitations do not match its durable evidence')
-  }
-  return { bytes, manifest }
-}
-
 export async function materializeStop(
   options: MaterializeStopOptions,
 ): Promise<MaterializeStopResult> {
-  const identity = materializationIdentity(options.claim)
-  const claimed = await options.journal.readClaimEvents(options.claim)
-  const triggerPath = makeOwnedPath('review-triggers', [`${identity.triggerId}.json`])
-  const turnPath = makeOwnedPath('sessions', [
-    options.claim.stop.provider,
-    identity.sessionKey,
-    'turns',
-    identity.turnId,
-    'manifest.json',
-  ])
-  const existingTrigger = await options.store.tryReadImmutable(triggerPath)
-  if (existingTrigger !== undefined) {
-    const trigger = JSON.parse(decoder.decode(existingTrigger)) as ReviewTrigger
-    const verified = await verifyMaterializedTurnGraph(options, claimed, identity, turnPath)
-    const expectedTrigger: ReviewTrigger = {
-      schemaVersion: 1,
-      triggerId: identity.triggerId,
-      sessionKey: identity.sessionKey,
-      turnId: identity.turnId,
-      repositoryObservationId: identity.observationId,
-      evidenceWatermark: options.claim.throughSequence,
-      provider: options.claim.stop.provider,
-      createdAt: options.claim.claimedAt,
-      materialization: verified.manifest.limitations.length === 0 ? 'complete' : 'partial',
-      limitations: verified.manifest.limitations,
-    }
-    if (canonicalJson(trigger) !== canonicalJson(expectedTrigger)) {
-      throw new Error('Existing materialization trigger does not match its durable claim')
-    }
-    const turn = { path: turnPath, sha256: sha256(verified.bytes) }
-    await options.journal.complete(options.claim, {
-      ...turn,
-      repositoryRoot: options.store.repositoryRoot,
-      repositoryId: options.store.manifest.repositoryId,
-    })
-    return { status: 'materialized', turn }
-  }
-  if (await hasFactoryConflict(options.repositoryRoot)) {
+  const owner = { kind: 'stop' as const, claim: options.claim }
+  if (await hasFactoryConflict(options.repositoryRoot))
     return {
       status: 'deferred',
       reason: 'factory-conflict',
       detail: '.factory has unresolved Git conflicts',
     }
-  }
-  const existingTurn = await options.store.tryReadImmutable(turnPath)
-  if (existingTurn !== undefined) {
-    const verified = await verifyMaterializedTurnGraph(options, claimed, identity, turnPath)
-    const turnManifest = verified.manifest
-    const trigger: ReviewTrigger = {
-      schemaVersion: 1,
-      triggerId: identity.triggerId,
-      sessionKey: identity.sessionKey,
-      turnId: identity.turnId,
-      repositoryObservationId: turnManifest.repositoryObservationId,
-      evidenceWatermark: options.claim.throughSequence,
-      provider: options.claim.stop.provider,
-      createdAt: options.claim.claimedAt,
-      materialization: turnManifest.limitations.length === 0 ? 'complete' : 'partial',
-      limitations: turnManifest.limitations,
+  let prepared = await options.journal.readCapturePreparation(owner)
+  if (prepared === undefined) {
+    const identity = materializationIdentity(options.claim)
+    const claimed = await options.journal.readClaimEvents(options.claim)
+    const sanitizer = await discoverRepositorySanitizer(options.repositoryRoot)
+    for (const locator of [
+      options.claim.stop.sessionId,
+      options.claim.stop.stopId,
+      options.adapterVersion ?? 'capture-v1',
+    ])
+      if (sanitizer.text(locator).redacted) throw new SanitizationError('unsupported-content')
+    const objects: CapturePreparation['objects'][number][] = []
+    let totalBytes = 0
+    const put = async (
+      bytes: Uint8Array,
+      metadata: { mediaType: string; role: string },
+    ): Promise<ObjectRef> => {
+      totalBytes += bytes.byteLength
+      if (totalBytes > 512 * 1024 * 1024 || objects.length >= 100_000)
+        throw new SanitizationError('sanitization-limit')
+      const reference: ObjectRef = {
+        algorithm: 'sha256',
+        sha256: sha256(bytes),
+        bytes: bytes.byteLength,
+        ...metadata,
+      }
+      objects.push({ reference, bytes: bytes.slice() })
+      return reference
     }
-    await options.store.publishImmutableGroup(
-      [{ path: triggerPath, bytes: encoder.encode(canonicalJson(trigger)) }],
-      triggerPath,
-    )
-    const turn = { path: turnPath, sha256: sha256(verified.bytes) }
-    await options.journal.complete(options.claim, {
-      ...turn,
-      repositoryRoot: options.store.repositoryRoot,
-      repositoryId: options.store.manifest.repositoryId,
-    })
-    return { status: 'materialized', turn }
-  }
-  const events: StopMaterializationEvent[] = []
-  for (const item of claimed) {
-    const raw = await options.store.putObject(
-      (async function* () {
-        yield item.raw
-      })(),
-      { mediaType: 'application/json', role: 'provider-hook' },
-    )
-    events.push({ event: item.event, raw })
-  }
-  const observationPath = makeOwnedPath('repository-observations', [
-    `${identity.observationId}.json`,
-  ])
-  const existingObservation = await options.store.tryReadImmutable(observationPath)
-  let observation: RepositoryObservation
-  const codeObjects: ObjectRef[] = []
-  if (existingObservation !== undefined) {
-    observation = JSON.parse(decoder.decode(existingObservation)) as RepositoryObservation
-  } else {
-    const observer = new GitObserver(
+    const get = async (reference: ObjectRef): Promise<Uint8Array> => {
+      const item = objects.find(item => canonicalJson(item.reference) === canonicalJson(reference))
+      if (!item) throw new Error('Prepared source dependency is absent')
+      return item.bytes
+    }
+    const events: StopMaterializationEvent[] = []
+    for (const item of claimed) {
+      const safe = prepareEvidence(options.claim.stop.provider, 'hook', item.raw, sanitizer)
+      events.push({
+        event: item.event,
+        evidence: await put(safe.bytes, { mediaType: 'application/json', role: 'provider-hook' }),
+        transformation: safe.transformation,
+      })
+    }
+    const observed = await new GitObserver(
       options.repositoryRoot,
-      {
-        put: async (bytes, metadata) =>
-          await options.store.putObject(
-            (async function* () {
-              yield bytes
-            })(),
-            metadata,
-          ),
-        get: async reference => await options.store.getObject(reference),
-      },
+      { put, get },
       {
         repositoryId: options.store.manifest.repositoryId,
         observationId: identity.observationId,
         now: () => new Date(options.claim.claimedAt),
+        sanitizer,
       },
-    )
-    const observed = await observer.observe()
-    if (observed.kind === 'unavailable') {
+    ).observe()
+    if (observed.kind === 'unavailable')
       return { status: 'deferred', reason: 'repository-mismatch', detail: observed.reason.detail }
+    const observation = observed.kind === 'raced' ? observed.partial : observed.observation
+    const codeObjects: ObjectRef[] = []
+    if (observation.codeManifest) {
+      const manifest = await loadCodeManifestObject(observation.codeManifest, get)
+      for (const entry of manifest.entries) if ('object' in entry) codeObjects.push(entry.object)
     }
-    observation = observed.kind === 'raced' ? observed.partial : observed.observation
-  }
-  if (observation.codeManifest !== undefined) {
-    if (observation.worktreeFingerprint !== observation.codeManifest.sha256) {
-      throw new Error('Repository observation fingerprint does not match its code manifest')
-    }
-    const manifest = await loadCodeManifestObject(
-      observation.codeManifest,
-      async reference => await options.store.getObject(reference),
-    )
-    for (const entry of manifest.entries) {
-      if ('object' in entry) codeObjects.push(entry.object)
-    }
-  }
-  const stopRaw = claimed.at(-1)?.raw
-  const transcript: TranscriptObservation[] = []
-  const transcriptPath = makeOwnedPath('sessions', [
-    options.claim.stop.provider,
-    identity.sessionKey,
-    'turns',
-    identity.turnId,
-    'transcript.jsonl',
-  ])
-  const existingTranscript = await options.store.tryReadImmutable(transcriptPath)
-  if (existingTranscript !== undefined) {
-    for (const line of decoder.decode(existingTranscript).trimEnd().split('\n').filter(Boolean)) {
-      const envelope = JSON.parse(line) as EvidenceEnvelope
-      transcript.push({ observedAt: envelope.observedAt, raw: envelope.raw })
-    }
-  } else if (stopRaw !== undefined) {
+    const originals: Uint8Array[] = []
     try {
-      const value = JSON.parse(decoder.decode(stopRaw)) as Record<string, unknown>
-      if (typeof value.transcript_path === 'string') {
-        const result = await safeTranscript(value.transcript_path, options.providerHome)
-        if (result.bytes !== undefined) {
-          const raw = await options.store.putObject(
-            (async function* () {
-              yield result.bytes!
-            })(),
-            { mediaType: 'application/x-ndjson', role: 'provider-transcript-observation' },
-          )
-          transcript.push({ observedAt: options.claim.claimedAt, raw })
-        }
+      const stop = JSON.parse(decoder.decode(claimed.at(-1)!.raw)) as Record<string, unknown>
+      if (typeof stop.transcript_path === 'string') {
+        const result = await safeTranscript(stop.transcript_path, options.providerHome)
+        if (result.bytes !== undefined) originals.push(result.bytes)
       }
     } catch (error) {
       if (!(error instanceof SyntaxError || error instanceof TypeError)) throw error
     }
+    // Completeness belongs to the original observation, not the shortened representation.
+    const limitations = await materializationLimitations(options, claimed, observation, originals)
+    const transcript: TranscriptObservation[] = []
+    for (const original of originals) {
+      const safe = prepareEvidence(options.claim.stop.provider, 'transcript', original, sanitizer)
+      transcript.push({
+        observedAt: options.claim.claimedAt,
+        evidence: await put(safe.bytes, {
+          mediaType: 'application/x-ndjson',
+          role: 'provider-transcript-observation',
+        }),
+        transformation: safe.transformation,
+      })
+    }
+    const transformations = [...events, ...transcript].map(item => item.transformation!)
+    if (transformations.some(item => item.omittedCharacters > 0 || item.omissionReasons.length > 0))
+      limitations.push({
+        code: 'excluded-by-limit',
+        detail: 'Provider evidence was reduced by the evidence sanitization policy',
+      })
+    const plan = planTurn({
+      repositoryId: options.store.manifest.repositoryId,
+      claim: options.claim,
+      events,
+      observation,
+      transcript,
+      materializedAt: options.claim.claimedAt,
+      adapterVersion: options.adapterVersion ?? 'capture-v1',
+      sessionFirstObservedAt: options.sessionFirstObservedAt,
+      limitations: limitations.slice(observation.limitations.length),
+      codeObjects,
+    })
+    if ('reason' in plan) return { status: 'deferred', reason: plan.reason, detail: plan.detail }
+    prepared = {
+      objects,
+      records: plan.records,
+      commitPath: plan.triggerPath,
+      completion: plan.turn,
+    }
+    await options.journal.prepareCapture(owner, prepared)
   }
-  const transcriptBytes = await Promise.all(
-    transcript.map(async item => await options.store.getObject(item.raw)),
-  )
-  const limitations = await materializationLimitations(
-    options,
-    claimed,
-    observation,
-    transcriptBytes,
-  )
-  const plan = planTurn({
-    repositoryId: options.store.manifest.repositoryId,
-    claim: options.claim,
-    events,
-    observation,
-    transcript,
-    materializedAt: options.claim.claimedAt,
-    adapterVersion: options.adapterVersion ?? 'capture-v1',
-    sessionFirstObservedAt: options.sessionFirstObservedAt,
-    limitations: limitations.slice(observation.limitations.length),
-    codeObjects,
-  })
-  if ('reason' in plan) return { status: 'deferred', reason: plan.reason, detail: plan.detail }
-  const turn = await executeTurn(plan, options.store)
+  const committed = await options.store.tryReadImmutable(prepared.commitPath)
+  if (committed !== undefined) {
+    // A published trigger cannot bless a damaged graph or authorize repairing history.
+    for (const item of prepared.objects) await options.store.getObject(item.reference)
+    for (const item of prepared.records) {
+      const actual = await options.store.tryReadImmutable(item.path)
+      if (actual === undefined || sha256(actual) !== sha256(item.bytes))
+        throw new Error('Committed capture graph differs from its durable preparation')
+    }
+  } else {
+    for (const item of prepared.objects) {
+      const actual = await options.store.putObject(
+        (async function* () {
+          yield item.bytes
+        })(),
+        item.reference,
+      )
+      if (canonicalJson(actual) !== canonicalJson(item.reference))
+        throw new Error('Published capture object differs from its durable preparation')
+    }
+    await options.store.publishImmutableGroup(prepared.records, prepared.commitPath)
+  }
   await options.journal.complete(options.claim, {
-    ...turn,
+    ...prepared.completion,
     repositoryRoot: options.store.repositoryRoot,
     repositoryId: options.store.manifest.repositoryId,
   })
-  return { status: 'materialized', turn }
+  return { status: 'materialized', turn: prepared.completion }
 }
 
-export function planLifecycleRecord(event: DurableCaptureEvent): {
+export function planLifecycleRecord(
+  event: DurableCaptureEvent,
+  evidence: ObjectRef,
+  transformation: EvidenceTransformation,
+): {
   path: OwnedPath
   bytes: Uint8Array
 } {
@@ -1438,13 +1262,8 @@ export function planLifecycleRecord(event: DurableCaptureEvent): {
     sessionKey,
     providerEvent: 'SessionEnd',
     observedAt: event.occurredAt,
-    raw: {
-      algorithm: 'sha256',
-      sha256: event.rawSha256,
-      bytes: event.byteLength,
-      mediaType: 'application/json',
-      role: 'provider-hook',
-    },
+    evidence,
+    transformation,
   }
   return {
     path: makeOwnedPath('sessions', [event.provider, sessionKey, 'lifecycle', `${eventId}.json`]),
@@ -1457,26 +1276,44 @@ export async function materializeLifecycle(
   journal: RuntimeJournal,
   store: RepositoryStore,
 ): Promise<'materialized' | 'waiting-for-turn'> {
-  const planned = planLifecycleRecord(event)
-  const identityPath = makeOwnedPath(
-    'sessions',
-    planned.path.split('/').slice(1, 3).concat('identity.json'),
-  )
+  const sessionKey = `${event.provider}-${sha256(encoder.encode(`${event.sessionId}\0${event.generation}`)).slice(0, 32)}`
+  const identityPath = makeOwnedPath('sessions', [event.provider, sessionKey, 'identity.json'])
   if ((await store.tryReadImmutable(identityPath)) === undefined) return 'waiting-for-turn'
-  const raw = await journal.readRaw(event)
-  const reference = await store.putObject(
-    (async function* () {
-      yield raw
-    })(),
-    { mediaType: 'application/json', role: 'provider-hook' },
-  )
-  if (reference.sha256 !== event.rawSha256 || reference.bytes !== event.byteLength) {
-    throw new Error('SessionEnd repository object differs from journal bytes')
+  const owner = { kind: 'lifecycle' as const, event }
+  let prepared = await journal.readCapturePreparation(owner)
+  if (prepared === undefined) {
+    const sanitizer = await discoverRepositorySanitizer(store.repositoryRoot)
+    if (sanitizer.text(event.sessionId).redacted) throw new SanitizationError('unsupported-content')
+    const safe = prepareEvidence(event.provider, 'hook', await journal.readRaw(event), sanitizer)
+    const reference: ObjectRef = {
+      algorithm: 'sha256',
+      sha256: sha256(safe.bytes),
+      bytes: safe.bytes.byteLength,
+      mediaType: 'application/json',
+      role: 'provider-hook',
+    }
+    const record = planLifecycleRecord(event, reference, safe.transformation)
+    prepared = {
+      objects: [{ reference, bytes: safe.bytes }],
+      records: [record],
+      commitPath: record.path,
+      completion: { path: record.path, sha256: sha256(record.bytes) },
+    }
+    await journal.prepareCapture(owner, prepared)
   }
-  const record = await store.createImmutable(planned.path, planned.bytes)
+  for (const item of prepared.objects) {
+    const reference = await store.putObject(
+      (async function* () {
+        yield item.bytes
+      })(),
+      item.reference,
+    )
+    if (canonicalJson(reference) !== canonicalJson(item.reference))
+      throw new Error('Lifecycle publication differs from preparation')
+  }
+  for (const record of prepared.records) await store.createImmutable(record.path, record.bytes)
   await journal.completeLifecycle(event, {
-    path: record.path,
-    sha256: record.sha256,
+    ...prepared.completion,
     repositoryRoot: store.repositoryRoot,
     repositoryId: store.manifest.repositoryId,
   })
@@ -1495,7 +1332,7 @@ export function verifyTurnCompletion(
     value.sessionKey !== expectedSession ||
     value.nativeStopId !== claim.stop.stopId ||
     value.eventRange.last !== claim.throughSequence ||
-    value.rawObjects.length !== claim.eventKeys.length ||
+    value.evidenceObjects.length !== claim.eventKeys.length ||
     !reference.path.startsWith(`sessions/${claim.stop.provider}/${expectedSession}/turns/`) ||
     !reference.path.endsWith(`/${value.turnId}/manifest.json`)
   ) {
@@ -1515,8 +1352,6 @@ export function verifyLifecycleCompletion(
     value.sessionKey !== expectedSession ||
     value.providerEvent !== 'SessionEnd' ||
     value.observedAt !== event.occurredAt ||
-    value.raw.sha256 !== event.rawSha256 ||
-    value.raw.bytes !== event.byteLength ||
     !reference.path.startsWith(`sessions/${event.provider}/${expectedSession}/lifecycle/`)
   ) {
     throw new Error('repository lifecycle proof does not match its durable event')

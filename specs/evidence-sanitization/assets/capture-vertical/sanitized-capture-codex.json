@@ -1,0 +1,10 @@
+{
+  "provider": "codex",
+  "policy": "evidence-sanitization-1",
+  "retainedReasoning": "Decision rationale followed by 5,000 unchanged reasoning characters and [REDACTED]",
+  "toolResultContainsOmissionMarker": true,
+  "originalTranscriptPreserved": true,
+  "physicalPrefixesWithoutSeededSecret": 11,
+  "replayAfterEnvAndTranscriptRemoval": "byte-identical",
+  "completionCountPerReplay": 1
+}

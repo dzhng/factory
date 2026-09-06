@@ -33,7 +33,7 @@ const turn = {
   materializedAt: '2026-09-05T00:00:02Z',
   eventRange: { first: 1, last: 2 },
   transcriptObservations: [],
-  rawObjects: [],
+  evidenceObjects: [],
   branch: 'feature/ui',
   limitations: [],
   captureAdapterVersion: 'test',

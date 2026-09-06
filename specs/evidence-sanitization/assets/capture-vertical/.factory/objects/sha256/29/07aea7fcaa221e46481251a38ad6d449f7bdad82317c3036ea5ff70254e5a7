@@ -1,0 +1,1 @@
+{"session_id":"codex-fixture-session","turn_id":"turn-1","hook_event_name":"PostToolUse","tool_name":"exec_command","tool_use_id":"tool-1","tool_response":{"output":"fidelity","exit_code":0},"cwd":"/tmp/factory-capture-xfSEQb/repository"}

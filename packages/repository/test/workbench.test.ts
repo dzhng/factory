@@ -514,7 +514,7 @@ describe('sole repository writer', () => {
           sessionKey: 'session_01',
           providerEvent: 'SessionStart',
           observedAt: manifest.createdAt,
-          raw: ref,
+          evidence: ref,
         }),
       ),
     )

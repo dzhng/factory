@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const repositoryRoot = fileURLToPath(new URL('../../..', import.meta.url)).replace(/\/$/, '')
-const outputRoot = join(repositoryRoot, 'specs', 'factory-v1', 'assets', 'journal-crash')
+const outputRoot = join(repositoryRoot, 'specs', 'evidence-sanitization', 'assets', 'journal-crash')
 await mkdir(outputRoot, { recursive: true })
 
 let nodeSmoke = 'unavailable: exact Node 22.13.1 smoke did not run'

@@ -5,7 +5,7 @@
   "type": "module",
   "exports": "./src/index.ts",
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && bun build src/index.ts --target=node --outfile=dist/index.js --external bun:sqlite",
     "check-types": "tsc --noEmit",
     "lint": "oxlint src test",
     "test": "bun run test/docker.ts"

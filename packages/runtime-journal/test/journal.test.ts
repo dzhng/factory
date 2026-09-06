@@ -22,6 +22,7 @@ import {
   inspectRuntimeJournal,
   openRuntimeJournal as openJournal,
   type DurabilityBoundary,
+  type MaterializationClaim,
   type RuntimeJournal,
   type RuntimeJournalOptions,
   type RuntimeRecordRef,
@@ -38,6 +39,86 @@ afterEach(async () => {
 })
 
 describe('runtime journal', () => {
+  test('requires a frozen preparation before retiring a verified Stop', async () => {
+    const root = await preparedStopRoot()
+    const journal = await openRuntimeJournal({
+      testRuntimeRoot: root,
+      verifyTurn: turnVerifier(root),
+    })
+    const claim = (await journal.claimStop(crashStop)).claim
+    const turn = await writeTurn(root, 'codex', 'session', 'stop', 'verified turn')
+    await expect(journal.complete(claim, turn)).rejects.toThrow('preparation')
+    expect((await Array.fromAsync(journal.recover()))[0]!.claim).toEqual(claim)
+    await prepareTurn(journal, claim, turn)
+    await journal.complete(claim, turn)
+    expect((await journal.inventory()).orphaned).toContain(turn.sha256)
+  })
+
+  test('recovers preparation transaction death as absent or exact frozen bytes', async () => {
+    for (const boundary of [
+      'preparation-transaction-staged',
+      'preparation-transaction-committed',
+    ] as const) {
+      const root = await preparedStopRoot()
+      const journal = await openRuntimeJournal({ testRuntimeRoot: root })
+      const claim = (await journal.claimStop(crashStop)).claim
+      const turn = await writeTurn(root, 'codex', 'session', 'stop', 'prepared before crash')
+      await killWorker(root, 'prepare', boundary, {
+        FACTORY_TEST_CLAIM: JSON.stringify(claim),
+        FACTORY_TEST_TURN: JSON.stringify(turn),
+      })
+      const recovered = await journal.readCapturePreparation({ kind: 'stop', claim })
+      if (boundary === 'preparation-transaction-staged') expect(recovered).toBeUndefined()
+      else
+        expect(new TextDecoder().decode(recovered!.records[0]!.bytes)).toBe('prepared before crash')
+      await prepareTurn(journal, claim, turn)
+      expect((await journal.readCapturePreparation({ kind: 'stop', claim }))!.completion).toEqual({
+        path: turn.path,
+        sha256: turn.sha256,
+      })
+    }
+  })
+
+  test('freezes prepared capture bytes before publication and reloads them after restart', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'factory-preparation-'))
+    let journal = await openRuntimeJournal({ testRuntimeRoot: root })
+    await journal.append({
+      ...capture('prepared-stop', 'private original'),
+      eventKind: 'stop',
+      stopId: 'stop-1',
+    })
+    const claim = (await journal.claimStop(crashStop)).claim
+    const path = makeOwnedPath('sessions', ['codex', 'session', 'turns', 'turn', 'manifest.json'])
+    const bytes = new TextEncoder().encode('sanitized prepared bytes')
+    const preparation = {
+      objects: [],
+      records: [{ path, bytes }],
+      commitPath: path,
+      completion: { path, sha256: createHash('sha256').update(bytes).digest('hex') },
+    }
+    await journal.prepareCapture({ kind: 'stop', claim }, preparation)
+    bytes.fill(0)
+    await journal.close()
+    journal = await openRuntimeJournal({ testRuntimeRoot: root })
+    const loaded = await journal.readCapturePreparation({ kind: 'stop', claim })
+    expect(new TextDecoder().decode(loaded!.records[0]!.bytes)).toBe('sanitized prepared bytes')
+    await journal.prepareCapture({ kind: 'stop', claim }, loaded!)
+    loaded!.records[0]!.bytes.fill(1)
+    expect(
+      new TextDecoder().decode(
+        (await journal.readCapturePreparation({ kind: 'stop', claim }))!.records[0]!.bytes,
+      ),
+    ).toBe('sanitized prepared bytes')
+    expect((await journal.inventory()).referenced).toContain(preparation.completion.sha256)
+    expect((await journal.inventory()).orphaned).not.toContain(preparation.completion.sha256)
+    await journal.close()
+    const { Database } = await import('bun:sqlite')
+    const database = new Database(join(root, 'journal-v1', 'journal.sqlite'))
+    database.run('UPDATE capture_preparations SET binding=?', ['0'.repeat(64)])
+    database.close()
+    await expect(openRuntimeJournal({ testRuntimeRoot: root })).rejects.toThrow('preparation')
+  })
+
   test('durably preserves exact raw bytes before acknowledging an event', async () => {
     const root = await mkdtemp(join(tmpdir(), 'factory-journal-'))
     const journal = await openRuntimeJournal({
@@ -275,6 +356,7 @@ describe('runtime journal', () => {
     })
     const claim = (await journal.claimStop(crashStop)).claim
     const turn = await writeTurn(repository, 'codex', 'crash-session', 'stop-1', 'completion')
+    await prepareTurn(journal, claim, turn)
     await journal.complete(claim, turn)
     await journal.close()
 
@@ -407,6 +489,7 @@ describe('runtime journal', () => {
     ])
 
     const turn = await writeTurn(root, 'codex', 'session-stop', 'stop-1', 'immutable turn')
+    await prepareTurn(journal, first, turn)
     await journal.complete(first, turn)
     await journal.complete(first, turn)
     expect(await Array.fromAsync(journal.recover())).toEqual([])
@@ -793,10 +876,9 @@ describe('runtime journal', () => {
     })
     const firstStop = { ...crashStop, stopId: 'stop-1' }
     const firstClaim = (await journal.claimStop(firstStop)).claim
-    await journal.complete(
-      firstClaim,
-      await writeTurn(root, 'codex', 'crash-session', 'stop-1', 'turn one'),
-    )
+    const firstTurn = await writeTurn(root, 'codex', 'crash-session', 'stop-1', 'turn one')
+    await prepareTurn(journal, firstClaim, firstTurn)
+    await journal.complete(firstClaim, firstTurn)
     await journal.append({ ...capture('between', 'between') })
     await journal.append({ ...capture('stop-two', 'second'), eventKind: 'stop', stopId: 'stop-2' })
     await Bun.file(rawPath(root, first.rawSha256)).delete()
@@ -899,6 +981,7 @@ describe('runtime journal', () => {
         verifyTurn: turnVerifier(root),
       })
       const claim = (await journal.claimStop(crashStop)).claim
+      await prepareTurn(journal, claim, turn)
       await killWorker(root, 'complete', boundary, {
         FACTORY_TEST_CLAIM: JSON.stringify(claim),
         FACTORY_TEST_TURN: JSON.stringify(turn),
@@ -1012,6 +1095,7 @@ describe('runtime journal', () => {
       'stop-1',
       'completion',
     )
+    await prepareTurn(completionJournal, completionClaim, completionTurn)
     await completionJournal.complete(completionClaim, completionTurn)
     const completionDb = new Database(join(completionRoot, 'journal-v1', 'journal.sqlite'))
     const storedCompletion = completionDb
@@ -1119,6 +1203,7 @@ describe('runtime journal', () => {
         if (boundary === 'completion-commit-attempt') throw full()
       },
     })
+    await prepareTurn(completionJournal, completionClaim, completionTurn)
     await expect(completionJournal.complete(completionClaim, completionTurn)).rejects.toThrow(
       'disk full',
     )
@@ -1218,6 +1303,15 @@ describe('runtime journal', () => {
       repositoryRoot: root,
       repositoryId: 'repo_fixture',
     }
+    await journal.prepareCapture(
+      { kind: 'lifecycle', event },
+      {
+        objects: [],
+        records: [{ path, bytes }],
+        commitPath: path,
+        completion: { path, sha256: reference.sha256 },
+      },
+    )
     await journal.completeLifecycle(event, reference)
     await journal.completeLifecycle(event, reference)
     expect(await Array.fromAsync(journal.recoverLifecycle())).toEqual([])
@@ -1325,6 +1419,23 @@ async function killWorker(
 function turnVerifier(root: string) {
   return async (_claim: unknown, turn: { path: string; sha256: string }): Promise<Uint8Array> =>
     new Uint8Array(await readFile(join(root, '.factory', turn.path)))
+}
+
+async function prepareTurn(
+  journal: RuntimeJournal,
+  claim: MaterializationClaim,
+  turn: RuntimeRecordRef,
+): Promise<void> {
+  const bytes = new Uint8Array(await readFile(join(turn.repositoryRoot, '.factory', turn.path)))
+  await journal.prepareCapture(
+    { kind: 'stop', claim },
+    {
+      objects: [],
+      records: [{ path: turn.path, bytes }],
+      commitPath: turn.path,
+      completion: { path: turn.path, sha256: turn.sha256 },
+    },
+  )
 }
 
 async function writeTurn(

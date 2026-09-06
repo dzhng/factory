@@ -77,7 +77,7 @@ await valid.createImmutable(
       sessionKey: 'session_01',
       providerEvent: 'SessionStart',
       observedAt: manifest.createdAt,
-      raw: rawRef,
+      evidence: rawRef,
     }),
   ),
 )

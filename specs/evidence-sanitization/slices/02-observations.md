@@ -66,9 +66,8 @@ Run `bun run lab:git-observation` for the synthetic
 retained reasoning with a redaction marker, reports env/binary omissions, and
 proves the original checkout stayed unchanged. Verdict: useful review context.
 
-The PR counterpart remains in progress. Integrate its preparation, metadata and
-caller context before marking this slice complete. Provider capture and durable
-replay follow; no broader publication-protection claim is made here.
+The PR counterpart and production acquisition composition are complete. No
+broader publication-protection claim is made by this observation boundary.
 
 ### GitHub checkpoint
 
@@ -90,6 +89,9 @@ Contract/domain selected tests and review-plan's pure/Docker suites passed.
 Independent Codex review identified encoded preamble paths and swallowed
 preparation-limit errors; both have red/green regression evidence and fixes.
 
-Integration still must supply the discovered sanitizer at the production
-review-plan acquisition calls. The outer publication admission API and human
-association prose remain slice 4 scope; this is not full boundary certification.
+Production review-plan acquisition discovers once and shares its sanitizer with
+the workspace observer or both GitHub calls. Manual association prose is prepared
+before derivation and matched by its prepared semantics on return. Three real-store
+Docker regressions cover env rotation within one acquisition, sensitive locators,
+and prepared assertion identity. The outer publication admission API remains
+slice 4 scope; this is not full boundary certification.

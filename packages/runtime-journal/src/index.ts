@@ -14,7 +14,13 @@ import {
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 
-import type { OwnedPath } from '@factory/contract'
+import {
+  canonicalJson,
+  assertOwnedRecordPath,
+  validateObjectRef,
+  type ObjectRef,
+  type OwnedPath,
+} from '@factory/contract'
 
 export type CaptureProvider = 'codex' | 'claude'
 export type CaptureEventKind = 'session-start' | 'turn' | 'stop' | 'session-end' | 'other'
@@ -74,6 +80,23 @@ export interface RuntimeRecordRef extends TurnRef {
   repositoryRoot: string
   repositoryId: string
 }
+export type CapturePreparationOwner =
+  | { kind: 'stop'; claim: MaterializationClaim }
+  | { kind: 'lifecycle'; event: DurableCaptureEvent }
+
+export type CapturePreparation = {
+  objects: readonly { reference: ObjectRef; bytes: Uint8Array }[]
+  records: readonly { path: OwnedPath; bytes: Uint8Array }[]
+  commitPath: OwnedPath
+  completion: TurnRef
+}
+
+type StoredCapturePreparation = {
+  objects: ObjectRef[]
+  records: { path: OwnedPath; rawSha256: string; byteLength: number }[]
+  commitPath: OwnedPath
+  completion: TurnRef
+}
 export interface RecoveryLimitation {
   kind: 'event-count' | 'raw-bytes'
   limit: number
@@ -108,6 +131,8 @@ export type DurabilityBoundary =
   | 'completion-commit-attempt'
   | 'lifecycle-completion-transaction-staged'
   | 'lifecycle-completion-transaction-committed'
+  | 'preparation-transaction-staged'
+  | 'preparation-transaction-committed'
 export interface RuntimeJournalOptions {
   /** Repository worktree used to locate the one Git-common runtime. */
   repositoryRoot?: string
@@ -139,6 +164,8 @@ export interface RuntimeJournal {
   append(input: RawCaptureInput): Promise<DurableCaptureReceipt>
   appendNonBlocking(input: RawCaptureInput): Promise<HookCaptureResult>
   claimStop(stop: StopIdentity): Promise<ClaimStopResult>
+  prepareCapture(owner: CapturePreparationOwner, preparation: CapturePreparation): Promise<void>
+  readCapturePreparation(owner: CapturePreparationOwner): Promise<CapturePreparation | undefined>
   complete(claim: MaterializationClaim, turn: RuntimeRecordRef): Promise<void>
   recover(): AsyncIterable<RecoveryWork>
   recoverLifecycle(): AsyncIterable<DurableCaptureEvent>
@@ -288,6 +315,7 @@ export async function openRuntimeJournal(options: RuntimeJournalOptions): Promis
     CREATE TABLE IF NOT EXISTS claims(stop_key TEXT PRIMARY KEY, claim_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS completions(stop_key TEXT PRIMARY KEY, completion_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS lifecycle_completions(event_key TEXT PRIMARY KEY, record_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS capture_preparations(owner_key TEXT PRIMARY KEY, binding TEXT NOT NULL, preparation_json TEXT NOT NULL);
     `)
     await requirePrivateFile(databasePath)
     await requireMissingOrPrivateFile(`${databasePath}-wal`)
@@ -560,6 +588,190 @@ class SqliteJournal implements RuntimeJournal {
     })
   }
 
+  private preparationOwner(owner: CapturePreparationOwner): { key: string; binding: string } {
+    if (owner.kind === 'stop') {
+      const value = stmt(this.db, 'SELECT claim_json FROM claims WHERE stop_key=?').get(
+        stopKey(owner.claim.stop),
+      )
+      if (value == null) throw new Error('Preparation requires a durable claim')
+      const claim = this.validateDurableClaim(
+        parseClaim(record(value, 'claim row').claim_json, owner.claim.stop),
+      )
+      if (!sameJson(claim, owner.claim)) throw new Error('Preparation claim differs')
+      return {
+        key: `stop:${stopKey(claim.stop)}`,
+        binding: digest(new TextEncoder().encode(canonicalJson(claim))),
+      }
+    }
+    const value = stmt(this.db, 'SELECT * FROM events WHERE event_key=?').get(owner.event.eventKey)
+    if (
+      value == null ||
+      owner.event.eventKind !== 'session-end' ||
+      !sameJson(durableEvent(parseRow(value)), owner.event)
+    )
+      throw new Error('Preparation requires a durable lifecycle event')
+    return {
+      key: `lifecycle:${owner.event.eventKey}`,
+      binding: digest(new TextEncoder().encode(canonicalJson(owner.event))),
+    }
+  }
+
+  async prepareCapture(
+    owner: CapturePreparationOwner,
+    preparation: CapturePreparation,
+  ): Promise<void> {
+    if (preparation.objects.length + preparation.records.length > MAX_JOURNAL_ROWS)
+      throw new Error('Capture preparation inventory exceeds its bound')
+    let bytes = 0
+    for (const item of [...preparation.objects, ...preparation.records]) {
+      bytes += item.bytes.byteLength
+      if (item.bytes.byteLength > MAX_RAW_BYTES || bytes > 512 * 1024 * 1024)
+        throw new Error('Capture preparation bytes exceed their bound')
+    }
+    const objects = preparation.objects.map(item => ({
+      reference: { ...item.reference },
+      bytes: item.bytes.slice(),
+    }))
+    const records = preparation.records.map(item => ({
+      path: item.path,
+      bytes: item.bytes.slice(),
+    }))
+    const stored = parseCapturePreparation({
+      objects: objects.map(item => item.reference),
+      records: records.map(item => ({
+        path: item.path,
+        rawSha256: digest(item.bytes),
+        byteLength: item.bytes.byteLength,
+      })),
+      commitPath: preparation.commitPath,
+      completion: { ...preparation.completion },
+    })
+    const encoded = canonicalJson(stored)
+    if (Buffer.byteLength(encoded) > 16 * 1024 * 1024)
+      throw new Error('Capture preparation metadata exceeds its bound')
+    const planBytes = new TextEncoder().encode(encoded)
+    const planReference = { rawSha256: digest(planBytes), byteLength: planBytes.byteLength }
+    const binding = canonicalJson({ ...planReference, completion: stored.completion })
+    for (const item of objects)
+      if (
+        item.bytes.byteLength !== item.reference.bytes ||
+        digest(item.bytes) !== item.reference.sha256
+      )
+        throw new Error('Prepared object differs from its reference')
+    await this.withOperation(async () => {
+      const authority = await this.transaction(undefined, () => this.preparationOwner(owner))
+      for (const item of objects) await this.publishRaw(item.bytes, item.reference.sha256)
+      for (const item of records) await this.publishRaw(item.bytes, digest(item.bytes))
+      await this.publishRaw(planBytes, planReference.rawSha256)
+      await this.transaction(undefined, async () => {
+        if (!sameJson(authority, this.preparationOwner(owner)))
+          throw new Error('Preparation owner changed')
+        const existing = stmt(
+          this.db,
+          'SELECT binding, preparation_json FROM capture_preparations WHERE owner_key=?',
+        ).get(authority.key)
+        if (existing != null) {
+          const row = record(existing, 'capture preparation')
+          if (row.binding !== authority.binding || row.preparation_json !== binding)
+            throw new Error('Capture preparation already differs')
+          return
+        }
+        stmt(this.db, 'INSERT INTO capture_preparations VALUES(?,?,?)').run(
+          authority.key,
+          authority.binding,
+          binding,
+        )
+        this.preparationRows()
+        await this.boundary('preparation-transaction-staged')
+      })
+      await this.boundary('preparation-transaction-committed')
+    })
+  }
+
+  private preparationRows(): Record<string, unknown>[] {
+    const totals = record(
+      stmt(
+        this.db,
+        'SELECT COUNT(*) AS row_count, COALESCE(SUM(length(CAST(owner_key AS BLOB)) + length(CAST(binding AS BLOB)) + length(CAST(preparation_json AS BLOB))),0) AS metadata_bytes FROM capture_preparations',
+      ).get(),
+      'capture preparation totals',
+    )
+    if (
+      numberField(totals, 'row_count') > MAX_JOURNAL_ROWS ||
+      numberField(totals, 'metadata_bytes') > MAX_STATE_METADATA_BYTES
+    )
+      throw new JournalCorruptionError('Capture preparations exceed their metadata bound')
+    return stmt(
+      this.db,
+      `SELECT owner_key, binding, CASE WHEN length(CAST(preparation_json AS BLOB))<=${MAX_COMPLETION_JSON_BYTES} THEN preparation_json END AS preparation_json FROM capture_preparations ORDER BY owner_key LIMIT ${MAX_JOURNAL_ROWS}`,
+    )
+      .all()
+      .map(value => {
+        const row = record(value, 'capture preparation')
+        parsePreparationBinding(JSON.parse(stringField(row, 'preparation_json')))
+        return row
+      })
+  }
+
+  async readCapturePreparation(
+    owner: CapturePreparationOwner,
+  ): Promise<CapturePreparation | undefined> {
+    return this.withOperation(async () => {
+      const binding = await this.transaction(undefined, () => {
+        const authority = this.preparationOwner(owner)
+        const row = this.preparationRows().find(item => item.owner_key === authority.key)
+        if (row === undefined) return undefined
+        if (row.binding !== authority.binding)
+          throw new JournalCorruptionError('Capture preparation binding differs')
+        return parsePreparationBinding(JSON.parse(stringField(row, 'preparation_json')))
+      })
+      if (binding === undefined) return undefined
+      const stored = await this.readPreparedPlan(binding)
+      const objects: { reference: ObjectRef; bytes: Uint8Array }[] = []
+      for (const reference of stored.objects)
+        objects.push({
+          reference,
+          bytes: await this.readRawUnchecked({
+            rawSha256: reference.sha256,
+            byteLength: reference.bytes,
+          }),
+        })
+      const records: { path: OwnedPath; bytes: Uint8Array }[] = []
+      for (const item of stored.records)
+        records.push({ path: item.path, bytes: await this.readRawUnchecked(item) })
+      return { objects, records, commitPath: stored.commitPath, completion: stored.completion }
+    })
+  }
+
+  private async readPreparedPlan(
+    binding: ReturnType<typeof parsePreparationBinding>,
+  ): Promise<StoredCapturePreparation> {
+    const stored = parseCapturePreparation(
+      JSON.parse(
+        new TextDecoder('utf-8', { fatal: true }).decode(await this.readRawUnchecked(binding)),
+      ),
+    )
+    if (canonicalJson(stored.completion) !== canonicalJson(binding.completion))
+      throw new JournalCorruptionError('Capture preparation completion binding differs')
+    return stored
+  }
+
+  private assertPreparedCompletion(
+    owner: CapturePreparationOwner,
+    reference: RuntimeRecordRef,
+  ): void {
+    const authority = this.preparationOwner(owner)
+    const row = this.preparationRows().find(item => item.owner_key === authority.key)
+    if (!row || row.binding !== authority.binding)
+      throw new JournalCorruptionError('Completion requires a matching capture preparation')
+    const prepared = parsePreparationBinding(JSON.parse(stringField(row, 'preparation_json')))
+    if (
+      prepared.completion.path !== reference.path ||
+      prepared.completion.sha256 !== reference.sha256
+    )
+      throw new JournalCorruptionError('Completion differs from its capture preparation')
+  }
+
   async complete(claim: MaterializationClaim, turn: RuntimeRecordRef): Promise<void> {
     await this.withOperation(async () => {
       validateStop(claim.stop)
@@ -585,6 +797,7 @@ class SqliteJournal implements RuntimeJournal {
           parseClaim(record(claimRow, 'claim row').claim_json, claim.stop),
         )
         if (!sameJson(durable, claim)) throw new Error('Claim does not match the durable claim')
+        this.assertPreparedCompletion({ kind: 'stop', claim }, turn)
         const existingRow = stmt(
           this.db,
           'SELECT completion_json FROM completions WHERE stop_key=?',
@@ -683,6 +896,7 @@ class SqliteJournal implements RuntimeJournal {
       if (digest(bytes) !== reference.sha256)
         throw new JournalCorruptionError('Verified lifecycle bytes do not match the reference')
       await this.transaction(undefined, async () => {
+        this.assertPreparedCompletion({ kind: 'lifecycle', event }, reference)
         const existing = stmt(
           this.db,
           'SELECT record_json FROM lifecycle_completions WHERE event_key=?',
@@ -758,7 +972,9 @@ class SqliteJournal implements RuntimeJournal {
     return this.withOperation(() => this.readRawUnchecked(item))
   }
 
-  private async readRawUnchecked(item: DurableCaptureReceipt): Promise<Uint8Array> {
+  private async readRawUnchecked(
+    item: Pick<DurableCaptureReceipt, 'rawSha256' | 'byteLength'>,
+  ): Promise<Uint8Array> {
     if (
       !SHA256.test(item.rawSha256) ||
       !Number.isSafeInteger(item.byteLength) ||
@@ -808,9 +1024,26 @@ class SqliteJournal implements RuntimeJournal {
     return this.withOperation(async () => {
       await syncDirectory(this.objects)
       await syncDirectory(this.temporary)
-      const referenced = await this.transaction(undefined, () => [
-        ...new Set(this.readRows().map(row => row.rawSha256)),
-      ])
+      const referenced = await this.transaction(undefined, async () => {
+        const hashes = new Set(this.readRows().map(row => row.rawSha256))
+        for (const row of this.preparationRows()) {
+          const key = stringField(row, 'owner_key')
+          const completed = key.startsWith('stop:')
+            ? stmt(this.db, 'SELECT 1 FROM completions WHERE stop_key=?').get(key.slice(5))
+            : stmt(this.db, 'SELECT 1 FROM lifecycle_completions WHERE event_key=?').get(
+                key.slice(10),
+              )
+          if (completed != null) continue
+          const binding = parsePreparationBinding(JSON.parse(stringField(row, 'preparation_json')))
+          const prepared = await this.readPreparedPlan(binding)
+          hashes.add(binding.rawSha256)
+          for (const item of prepared.objects) hashes.add(item.sha256)
+          for (const item of prepared.records) hashes.add(item.rawSha256)
+          if (hashes.size > MAX_JOURNAL_ROWS)
+            throw new JournalCorruptionError('Runtime object inventory exceeds its bound')
+        }
+        return [...hashes]
+      })
       referenced.sort()
       const present: string[] = []
       for (const prefix of await readdir(this.objects).catch(() => [])) {
@@ -1001,6 +1234,15 @@ class SqliteJournal implements RuntimeJournal {
     if (lifecycleRows.length !== numberField(lifecycleTotals, 'row_count'))
       throw new JournalCorruptionError('lifecycle completion rows are inconsistent')
     const events = new Map(rows.map(row => [row.eventKey, row]))
+    for (const stored of this.preparationRows()) {
+      const key = stringField(stored, 'owner_key')
+      const claim = key.startsWith('stop:') ? claims.get(key.slice(5)) : undefined
+      const event = key.startsWith('lifecycle:') ? events.get(key.slice(10)) : undefined
+      const owner = claim ?? (event?.eventKind === 'session-end' ? durableEvent(event) : undefined)
+      if (!owner || digest(new TextEncoder().encode(canonicalJson(owner))) !== stored.binding)
+        throw new JournalCorruptionError('Capture preparation has no matching durable owner')
+      parsePreparationBinding(JSON.parse(stringField(stored, 'preparation_json')))
+    }
     for (const value of lifecycleRows) {
       const stored = record(value, 'lifecycle completion row')
       const key = stringField(stored, 'event_key')
@@ -1508,6 +1750,86 @@ function isCode(error: unknown, code: string): boolean {
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
+function parsePreparationBinding(value: unknown): {
+  rawSha256: string
+  byteLength: number
+  completion: TurnRef
+} {
+  const row = record(value, 'capture preparation binding')
+  const rawSha256 = stringField(row, 'rawSha256')
+  const byteLength = numberField(row, 'byteLength')
+  const completion = record(row.completion, 'capture preparation completion')
+  const path = stringField(completion, 'path')
+  assertOwnedRecordPath(path)
+  const sha256 = stringField(completion, 'sha256')
+  if (
+    !SHA256.test(rawSha256) ||
+    !SHA256.test(sha256) ||
+    byteLength < 0 ||
+    byteLength > 16 * 1024 * 1024
+  )
+    throw new JournalCorruptionError('Capture preparation binding exceeds its bounds')
+  return { rawSha256, byteLength, completion: { path, sha256 } }
+}
+
+function parseCapturePreparation(value: unknown): StoredCapturePreparation {
+  const input = record(value, 'capture preparation')
+  if (
+    !Array.isArray(input.objects) ||
+    !Array.isArray(input.records) ||
+    input.objects.length + input.records.length > 100_000
+  )
+    throw new JournalCorruptionError('Capture preparation inventory exceeds its bound')
+  const commitPath = stringField(input, 'commitPath')
+  assertOwnedRecordPath(commitPath)
+  const completion = record(input.completion, 'capture completion')
+  const completionPath = stringField(completion, 'path')
+  assertOwnedRecordPath(completionPath)
+  const completionHash = stringField(completion, 'sha256')
+  if (!SHA256.test(completionHash))
+    throw new JournalCorruptionError('Capture completion digest is invalid')
+  let totalBytes = 0
+  const objects = input.objects.map(value => {
+    const reference = record(value, 'prepared object') as ObjectRef
+    validateObjectRef(reference)
+    if (reference.bytes > MAX_RAW_BYTES)
+      throw new JournalCorruptionError('Prepared object exceeds its byte bound')
+    totalBytes += reference.bytes
+    return { ...reference }
+  })
+  const paths = new Set<string>()
+  const records = input.records.map(value => {
+    const item = record(value, 'prepared record')
+    const path = stringField(item, 'path')
+    assertOwnedRecordPath(path)
+    const rawSha256 = stringField(item, 'rawSha256')
+    const byteLength = numberField(item, 'byteLength')
+    if (
+      paths.has(path) ||
+      !SHA256.test(rawSha256) ||
+      !Number.isSafeInteger(byteLength) ||
+      byteLength < 0 ||
+      byteLength > MAX_RAW_BYTES
+    )
+      throw new JournalCorruptionError('Prepared record identity or byte bound is invalid')
+    paths.add(path)
+    totalBytes += byteLength
+    return { path, rawSha256, byteLength }
+  })
+  if (
+    totalBytes > 512 * 1024 * 1024 ||
+    !paths.has(commitPath) ||
+    !records.some(item => item.path === completionPath && item.rawSha256 === completionHash)
+  )
+    throw new JournalCorruptionError('Capture preparation publication graph is invalid')
+  return {
+    objects,
+    records,
+    commitPath,
+    completion: { path: completionPath, sha256: completionHash },
+  }
+}
+
 function sameJson(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right)
 }
