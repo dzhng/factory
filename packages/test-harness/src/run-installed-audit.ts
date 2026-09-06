@@ -159,7 +159,19 @@ async function verifyPortableClone(
   const records = await restored.readRecords()
   assert.deepEqual(records, await source.readRecords())
   assert.deepEqual((await restored.verify()).issues, [])
-  assert.deepEqual(buildUiProjection(records), buildUiProjection(await source.readRecords()))
+  const projection = buildUiProjection(records)
+  assert.deepEqual(projection, buildUiProjection(await source.readRecords()))
+  assert.equal(projection.state, 'ready')
+  assert.ok(projection.decisions)
+  assert.deepEqual(
+    projection.decisions.groups.map(group => group.verdict),
+    ['needs-user', 'unsound', 'sound'],
+  )
+  for (const group of projection.decisions.groups) {
+    assert.ok(group.choices.length > 0)
+    if (group.verdict !== 'sound')
+      assert.ok(group.choices.every(choice => 'priority' in choice && choice.priority === 'high'))
+  }
   const reviews = loadStoredReviews(records.records)
   assert.ok(reviews.length > 0)
   const reconstructed = new Set<string>()
