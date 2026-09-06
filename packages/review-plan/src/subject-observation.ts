@@ -15,7 +15,8 @@ import {
   persistGithubRepositoryMapping,
   persistPullRequestEvidence,
 } from '@factory/github'
-import { GitObserver, type RepositoryStore } from '@factory/repository'
+import { GitObserver, discoverRepositorySanitizer, type RepositoryStore } from '@factory/repository'
+import { SanitizationError } from '@factory/sanitization'
 
 import { loadCandidateEvidence } from './candidate-loader'
 import { openReviewRepositoryReader } from './repository-reader'
@@ -27,6 +28,43 @@ export async function observeReviewSubject(
   pullRequest: number | undefined,
   environment: NodeJS.ProcessEnv,
   options: { manual?: readonly ManualAssociation[] } = {},
+): Promise<OwnedPath> {
+  const sanitizer = await discoverRepositorySanitizer(repositoryRoot)
+  return await observePreparedSubject(
+    repositoryRoot,
+    store,
+    pullRequest,
+    environment,
+    sanitizer,
+    (options.manual ?? []).map(assertion => prepareManualAssertion(assertion, sanitizer)),
+  )
+}
+
+type SubjectSanitizer = Awaited<ReturnType<typeof discoverRepositorySanitizer>>
+
+function requireSafeSessionKey(sessionKey: string, sanitizer: SubjectSanitizer): void {
+  if (sanitizer.text(sessionKey).redacted) throw new SanitizationError('unsupported-content')
+}
+
+function prepareManualAssertion(
+  assertion: ManualAssociation,
+  sanitizer: SubjectSanitizer,
+): ManualAssociation {
+  requireSafeSessionKey(assertion.sessionKey, sanitizer)
+  return {
+    ...assertion,
+    actor: sanitizer.text(assertion.actor).text,
+    reason: sanitizer.text(assertion.reason).text,
+  }
+}
+
+async function observePreparedSubject(
+  repositoryRoot: string,
+  store: RepositoryStore,
+  pullRequest: number | undefined,
+  environment: NodeJS.ProcessEnv,
+  sanitizer: SubjectSanitizer,
+  manual: readonly ManualAssociation[],
 ): Promise<OwnedPath> {
   const objects = {
     put: async (bytes: Uint8Array, metadata: { mediaType: string; role: string }) =>
@@ -42,7 +80,7 @@ export async function observeReviewSubject(
     const observed = await new GitObserver(
       repositoryRoot,
       { ...objects, get: async reference => await store.getObject(reference) },
-      { repositoryId: store.manifest.repositoryId, observationId },
+      { repositoryId: store.manifest.repositoryId, observationId, sanitizer },
     ).observe()
     if (observed.kind === 'unavailable')
       throw new Error(`workspace observation unavailable: ${observed.reason.code}`)
@@ -92,13 +130,14 @@ export async function observeReviewSubject(
     ]
   })
   const availableSessionKeys = new Set(sessions.map(session => session.turn.sessionKey))
-  for (const manual of options.manual ?? []) {
-    if (!availableSessionKeys.has(manual.sessionKey))
-      throw new Error(`manual association session is unavailable: ${manual.sessionKey}`)
+  for (const assertion of manual) {
+    if (!availableSessionKeys.has(assertion.sessionKey))
+      throw new Error('manual association session is unavailable')
   }
 
   const hostname = (environment.GH_HOST ?? 'github.com').toLowerCase()
   const mapping = await observeGithubRepositoryMapping(store.manifest.repositoryId, hostname, {
+    sanitizer,
     objects,
     cwd: repositoryRoot,
     environment,
@@ -110,6 +149,7 @@ export async function observeReviewSubject(
   if (!owner || !name || extra.length !== 0)
     throw new Error('pull-request repository mapping returned an invalid name')
   const observation = await new GithubPrObserver({
+    sanitizer,
     objects,
     cwd: repositoryRoot,
     environment,
@@ -179,9 +219,13 @@ export async function observeReviewSubject(
     pullRequest: observation,
     sessions,
     repositoryMappings,
-    manual: [...inheritedManual, ...(options.manual ?? [])],
+    manual: [
+      ...inheritedManual.map(assertion => prepareManualAssertion(assertion, sanitizer)),
+      ...manual,
+    ],
     previous,
   })
+  for (const association of associations) requireSafeSessionKey(association.sessionKey, sanitizer)
   await persistPullRequestEvidence(store, observation, associations)
   return `pull-requests/github/${observation.repositoryKey}/${observation.number}/observations/${observation.observationId}.json` as OwnedPath
 }
@@ -195,9 +239,16 @@ export async function associateReviewSession(
   environment: NodeJS.ProcessEnv,
 ): Promise<{ subjectPath: OwnedPath; associationPath: OwnedPath }> {
   const observedAt = new Date().toISOString()
-  const subjectPath = await observeReviewSubject(repositoryRoot, store, pullRequest, environment, {
-    manual: [{ ...assertion, observedAt }],
-  })
+  const sanitizer = await discoverRepositorySanitizer(repositoryRoot)
+  const prepared = prepareManualAssertion({ ...assertion, observedAt }, sanitizer)
+  const subjectPath = await observePreparedSubject(
+    repositoryRoot,
+    store,
+    pullRequest,
+    environment,
+    sanitizer,
+    [prepared],
+  )
   const records = (await store.readRecords()).records
   const subject = records.find(record => record.path === subjectPath)?.value as
     | { observationId?: string }
@@ -215,11 +266,11 @@ export async function associateReviewSession(
       record.path.includes('/associations/') &&
       !record.path.includes('/batches/') &&
       value.kind === 'manual' &&
-      value.sessionKey === assertion.sessionKey &&
+      value.sessionKey === prepared.sessionKey &&
       value.pullRequestObservationId === subject.observationId &&
       value.observedAt === observedAt &&
-      value.assertion?.actor === assertion.actor &&
-      value.assertion.reason === assertion.reason
+      value.assertion?.actor === prepared.actor &&
+      value.assertion.reason === prepared.reason
     )
   })
   if (association === undefined) throw new Error('manual association was not persisted')

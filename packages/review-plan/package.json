@@ -18,6 +18,7 @@
     "@factory/contract": "workspace:*",
     "@factory/domain": "workspace:*",
     "@factory/github": "workspace:*",
-    "@factory/repository": "workspace:*"
+    "@factory/repository": "workspace:*",
+    "@factory/sanitization": "workspace:*"
   }
 }

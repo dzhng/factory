@@ -22,6 +22,8 @@ import {
   type SessionPullRequestAssociation,
   type TurnManifest,
 } from '@factory/contract'
+import { deriveAssociations } from '@factory/domain'
+import { initializeRepositoryStore } from '@factory/repository'
 
 import { emptyAuditSummary } from '../../test-harness/src/choice-fixtures'
 import {
@@ -41,6 +43,7 @@ import {
   type ReviewInputs,
   type ReviewRepositoryReader,
 } from '../src'
+import { associateReviewSession, observeReviewSubject } from '../src/subject-observation'
 
 if (process.env.FACTORY_DOCKER_TEST !== '1') {
   throw new Error('Review bundle tests require Docker; run the package test script')
@@ -58,6 +61,181 @@ const object = (bytes: Uint8Array, mediaType: string, role: string): ObjectRef =
   bytes: bytes.byteLength,
   mediaType,
   role,
+})
+
+async function subjectFixture() {
+  const root = await mkdtemp(join(tmpdir(), 'factory-subject-sanitization-'))
+  roots.push(root)
+  await mkdir(join(root, '.git'))
+  const store = await initializeRepositoryStore(
+    root,
+    {
+      schemaVersion: 1,
+      format: 'factory-repository',
+      minimumReaderVersion: '0.1.0',
+      repositoryId: 'repo_test',
+      createdAt: '2026-09-05T00:00:00Z',
+    },
+    {},
+  )
+  const secret = 'shared-acquisition-secret'
+  await writeFile(join(root, '.env'), `VALUE=${secret}\n`)
+  const sha = '3'.repeat(40)
+  const repository = {
+    id: 'R_base',
+    nameWithOwner: 'owner/repo',
+    url: 'https://github.com/owner/repo',
+  }
+  const inputPath = join(root, 'github-fixture.json')
+  await writeFile(
+    inputPath,
+    JSON.stringify({
+      rotateEnv: 'VALUE=rotated-acquisition-secret\n',
+      mapping: { ...repository, note: secret },
+      patch: `+retain reasoning ${secret}`,
+      metadata: {
+        data: {
+          repository: {
+            ...repository,
+            pullRequest: {
+              id: 'PR_42',
+              url: 'https://github.com/owner/repo/pull/42',
+              number: 42,
+              state: 'OPEN',
+              mergedAt: null,
+              baseRefName: 'main',
+              baseRefOid: sha,
+              headRefName: 'feature',
+              headRefOid: sha,
+              updatedAt: '2026-09-05T00:00:00Z',
+              headRepository: repository,
+              note: secret,
+              commits: {
+                nodes: [{ commit: { oid: sha } }],
+                pageInfo: { hasNextPage: false, endCursor: null },
+              },
+            },
+          },
+        },
+      },
+    }),
+  )
+  const environment = {
+    ...process.env,
+    PATH: `${import.meta.dir}/fixtures:${process.env.PATH}`,
+    FACTORY_TEST_GH_INPUT: inputPath,
+    GH_HOST: 'github.com',
+  }
+  return { root, store, environment, secret }
+}
+
+test('production PR acquisition freezes one discovered sanitizer across GitHub reads', async () => {
+  const { root, store, environment, secret } = await subjectFixture()
+  const subjectPath = await observeReviewSubject(root, store, 42, environment)
+  const observation = JSON.parse(
+    Buffer.from(await store.readImmutable(subjectPath)).toString(),
+  ) as AvailablePullRequestObservation
+  const text = (
+    await Promise.all(
+      observation.evidence.map(async ref => Buffer.from(await store.getObject(ref)).toString()),
+    )
+  ).join('\n')
+  expect(text).toContain('retain reasoning [REDACTED]')
+  expect(text).not.toContain(secret)
+  expect(await readFile(join(root, '.env'), 'utf8')).toContain('rotated-acquisition-secret')
+  expect((await store.verify()).issues).toEqual([])
+})
+
+test('manual PR assertions publish prepared prose and return the matching association', async () => {
+  const { root, store, environment, secret } = await subjectFixture()
+  const value = fixture()
+  const candidate = value.input.candidates[0]!
+  if (!('trigger' in candidate)) throw new Error('fixture candidate is not readable')
+  for (const reference of candidate.turn.inventory) {
+    await store.putObject(
+      (async function* () {
+        yield value.objects.get(reference.sha256)!
+      })(),
+      reference,
+    )
+  }
+  const turnRoot = ['codex', 'session-a', 'turns', candidate.turn.turnId]
+  const records: [ReturnType<typeof makeOwnedPath>, unknown][] = [
+    [makeOwnedPath('sessions', ['codex', 'session-a', 'identity.json']), candidate.identity],
+    [makeOwnedPath('sessions', [...turnRoot, 'manifest.json']), candidate.turn],
+    [
+      makeOwnedPath('repository-observations', [
+        `${candidate.repositoryObservation!.observationId}.json`,
+      ]),
+      candidate.repositoryObservation,
+    ],
+  ]
+  for (const [path, record] of records)
+    await store.createImmutable(path, Buffer.from(canonicalJson(record)))
+  await store.createImmutable(
+    makeOwnedPath('sessions', [...turnRoot, 'events.jsonl']),
+    Buffer.from(candidate.events.map(canonicalJson).join('')),
+  )
+  await store.createImmutable(
+    makeOwnedPath('sessions', [...turnRoot, 'transcript.jsonl']),
+    new Uint8Array(),
+  )
+  await store.createImmutable(
+    makeOwnedPath('review-triggers', [`${candidate.trigger.triggerId}.json`]),
+    Buffer.from(canonicalJson(candidate.trigger)),
+  )
+  const result = await associateReviewSession(
+    root,
+    store,
+    42,
+    {
+      sessionKey: 'session-a',
+      actor: `human ${secret}`,
+      reason: `reason ${secret}`,
+    },
+    environment,
+  )
+  const association = JSON.parse(
+    Buffer.from(await store.readImmutable(result.associationPath)).toString(),
+  )
+  expect(association.assertion).toEqual({ actor: 'human [REDACTED]', reason: 'reason [REDACTED]' })
+  expect(association.sessionKey).toBe('session-a')
+  const subject = JSON.parse(
+    Buffer.from(await store.readImmutable(result.subjectPath)).toString(),
+  ) as AvailablePullRequestObservation
+  const expected = deriveAssociations({
+    pullRequest: subject,
+    sessions: [],
+    repositoryMappings: [],
+    manual: [
+      {
+        sessionKey: 'session-a',
+        actor: 'human [REDACTED]',
+        reason: 'reason [REDACTED]',
+        observedAt: association.observedAt,
+      },
+    ],
+  })
+  expect(association.evidenceId).toBe(expected[0]!.evidenceId)
+  expect((await store.verify()).issues).toEqual([])
+})
+
+test('manual PR association refuses a sensitive session locator before publication', async () => {
+  const { root, store, environment, secret } = await subjectFixture()
+  await expect(
+    associateReviewSession(
+      root,
+      store,
+      42,
+      {
+        sessionKey: secret,
+        actor: 'human',
+        reason: 'reason',
+      },
+      environment,
+    ),
+  ).rejects.toThrow('unsupported-content')
+  expect((await store.readRecords()).records).toEqual([])
 })
 
 function fixture(): {

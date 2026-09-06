@@ -97,6 +97,7 @@
         "@factory/domain": "workspace:*",
         "@factory/github": "workspace:*",
         "@factory/repository": "workspace:*",
+        "@factory/sanitization": "workspace:*",
       },
     },
     "packages/reviewer": {

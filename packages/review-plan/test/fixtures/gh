@@ -1,0 +1,10 @@
+#!/usr/bin/env bun
+if (process.env.FACTORY_DOCKER_TEST !== '1') throw new Error('synthetic gh requires Docker')
+const input = await Bun.file(process.env.FACTORY_TEST_GH_INPUT).json()
+const args = process.argv.slice(2)
+if (args[0] === 'repo') {
+  if (input.rotateEnv) await Bun.write(`${process.cwd()}/.env`, input.rotateEnv)
+  console.log(JSON.stringify(input.mapping))
+} else if (args[0] === 'api') console.log(JSON.stringify(input.metadata))
+else if (args[0] === 'pr') console.log(input.patch)
+else process.exit(2)
