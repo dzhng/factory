@@ -1,4 +1,4 @@
-# Research and current seams
+# Typed submission rationale
 
 ## Structured tools are the native seam
 
@@ -9,24 +9,18 @@ the Factory server receives parsed values and validates them at the call boundar
 That is materially different from asking the model to print a flawless JSONL file.
 
 [Claude Code's CLI](https://docs.anthropic.com/en/docs/claude-code/cli-usage)
-supports configured MCP servers and explicit tool allowlists. Factory already
-invokes Claude with strict MCP configuration, currently empty, and without Bash.
+supports configured MCP servers and explicit tool allowlists. Factory invokes
+Claude with strict Factory-owned MCP configuration and without Bash.
 A Factory stdio server fits that boundary without granting a general shell.
 
-## Current implementation seams
+## Ownership
 
-- `packages/reviewer/src/adapter.ts` owns one shared prompt and provider argv.
-  Today it asks both providers to hand-author exact JSONL and copy complete object
-  references from the bundle.
-- `packages/review/src/output.ts` tolerates a valid prefix but rejects a line for
-  any JSON syntax, exact-key, enum, citation, duplication, or bound failure.
-- `packages/review/src/acceptance.ts` publishes the bounded provider response and
-  derives the ledger/disposition from parsed lines.
-- `packages/contract/src/index.ts` owns generic summary/finding/decision entries;
-  the domain decision fold consumes decision effects and assertions.
-- `packages/reviewer/src/probe.ts` already owns the digest-pinned, non-root,
-  read-only-bundle and bounded-output container lifecycle. The submission server
-  belongs inside that existing image and mount plan.
+The [reviewer](../../packages/reviewer/README.md) owns the shared prompt,
+provider configuration, and isolated submission server. The
+[public contract](../../packages/contract/README.md) owns the canonical draft
+fold; [review acceptance](../../packages/review/README.md) validates and publishes
+its prepared result. Typed tools improve encoding reliability without making
+model judgments authoritative or creating another container trust boundary.
 
 ## Rejected approaches
 
