@@ -62,7 +62,13 @@ import {
 } from './private-files'
 import { verifyReleaseArtifact } from './release-manifest'
 import { associateCommand, automaticReviewCommand, reviewCommand } from './review'
-import { cachedUpdateWarning, refreshUpdateCheck, updateChecksEnabled } from './updates'
+import {
+  backgroundUpdateCheck,
+  cachedUpdateWarning,
+  refreshUpdateCheck,
+  scheduleUpdateCheck,
+  updateChecksEnabled,
+} from './updates'
 import { factoryBuildIdentity } from './version'
 
 export {
@@ -683,6 +689,7 @@ export async function runFactoryCli(
     environment?: NodeJS.ProcessEnv
     cwd?: string
     runtimeExecutable?: string
+    interactive?: boolean
     output?: Output
     open?: OpenCommandOptions
   } = {},
@@ -696,38 +703,42 @@ export async function runFactoryCli(
       stderr: value => process.stderr.write(value),
     } satisfies Output)
   try {
-    const noAutoUpgrade =
-      args.includes('--no-auto-upgrade') || environment.FACTORY_NO_AUTO_UPGRADE === '1'
-    args = args.filter(arg => arg !== '--no-auto-upgrade')
     const [command] = args
-    if (
-      !noAutoUpgrade &&
-      ['install', 'init', 'review', 'associate', 'open'].includes(command ?? '') &&
-      !args.includes('--automatic')
-    ) {
+    if (command === '_update-check') {
+      if (args.length !== 2 || (args[1] !== 'npm' && args[1] !== 'standalone')) return 1
       try {
-        const npm = await npmInstallation(options.runtimeExecutable ?? process.execPath)
-        if (npm && (await updateChecksEnabled(await gitRoot(cwd, environment), environment)))
-          await upgradeNpmInstallation(npm, environment, false, output.stderr, true)
-      } catch (error) {
-        output.stderr(
-          `Factory automatic upgrade skipped: ${error instanceof Error ? error.message : String(error)}.\n`,
-        )
+        await backgroundUpdateCheck(environment, args[1])
+      } catch {
+        /* Optional background diagnostics stay silent. */
       }
+      return 0
     }
     if (command === '--version' || command === 'version') {
       output.stdout(`${factoryBuildIdentity.version}\n`)
       return 0
     }
-    if (command !== 'capture' && !(command === 'review' && args.includes('--automatic'))) {
+    if (
+      (options.interactive ?? (process.stdout.isTTY && process.stderr.isTTY)) &&
+      command !== 'capture' &&
+      command !== 'configure' &&
+      command !== 'uninstall' &&
+      command !== 'upgrade' &&
+      !(command === 'review' && args.includes('--automatic'))
+    ) {
       try {
-        const warning = await cachedUpdateWarning(environment)
-        if (
-          warning !== undefined &&
-          (await npmInstallation(options.runtimeExecutable ?? process.execPath)) === undefined &&
-          (await updateChecksEnabled(await gitRoot(cwd, environment), environment))
-        )
-          output.stderr(warning)
+        if (await updateChecksEnabled(await gitRoot(cwd, environment), environment)) {
+          const source = (await npmInstallation(options.runtimeExecutable ?? process.execPath))
+            ? 'npm'
+            : 'standalone'
+          const warning = await cachedUpdateWarning(environment, source)
+          if (warning) output.stderr(warning)
+          await scheduleUpdateCheck(environment, source, [
+            options.runtimeExecutable ?? process.execPath,
+            ...(options.runtimeExecutable || Bun.main.startsWith('/$bunfs/')
+              ? []
+              : [process.argv[1]!]),
+          ])
+        }
       } catch {
         /* Optional diagnostics never prevent the requested command. */
       }

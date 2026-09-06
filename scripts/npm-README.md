@@ -15,14 +15,16 @@ Docker is required for reviews, with an existing Codex or Claude CLI login.
 alone does not change provider settings or capture repository evidence.
 
 Use `factory upgrade` to update a global npm installation, or `factory upgrade
---check` to check without installing. Normal work commands also check npm and
-install newer stable releases automatically; the next invocation uses the new
-binary. Offline checks and failed upgrades do not prevent the requested command.
-Use `--no-auto-upgrade` or `FACTORY_NO_AUTO_UPGRADE=1` to skip automatic upgrades,
-or disable checks persistently with `factory configure --global --update-checks false`.
-Capture hooks, automatic-review workers, version queries, configuration,
-diagnostics, and uninstall never auto-upgrade. Source checkouts, project-local
-installs, and non-npm package managers are not automatically modified.
+--check` to check without installing. Interactive commands show cached update
+notices and refresh release metadata in the background, at most daily. They never
+install updates or wait for the network. Pipes, capture hooks, and automatic-review
+workers do neither. Disable notices and background checks with
+`factory configure --global --update-checks false` (repository preferences can override it).
+
+Only an explicit upgrade replaces installed files. npm replacement is not atomic
+across concurrent launches; choose a quiet moment when provider sessions are not
+using Factory hooks. Source checkouts, project-local installs, and non-npm package
+managers are not modified by the npm upgrader.
 
 Run `factory uninstall` before removing the package to remove its owned hooks.
 

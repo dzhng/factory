@@ -505,7 +505,8 @@ describe('installed capture vertical', () => {
       fetchSpy.mockRejectedValue(new Error('Startup must not fetch'))
       stdout = ''
       stderr = ''
-      await runFactoryCli(['configure', '--repo'], {
+      await runFactoryCli(['doctor'], {
+        interactive: true,
         cwd: fixture.repository,
         environment: fixture.env,
         output: {
@@ -526,7 +527,8 @@ describe('installed capture vertical', () => {
         fixture.env,
       )
       stderr = ''
-      await runFactoryCli(['configure', '--repo'], {
+      await runFactoryCli(['doctor'], {
+        interactive: true,
         cwd: fixture.repository,
         environment: fixture.env,
         output: {

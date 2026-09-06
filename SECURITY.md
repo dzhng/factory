@@ -163,26 +163,24 @@ disabled and the destination prefix derived from the running executable, never
 from npm's default prefix. Project-local installs and other package managers are
 not automatically modified.
 
-Normal npm-installed work commands may check the fixed public npm registry and
-install a newer stable version before proceeding. Discovery is time- and
-size-bounded; failures are nonfatal to the requested command. Installation is
-serialized with Factory's install lock and refused while a native transaction
-is pending. npm owns package replacement and recovery, not Factory's native
-transaction journal. Once installation starts, Factory waits for npm to finish
-rather than interrupting package replacement on a startup deadline. A running
-native process continues using its loaded version; subsequent commands use the
-updated package. Upgrades neither reconcile hooks nor change repository data.
-User controls and excluded commands live in the [installation guide](scripts/npm-README.md).
+Only an explicit upgrade installs a newer version. npm installation is serialized
+with Factory's install lock and refused while a native transaction is pending.
+npm owns package replacement and recovery, not Factory's native transaction
+journal. Its package replacement is not atomic across concurrent command or hook
+launches, and the install lock does not protect those launches. A running native
+process retains its loaded version. npm upgrades neither reconcile hooks nor
+change repository data.
 
-Update discovery is separate from upgrade authority. An explicit
-`factory upgrade --check` can read bounded public release metadata from the
-fixed `dzhng/factory` GitHub release endpoint without authentication or redirects.
-For standalone binaries it writes only a private, expiring version observation;
-their startup may display that cached warning but never installs an update.
-Capture and automatic-review workers never check or upgrade. Repository and
-global preferences can disable discovery, automatic upgrades, and warnings.
-Explicit upgrades remain available even when automatic discovery is disabled.
-A cache entry cannot authorize executable replacement.
+Update discovery is separate from upgrade authority. Interactive commands may
+show private, expiring observations and start a detached metadata-only checker.
+The checker contacts the fixed public npm registry or `dzhng/factory` GitHub
+release endpoint, without authentication or redirects, with time and size bounds.
+It serializes checks and records attempts before network I/O so failures and
+crashes do not retry on every command. Foreground commands never wait for network
+discovery. Pipes, capture hooks, and automatic-review workers neither check nor
+display notices. Repository and global preferences can disable checks and notices;
+explicit upgrades remain available. A cache entry cannot authorize executable
+replacement. User controls live in the [installation guide](scripts/npm-README.md).
 
 For standalone upgrades, Factory replaces its installed executable only from a release artifact whose
 trusted manifest digest, archive inventory, target, source identity, and inner

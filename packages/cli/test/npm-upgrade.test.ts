@@ -3,7 +3,6 @@ import { chmod, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { runFactoryCli } from '../src'
-import { withInstallationLock } from '../src/installation'
 import { npmInstallation, upgradeNpmInstallation } from '../src/npm-upgrade'
 
 if (process.env.FACTORY_DOCKER_TEST !== '1') throw new Error('Run in the Docker test environment')
@@ -83,7 +82,124 @@ test('plain upgrade uses npm through the CLI', async () => {
   }
 })
 
-test('normal startup upgrades, keeps command output, and remains fail-open offline', async () => {
+test('background checks cache a notice without installing and rate-limit repeated launches', async () => {
+  const value = await fixture()
+  const fetchMock = spyOn(globalThis, 'fetch').mockResolvedValue(
+    Response.json({ version: '0.2.0' }),
+  )
+  const stderr: string[] = []
+  const options = {
+    environment: value.environment,
+    cwd: value.root,
+    runtimeExecutable: value.executable,
+    interactive: true,
+    output: { stdout: () => {}, stderr: (text: string) => stderr.push(text) },
+  }
+  try {
+    expect(await runFactoryCli(['_update-check', 'npm'], options)).toBe(0)
+    expect(await runFactoryCli(['_update-check', 'npm'], options)).toBe(0)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(await runFactoryCli(['install', '--executable', value.executable], options)).toBe(0)
+    expect(stderr.join('')).toBe('Factory 0.2.0 is available. Run factory upgrade.\n')
+    expect(await readFile(value.executable, 'utf8')).toBe('old executable')
+  } finally {
+    fetchMock.mockRestore()
+  }
+})
+
+test('interactive commands finish while a detached checker is still waiting', async () => {
+  const value = await fixture()
+  const release = join(value.environment.HOME, 'release-checker')
+  const done = join(value.environment.HOME, 'checker-done')
+  await writeFile(
+    value.executable,
+    `#!/bin/sh
+while [ ! -f "${release}" ]; do sleep 0.01; done
+printf '%s' "$1 $2" > "${done}"
+`,
+  )
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    const result = await Promise.race([
+      runFactoryCli(['install', '--executable', value.executable], {
+        environment: value.environment,
+        cwd: value.root,
+        runtimeExecutable: value.executable,
+        interactive: true,
+        output: { stdout: () => {}, stderr: () => {} },
+      }),
+      new Promise<string>(resolve => {
+        timer = setTimeout(() => resolve('blocked by checker'), 2000)
+      }),
+    ])
+    expect(result).toBe(0)
+  } finally {
+    clearTimeout(timer)
+    await writeFile(release, '')
+  }
+  const deadline = Date.now() + 2000
+  while (!(await Bun.file(done).exists()) && Date.now() < deadline) await Bun.sleep(10)
+  expect(await readFile(done, 'utf8')).toBe('_update-check npm')
+})
+
+test('failed checks preserve a usable notice and suppress repeated network attempts', async () => {
+  const value = await fixture()
+  const cache = join(value.environment.HOME, '.cache/factory/npm-update-check.json')
+  await mkdir(join(cache, '..'), { recursive: true })
+  await writeFile(
+    cache,
+    JSON.stringify({ checkedAt: Date.now() - 2 * 24 * 60 * 60 * 1000, version: '0.2.0' }),
+  )
+  const fetchMock = spyOn(globalThis, 'fetch').mockRejectedValue(new Error('offline'))
+  const stderr: string[] = []
+  const options = {
+    environment: value.environment,
+    cwd: value.root,
+    runtimeExecutable: value.executable,
+    interactive: true,
+    output: { stdout: () => {}, stderr: (text: string) => stderr.push(text) },
+  }
+  try {
+    await runFactoryCli(['_update-check', 'npm'], options)
+    await runFactoryCli(['_update-check', 'npm'], options)
+    await runFactoryCli(['install', '--executable', value.executable], options)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(stderr.join('')).toContain('Run factory upgrade.')
+    expect(JSON.parse(await readFile(cache, 'utf8')).version).toBe('0.2.0')
+    stderr.length = 0
+    await runFactoryCli(['install', '--executable', value.executable], {
+      ...options,
+      interactive: false,
+    })
+    await runFactoryCli(['capture'], options)
+    await runFactoryCli(['review', '--automatic'], options)
+    expect(stderr.join('')).not.toContain('Run factory upgrade.')
+  } finally {
+    fetchMock.mockRestore()
+  }
+})
+
+test('disabling checks does not itself display a notice', async () => {
+  const value = await fixture()
+  const cache = join(value.environment.HOME, '.cache/factory/npm-update-check.json')
+  await mkdir(join(cache, '..'), { recursive: true })
+  await writeFile(cache, JSON.stringify({ checkedAt: Date.now(), version: '0.2.0' }))
+  const stderr: string[] = []
+  const options = {
+    environment: value.environment,
+    cwd: value.root,
+    runtimeExecutable: value.executable,
+    interactive: true,
+    output: { stdout: () => {}, stderr: (text: string) => stderr.push(text) },
+  }
+  expect(await runFactoryCli(['configure', '--global', '--update-checks', 'false'], options)).toBe(
+    0,
+  )
+  expect(await runFactoryCli(['install', '--executable', value.executable], options)).toBe(0)
+  expect(stderr.join('')).toBe('')
+})
+
+test('normal startup never installs or checks in a noninteractive invocation', async () => {
   const value = await fixture()
   const fetchMock = spyOn(globalThis, 'fetch')
   fetchMock.mockResolvedValue(Response.json({ version: '0.2.0' }))
@@ -100,13 +216,12 @@ test('normal startup upgrades, keeps command output, and remains fail-open offli
   }
   try {
     expect(await runFactoryCli(['install', '--executable', value.executable], options)).toBe(0)
-    expect(stderr.join('')).toContain('upgraded to 0.2.0')
-    expect(await readFile(value.executable, 'utf8')).toBe('new executable')
+    expect(await readFile(value.executable, 'utf8')).toBe('old executable')
     expect(JSON.parse(stdout.join('')).executable).toBe(value.executable)
-    expect(stderr.join('')).toContain('upgraded to 0.2.0')
+    expect(stderr.join('')).toBe('')
     fetchMock.mockRejectedValue(new Error('offline'))
     expect(await runFactoryCli(['install', '--executable', value.executable], options)).toBe(0)
-    expect(stderr.join('')).toContain('automatic upgrade skipped')
+    expect(stderr.join('')).toBe('')
   } finally {
     fetchMock.mockRestore()
   }
@@ -124,11 +239,6 @@ test('opt-outs and non-user workers never contact npm', async () => {
     output,
   }
   try {
-    await runFactoryCli(['--no-auto-upgrade', 'install', '--executable', value.executable], options)
-    await runFactoryCli(['install', '--executable', value.executable], {
-      ...options,
-      environment: { ...value.environment, FACTORY_NO_AUTO_UPGRADE: '1' },
-    })
     for (const args of [
       ['version'],
       ['doctor'],
@@ -195,25 +305,6 @@ test('invalid metadata and a failed npm command leave the requested command usab
     fetchMock.mockResolvedValue(Response.json({ version: '0.2.0' }))
     expect(await runFactoryCli(['upgrade'], options)).toBe(1)
     expect(await runFactoryCli(['install', '--executable', value.executable], options)).toBe(0)
-    expect(await readFile(value.executable, 'utf8')).toBe('old executable')
-  } finally {
-    fetchMock.mockRestore()
-  }
-})
-
-test('automatic upgrades do not wait behind another installation', async () => {
-  const value = await fixture()
-  const fetchMock = spyOn(globalThis, 'fetch').mockResolvedValue(
-    Response.json({ version: '0.2.0' }),
-  )
-  try {
-    const installation = await npmInstallation(value.executable)
-    await withInstallationLock(value.environment, async () => {
-      await expect(
-        upgradeNpmInstallation(installation!, value.environment, false, () => {}, true),
-      ).rejects.toThrow('lock is unavailable')
-    })
-    expect(fetchMock).not.toHaveBeenCalled()
     expect(await readFile(value.executable, 'utf8')).toBe('old executable')
   } finally {
     fetchMock.mockRestore()

@@ -16,11 +16,15 @@ owns the permitted resource ranges; the reviewer verifies Docker's actual
 constraints without making its isolation policy configurable.
 
 The [npm upgrade owner](src/npm-upgrade.ts) updates only the global npm prefix
-containing the running executable. Manual and automatic upgrades share that
-owner and the installation lock. npm owns package replacement; Factory does not
+containing the running executable, and only on explicit request. It shares the
+installation lock with native installation operations. npm owns package replacement; Factory does not
 rewrite hook settings during package upgrades. The [installation guide](../../scripts/npm-README.md)
 owns user controls. Standalone binaries retain explicit verified-archive upgrades
 and cached advisory checks; discovery never substitutes for artifact authority.
+The [update observation owner](src/updates.ts) handles bounded discovery, expiring
+notices, and rate-limited detached checks independently of installation. Foreground
+commands never wait for its network I/O, and failed attempts preserve useful
+observations without creating a retry on every launch.
 
 `factory capture` is deliberately fail-open for Codex and Claude Code: after
 input classification it always emits the provider's valid empty response and

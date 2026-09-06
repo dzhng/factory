@@ -13,8 +13,8 @@ The npm install journey accepts the actual packed tarball and exercises an
 offline global install in disposable Docker state. It requires no Bun on the
 consumer path and does not enable hooks in the developer's provider homes.
 The opt-in [npm upgrade journey](src/run-npm-upgrade.ts) uses a candidate compiled
-with an older version and the real npm registry to prove manual and startup
-replacement in disposable global prefixes. Its network authority is separate
+with an older version and the real npm registry to prove notices do not replace
+the executable, then exercise explicit replacement in a disposable global prefix. Its network authority is separate
 from the deterministic offline gates.
 
 The [authenticated capture certificate](../../specs/done/factory-v1/assets/live-capture/README.md)
