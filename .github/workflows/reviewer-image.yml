@@ -6,6 +6,13 @@ on:
     paths:
       - .github/workflows/reviewer-image.yml
       - packages/reviewer/docker/**
+      # The server bundle traverses workspace imports; do not maintain a second dependency graph.
+      - packages/*/src/**
+      - packages/*/package.json
+      - packages/*/tsconfig*.json
+      - apps/web/package.json
+      - package.json
+      - bun.lock
   workflow_dispatch:
 
 permissions:
