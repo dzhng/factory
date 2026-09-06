@@ -1276,25 +1276,16 @@ describe('installed capture vertical', () => {
     const [snapshot, session] = (await Promise.all([
       fetch(`${handle.origin}/api/snapshot`).then(response => response.json()),
       fetch(`${handle.origin}/api/session`).then(response => response.json()),
-    ])) as [
-      {
-        decisions: {
-          stateFingerprint: string
-          lineages: {
-            observations: { humanStatus: string; observation: { observationId: string } }[]
-          }[]
-        }
-      },
-      { csrfToken: string },
-    ]
+    ])) as [UiReadySnapshot, { csrfToken: string }]
     expect(snapshot).toMatchObject({
       state: 'ready',
       canonicalBranch: 'feature/review',
       counts: { reviews: 2 },
     })
-    const decision = snapshot.decisions.lineages[0]!.observations.find(
-      (item: { humanStatus: string }) => item.humanStatus === 'unconfirmed',
-    )
+    expect(snapshot.decisions).not.toBeNull()
+    const decision = snapshot
+      .decisions!.groups.flatMap(group => group.choices)
+      .find(item => 'humanStatus' in item && item.humanStatus === 'unconfirmed')
     expect(decision).toBeDefined()
     const headers = {
       'Content-Type': 'application/json',
@@ -1308,7 +1299,7 @@ describe('installed capture vertical', () => {
         actionId: 'action_00000000000000000000000021',
         kind: 'confirm',
         targetObservationId: decision!.observation.observationId,
-        expectedStateFingerprint: snapshot.decisions.stateFingerprint,
+        expectedStateFingerprint: snapshot.decisions!.stateFingerprint,
       }),
     })
     expect(decisionResponse.status).toBe(201)

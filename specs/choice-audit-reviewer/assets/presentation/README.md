@@ -100,8 +100,16 @@ The strongest visible case against each feature was considered before judging:
   unclassified/read-only labels expose missing authority without invented status.
 
 Provisional visual verdict: candidate is less wrong against the stated target.
-No visible overlap, clipped text, or horizontal overflow was found. This verdict
-does not substitute for the pending independent integration inspection.
+No visible overlap, clipped text, or horizontal overflow was found.
+
+The integrating parent inspected the wide comparison, wide and narrow ledger,
+read-only view, narrow audit history, and enlarged provenance crop. The candidate
+exposes the missing decision rationale and required action; the narrow history
+distinguishes an explained empty audit from failed and partial work. No clipped
+text or horizontal escape was visible. This is a separate integration inspection,
+not an unprimed critique. The merged production browser gate matched all eight
+screenshots across twelve states. The installed CLI action consumer was updated
+to the compact grouped projection and its real append-only test passed.
 
 Preview showed the wide ledger, narrow ledger, and audit history for approximately
 six minutes while tests continued. No user feedback arrived; Preview was closed.
