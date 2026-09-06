@@ -824,7 +824,7 @@ export async function runFactoryCli(
       const root = await gitRoot(cwd, environment)
       if (root === undefined) throw new Error('factory init requires a Git repository')
       output.stderr(
-        'Factory stores complete plaintext traces that may contain source, paths, tool output, and secrets.\n',
+        'Factory stores sanitized plaintext evidence. Redaction is best effort; source, paths, tool output, and undetected secrets may enter Git.\n',
       )
       const store = await initialize(root, environment, readOption(args, '--canonical-branch'))
       output.stdout(`${store.factoryRoot}\n`)

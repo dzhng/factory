@@ -18,7 +18,7 @@ trade-offs, and verification provenance. Its [public format](specs/done/factory-
 is separate so portable data does not depend on one package layout.
 
 The active [evidence sanitization plan](specs/evidence-sanitization/README.md)
-defines the planned cutover from lossless capture to sanitized review evidence.
+records the sanitized-evidence contract and its remaining certification gates.
 The complementary [choice-audit reviewer plan](specs/choice-audit-reviewer/README.md)
 replaces generic findings with cited, standalone judgments of agent-made choices.
 

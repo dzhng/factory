@@ -44,6 +44,14 @@ does not authorize raw source publication. Detection remains best effort, not an
 anonymization guarantee. Provider capture and accepted reviewer output use the
 same policy before portable publication.
 
+Every Factory publication path requires repository-bound prepared content,
+including unreferenced objects left by interrupted writes. Preparation happens
+before content identities are derived; the writer cannot silently rewrite a
+finished graph. Private journal and review-attempt owners may restore the exact
+frozen publication only after verifying its durable binding and bytes. This
+internal recovery authority is not a public raw-byte write API or a defense
+against malicious code already executing within the repository trust domain.
+
 Accepted reviewer submissions use the same policy before ledger entries and
 decision identities are derived. Invalid output tails and private provider final
 text never become portable response copies. Required citation locators must

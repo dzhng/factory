@@ -88,7 +88,7 @@ the four adapter tests; owning Docker journeys were verified separately.
 
 Release must publish the final reviewer image and update the default immutable
 reference and live-capture image pin from its observed digest. The prior shipped
-image does not contain the submission server. The image workflow currently
-watches Docker files only, so source-only server/schema changes also need explicit
-dispatch or a corrected dependency path filter. Neither a local test image nor
+image does not contain the submission server. The image workflow now watches
+workspace source, package manifests, and the lockfile as well as Docker inputs.
+Neither a local test image nor
 a passing source build certifies that default remote image.

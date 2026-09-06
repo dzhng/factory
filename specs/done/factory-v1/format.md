@@ -104,7 +104,7 @@ A Turn manifest records:
 - Session and Stop identities;
 - captured and materialized timestamps;
 - ordered event range and transcript observations;
-- raw-object references for every provider payload;
+- prepared evidence-object references for retained provider payloads;
 - repository and branch observations;
 - exact code-manifest and staged/unstaged patch references;
 - known missing ranges, races, unavailable fields, and cross-repository facts;
@@ -112,9 +112,16 @@ A Turn manifest records:
 - the content inventory needed to verify the Turn independently.
 
 `events.jsonl` and `transcript.jsonl` are inspectable envelopes. Each envelope
-preserves ordering and references the exact raw bytes in the CAS; an adapter may
-also include non-authoritative parsed fields. A later parser failure cannot make
-the raw reference unreadable.
+preserves ordering and references the exact sanitized bytes in the CAS; an
+adapter may also include sanitized, non-authoritative parsed fields. Private
+provider originals are not portable evidence. Malformed records retain explicit
+omissions rather than falling back to raw bytes.
+
+Transformation metadata records the shared policy, redaction, omitted character
+count, and fixed omission reasons. It belongs to the evidence envelope, source
+entry, or owning record, not to an alternative object-reference type. Tool
+results are shortened; ordinary user and assistant reasoning is not. Content
+digests, parent identities, and citations describe the final prepared bytes.
 
 ## Repository observations
 
@@ -129,7 +136,11 @@ byte-sorted `entries` array, and an explicit `limitations` array. Each entry
 uses the encoded Git path authority and records one Git-compatible mode:
 ordinary file (`100644`), executable file (`100755`), symbolic link (`120000`),
 or submodule pointer (`160000`). Files, symbolic-link payloads, and LFS pointer
-files reference their exact bytes in the CAS. Submodules record only their Git
+files reference their exact prepared bytes in the CAS. Source content is sanitized
+UTF-8 context, not an executable or original-byte snapshot. Env files, unsupported
+binary content, sensitive paths, and unsafe links are omitted explicitly.
+Git and race identities remain separate from sanitized content identity.
+Submodules record only their Git
 object identity. Factory never fetches submodule or LFS content implicitly.
 
 Consumers load a code manifest through its object reference, not from an
@@ -189,7 +200,7 @@ receives. A later conflicting identity makes the attempt unavailable under that
 first key; it never moves already-seen evidence into a last-seen repository.
 
 An available observation freezes provider and PR identity, state, the facts
-shared by two coherent metadata views, raw evidence, and the exact diff. Its
+shared by two coherent metadata views, sanitized evidence, and a prepared diff. Its
 discriminator distinguishes complete commit/ref evidence from a readable
 partial subject. A bounded commit prefix is labeled as a prefix, and deleted
 fork/ref fields remain explicitly absent; neither can be used as negative
@@ -199,7 +210,7 @@ missing foundational diff evidence are typed unavailable. Before GitHub reveals
 its stable base repository identity, an unavailable attempt remains runtime-only;
 Factory does not disguise a mutable owner/name locator as a durable repository
 key. After identity is known, a durable unavailable record carries only that
-base identity and nonempty raw metadata proof; it never promotes untrusted
+base identity and nonempty prepared metadata proof; it never promotes untrusted
 state, head, or commit fields as exact.
 
 Automatic evidence joins a validated Turn to the RepositoryObservation it

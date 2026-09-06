@@ -17,7 +17,7 @@ the portable projection. The [capture boundary](../../../packages/capture/README
 owns graph verification; publication belongs to the
 [repository store](../../../packages/repository/README.md).
 
-Raw provider bytes are the common envelope, not a guessed shared event schema.
+Provider-native evidence is the common envelope, not a guessed shared event schema.
 Stop is an observation boundary, not proof that a provider's transcript has
 finished growing. Readable partial evidence remains useful to an LLM, provided
 missing, excluded, racing, and corrupt inputs remain explicit. Invalid bytes
@@ -72,8 +72,8 @@ not proof of isolation.
 citations before publishing semantic history. Model prose is evidence to check,
 not authority to choose coverage or overwrite records. Only a bounded semantic
 response can become portable review output; operational logs stay private.
-Lossless captured evidence is nevertheless plaintext and may itself contain
-secrets. Authentication isolation is not a redaction guarantee.
+Prepared evidence remains plaintext and may contain undetected secrets.
+Authentication isolation and best-effort sanitization are not anonymization.
 
 Resource limits bound work, not only retained output. An excluded oversized file
 has an unknown content identity; metadata can support a race observation but

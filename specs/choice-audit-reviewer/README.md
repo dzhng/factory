@@ -31,9 +31,10 @@ review owns publication. The image packages `/opt/factory/audit-server.js`, invo
 as `bun <server> <bundle-path> <exact-bundle-sha256> <output>/submissions.jsonl`.
 It verifies the manifest evidenceIndex, resolves handles to exact ObjectRefs,
 and fsyncs canonical events before replying. Private attempts keep submissions
-separate from providerOutput. Real provider strict MCP configuration is not wired
-yet and therefore fails closed. The synthetic packaged-server probe proves stdio
-and image boundaries, not provider integration. Preserve the main sanitizer's
+separate from providerOutput. Both provider adapters use strict Factory-owned MCP
+configuration. Pinned executable probes verify configuration and discovery;
+the installed synthetic journey separately verifies execution and publication,
+not real-model inference. Preserve the main sanitizer's
 `transformation` metadata when integrating publication.
 
 Load-bearing choices are banked in [choices.md](choices.md). Effect controls
