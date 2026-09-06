@@ -261,7 +261,7 @@ export async function reviewCommand(
       environment,
     )
     let stored = await store.readRecords()
-    if ((await recoverDecisionObservations(store, stored)) > 0) stored = await store.readRecords()
+    if ((await recoverDecisionObservations(store)) > 0) stored = await store.readRecords()
     const committedReviews = loadStoredReviews(stored.records)
     const lineage = subjectPathLineage(subjectPath, stored.records)
     const retryGeneration = committedReviews
@@ -348,7 +348,7 @@ export async function reviewCommand(
       )
       const accepted = await acceptReview(
         await validateReview(bundle, raw, {
-          repositoryRoot,
+          store,
           coordinator,
           ...(retryGeneration === undefined ? {} : { retryGeneration }),
         }),

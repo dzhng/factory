@@ -13,7 +13,11 @@ import {
   type DecisionObservation,
 } from '@factory/contract'
 import { deriveDecisionObservations, loadStoredReviews } from '@factory/domain'
-import { discoverRepositorySanitizer, type RepositoryStore } from '@factory/repository'
+import {
+  snapshotPreparedRecord,
+  type PreparedRecord,
+  type RepositoryStore,
+} from '@factory/repository'
 import {
   readVerifiedReviewBundle,
   readReviewerRawAttempt,
@@ -23,7 +27,6 @@ import {
   type ReviewAttemptCoordinator,
 } from '@factory/reviewer'
 
-import { appendPreparedDecisionObservations } from './decisions'
 import { prepareAuditDraft, type ReviewSanitizer } from './preparation'
 
 export type AttemptTermination = import('@factory/reviewer').ReviewerExecutionTermination
@@ -56,6 +59,7 @@ type PreparedReview = {
 }
 
 type ValidatedState = PreparedReview & {
+  publication?: readonly PreparedRecord[]
   repositoryId?: string
   subjectPath: ReturnType<typeof makeOwnedPath>
   subjectRecord: string
@@ -93,36 +97,71 @@ export async function validateReview(
   options:
     | { sanitizer: ReviewSanitizer }
     | {
-        repositoryRoot: string
+        store: RepositoryStore
         coordinator: ReviewAttemptCoordinator
         retryGeneration?: RecordId
       },
 ): Promise<ValidatedAttempt> {
   let prepared: PreparedReview
+  let publication: readonly PreparedRecord[] | undefined
   if ('sanitizer' in options)
     prepared = await buildPreparedReview(bundle, attempt, options.sanitizer)
   else {
-    const frozen = await options.coordinator.preparePublication(
+    publication = await options.coordinator.preparePublication(
       bundle,
       attempt,
       async () => {
-        const sanitizer = await discoverRepositorySanitizer(options.repositoryRoot)
-        const prepared = await buildPreparedReview(bundle, attempt, sanitizer)
-        return canonicalJson({
-          ...prepared,
-          submissions: Buffer.from(prepared.submissions).toString('base64'),
-        })
+        const context = await options.store.preparePublication()
+        const prepared = await buildPreparedReview(bundle, attempt, context.sanitizer)
+        return reviewRecords(prepared).map(record =>
+          context.prepareRecord(record.path, record.bytes),
+        )
       },
       options.retryGeneration,
     )
-    const encoded = JSON.parse(frozen) as Omit<PreparedReview, 'submissions'> & {
-      submissions: string
+    const snapshots = publication.map(record => snapshotPreparedRecord(record))
+    const manifestRecord = snapshots.find(
+      record => record.path.startsWith('reviews/') && record.path.endsWith('/manifest.json'),
+    )
+    if (manifestRecord === undefined) throw new TypeError('prepared review lacks its manifest')
+    const manifest = JSON.parse(new TextDecoder().decode(manifestRecord.bytes)) as ReviewManifest
+    const rootSegments = reviewRootSegments(manifest)
+    const submissions = snapshots.find(
+      record => record.path === makeOwnedPath('reviews', [...rootSegments, 'submissions.jsonl']),
+    )?.bytes
+    const ledger = snapshots.find(
+      record => record.path === makeOwnedPath('reviews', [...rootSegments, 'ledger.json']),
+    )
+    if (submissions === undefined) throw new TypeError('prepared review lacks its submissions')
+    prepared = {
+      manifest,
+      rootSegments,
+      submissions,
+      ...(ledger === undefined
+        ? {}
+        : { ledger: JSON.parse(new TextDecoder().decode(ledger.bytes)) as ReviewLedger }),
+      decisionObservations: snapshots
+        .filter(record => record.path.startsWith('decisions/observations/'))
+        .map(record => JSON.parse(new TextDecoder().decode(record.bytes)) as DecisionObservation),
+      executionFailed: manifest.limitations.some(
+        limitation => limitation.code === 'invalid-review-output',
+      ),
     }
-    prepared = { ...encoded, submissions: Buffer.from(encoded.submissions, 'base64') }
+    const expected = reviewRecords(prepared)
+    if (
+      expected.length !== snapshots.length ||
+      expected.some(
+        (record, index) =>
+          record.path !== snapshots[index]!.path ||
+          !Buffer.from(record.bytes).equals(snapshots[index]!.bytes),
+      )
+    )
+      throw new TypeError('prepared review publication differs from its exact graph')
   }
   const verified = await readVerifiedReviewBundle(bundle)
   const state: ValidatedState = {
     ...prepared,
+    ...(publication === undefined ? {} : { publication }),
     ...(verified.authority.repositoryId === undefined
       ? {}
       : { repositoryId: verified.authority.repositoryId }),
@@ -290,16 +329,7 @@ async function buildPreparedReview(
           entries: parsed.entries,
           ...(parsed.summary ? { summary: parsed.summary } : {}),
         } as const)
-  const rootSegments =
-    manifest.subject.kind === 'workspace'
-      ? (['workspace', observed.reviewId] as const)
-      : ([
-          'pull-requests',
-          'github',
-          manifest.subject.repositoryKey,
-          String(manifest.subject.number),
-          observed.reviewId,
-        ] as const)
+  const rootSegments = reviewRootSegments(manifest)
   return {
     manifest,
     ...(ledger === undefined ? {} : { ledger }),
@@ -313,15 +343,22 @@ async function buildPreparedReview(
   }
 }
 
-export async function acceptReview(
-  attempt: ValidatedAttempt,
-  store: RepositoryStore,
-): Promise<AcceptedReview> {
-  const state = validatedAttempts.get(attempt)
-  if (state === undefined) throw new TypeError('review attempt was not validated')
+function reviewRootSegments(manifest: ReviewManifest): readonly string[] {
+  return manifest.subject.kind === 'workspace'
+    ? ['workspace', manifest.reviewId]
+    : [
+        'pull-requests',
+        'github',
+        manifest.subject.repositoryKey,
+        String(manifest.subject.number),
+        manifest.reviewId,
+      ]
+}
+
+function reviewRecords(state: PreparedReview) {
   const submissionsPath = makeOwnedPath('reviews', [...state.rootSegments, 'submissions.jsonl'])
   const manifestPath = makeOwnedPath('reviews', [...state.rootSegments, 'manifest.json'])
-  const records = [
+  return [
     { path: submissionsPath, bytes: state.submissions },
     ...(state.ledger === undefined
       ? []
@@ -332,7 +369,27 @@ export async function acceptReview(
           },
         ]),
     { path: manifestPath, bytes: new TextEncoder().encode(canonicalJson(state.manifest)) },
+    ...state.decisionObservations.map(observation => ({
+      path: makeOwnedPath('decisions', ['observations', `${observation.observationId}.json`]),
+      bytes: new TextEncoder().encode(canonicalJson(observation)),
+    })),
   ]
+}
+
+export async function acceptReview(
+  attempt: ValidatedAttempt,
+  store: RepositoryStore,
+): Promise<AcceptedReview> {
+  const state = validatedAttempts.get(attempt)
+  if (state === undefined) throw new TypeError('review attempt was not validated')
+  let publication = state.publication
+  if (publication === undefined) {
+    const context = await store.preparePublication()
+    publication = reviewRecords(state).map(record =>
+      context.prepareRecord(record.path, record.bytes),
+    )
+  }
+  const manifestPath = makeOwnedPath('reviews', [...state.rootSegments, 'manifest.json'])
   await store.publishReview(
     {
       ...(state.repositoryId === undefined ? {} : { repositoryId: state.repositoryId }),
@@ -342,10 +399,11 @@ export async function acceptReview(
       inventory: state.inventory,
       recordObjects: state.recordObjects,
     },
-    records,
+    publication.filter(record => record.path.startsWith('reviews/')),
     manifestPath,
   )
-  await appendPreparedDecisionObservations(store, state.decisionObservations)
+  for (const record of publication.filter(record => record.path.startsWith('decisions/')))
+    await store.createImmutable(record)
   return {
     reviewId: state.manifest.reviewId,
     disposition: state.manifest.disposition,

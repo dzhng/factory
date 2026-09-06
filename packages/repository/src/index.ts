@@ -25,6 +25,7 @@ import {
   parseRepositoryConfig,
   parseRepositoryManifest,
   validateObjectRef,
+  validatePublicRecord,
   type JsonValue,
   type CoverageAction,
   type DecisionAction,
@@ -44,8 +45,8 @@ import {
   type PreparedObject,
   type PreparedRecord,
 } from './admission'
+import { restorePreparedRecord } from './admission-internal'
 import { withAdvisoryFileLock } from './confined-writer'
-import { discoverRepositorySanitizer } from './git-observer'
 import { validateStructuredRecord } from './record-validation'
 export {
   snapshotPreparedObject,
@@ -833,13 +834,15 @@ export class RepositoryStore {
         ...semantic,
         createdAt: now().toISOString(),
       }
-      const sanitizer = await discoverRepositorySanitizer(this.repositoryRoot)
+      const context = await this.preparePublication()
+      const sanitizer = context.sanitizer
       for (const sessionKey of Object.keys(action.settledWatermarks)) {
         if (sanitizer.text(sessionKey).redacted) throw new SanitizationError('unsupported-content')
       }
       const bytes = new TextEncoder().encode(canonicalJson(action))
       validateStructuredRecord(path, bytes)
-      await atomicCreate(destination, path, bytes, this.stagingRoot)
+      const prepared = snapshotPreparedRecord(context.prepareRecord(path, bytes))
+      await atomicCreate(destination, path, prepared.bytes, this.stagingRoot)
       return { path, sha256: sha256(bytes), bytes: bytes.byteLength }
     })
   }
@@ -869,10 +872,29 @@ export class RepositoryStore {
       const encoded = decodeUtf8(await readBoundedOrdinary(path, MAX_STRUCTURED_RECORD_BYTES))
       const saved = JSON.parse(encoded) as {
         policy: string
+        repositoryRoot: string
         requestHash: string
         semantic: DecisionActionInput
+        binding: string
       }
-      if (canonicalJson(saved) !== encoded || saved.policy !== 'evidence-sanitization-1')
+      if (
+        canonicalJson(saved) !== encoded ||
+        saved.policy !== 'evidence-sanitization-1' ||
+        Object.keys(saved).sort().join(',') !==
+          'binding,policy,repositoryRoot,requestHash,semantic' ||
+        saved.repositoryRoot !== (await realpath(this.repositoryRoot)) ||
+        !/^[0-9a-f]{64}$/.test(saved.requestHash) ||
+        saved.binding !==
+          sha256(
+            Buffer.from(
+              canonicalJson({
+                repositoryRoot: saved.repositoryRoot,
+                requestHash: saved.requestHash,
+                semantic: saved.semantic,
+              }),
+            ),
+          )
+      )
         throw new Error('decision action preparation is not canonical')
       validatePublicRecord(ownedPath, {
         ...saved.semantic,
@@ -883,7 +905,8 @@ export class RepositoryStore {
         throw new ImmutableRecordConflictError(ownedPath)
       return saved.semantic
     }
-    const sanitizer = await discoverRepositorySanitizer(this.repositoryRoot)
+    const context = await this.preparePublication()
+    const sanitizer = context.sanitizer
     const semantic: DecisionActionInput = {
       ...snapshot,
       actor:
@@ -894,8 +917,25 @@ export class RepositoryStore {
         ? { note: sanitizer.text(snapshot.note).text }
         : {}),
     }
+    const admitted = snapshotPreparedRecord(
+      context.prepareRecord(
+        ownedPath,
+        Buffer.from(
+          canonicalJson({
+            ...semantic,
+            createdAt: '1970-01-01T00:00:00Z',
+            previousActionId: null,
+          }),
+        ),
+      ),
+    )
+    const frozen = { repositoryRoot: admitted.repositoryRoot, requestHash, semantic }
     const bytes = Buffer.from(
-      canonicalJson({ policy: 'evidence-sanitization-1', requestHash, semantic }),
+      canonicalJson({
+        policy: 'evidence-sanitization-1',
+        ...frozen,
+        binding: sha256(Buffer.from(canonicalJson(frozen))),
+      }),
     )
     if (bytes.byteLength > MAX_STRUCTURED_RECORD_BYTES)
       throw new TypeError('decision action preparation exceeds byte bound')
@@ -945,7 +985,12 @@ export class RepositoryStore {
         throw new DecisionAuthorityConflictError(path)
       const bytes = new TextEncoder().encode(canonicalJson(action))
       validateStructuredRecord(path, bytes)
-      await atomicCreate(destination, path, bytes, this.stagingRoot)
+      // Only the exact private prepared receipt supplies prose; the owner adds
+      // schema-validated timestamp/previous-action structure after authority comparison.
+      const prepared = snapshotPreparedRecord(
+        restorePreparedRecord(await realpath(this.repositoryRoot), path, bytes),
+      )
+      await atomicCreate(destination, path, prepared.bytes, this.stagingRoot)
       return { path, sha256: sha256(bytes), bytes: bytes.byteLength }
     })
   }

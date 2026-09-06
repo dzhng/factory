@@ -14,8 +14,19 @@ import {
 } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 
-import { canonicalJson, newRecordId, type RecordId, type ReviewManifest } from '@factory/contract'
-import { withAdvisoryFileLock } from '@factory/repository'
+import {
+  canonicalJson,
+  newRecordId,
+  type OwnedPath,
+  type RecordId,
+  type ReviewManifest,
+} from '@factory/contract'
+import {
+  withAdvisoryFileLock,
+  snapshotPreparedRecord,
+  type PreparedRecord,
+} from '@factory/repository'
+import { restorePreparedRecord } from '@factory/repository/internal/admission'
 import { locateGitCommonRuntime } from '@factory/runtime-journal'
 
 import {
@@ -50,6 +61,12 @@ type PersistedSnapshot = Omit<ReviewerRawAttemptSnapshot, 'submissions' | 'provi
   providerOutputBase64: string
 }
 
+type FrozenPublication = {
+  repositoryRoot: string
+  records: readonly { path: OwnedPath; bytes: string }[]
+  binding: string
+}
+
 type AttemptState =
   | {
       schemaVersion: 1
@@ -65,7 +82,7 @@ type AttemptState =
       phase: 'completed'
       containerIdentity: { name: string; label: string }
       attempt: PersistedSnapshot
-      preparedPublication?: string
+      preparedPublication?: FrozenPublication
     }
 
 function attemptKey(
@@ -243,8 +260,9 @@ function isAttemptState(value: unknown): value is AttemptState {
   return (
     (Object.keys(state).length === 6 ||
       (Object.keys(state).length === 7 &&
-        typeof state.preparedPublication === 'string' &&
-        Buffer.byteLength(state.preparedPublication) <= MAX_PUBLICATION_BYTES)) &&
+        state.preparedPublication !== null &&
+        typeof state.preparedPublication === 'object' &&
+        Buffer.byteLength(canonicalJson(state.preparedPublication)) <= MAX_PUBLICATION_BYTES)) &&
     attemptKeys.join(',') ===
       [
         'bundleSha256',
@@ -296,6 +314,7 @@ export class ReviewAttemptCoordinator {
   private constructor(
     readonly runtimeRoot: string,
     private readonly lockRoot: string,
+    private readonly repositoryRoot: string | undefined,
   ) {}
 
   static async open(options: ReviewAttemptCoordinatorOptions): Promise<ReviewAttemptCoordinator> {
@@ -309,7 +328,11 @@ export class ReviewAttemptCoordinator {
     // Lock inodes outlive disposable attempts so queued owners never split locks.
     const lockRoot = join(await realpath(authorityRoot), 'review-attempt-locks')
     await privateDirectory(lockRoot)
-    const coordinator = new ReviewAttemptCoordinator(root, lockRoot)
+    const coordinator = new ReviewAttemptCoordinator(
+      root,
+      lockRoot,
+      options.repositoryRoot === undefined ? undefined : await realpath(options.repositoryRoot),
+    )
     await coordinator.recoverStartedAttempts()
     return coordinator
   }
@@ -433,9 +456,9 @@ export class ReviewAttemptCoordinator {
   async preparePublication(
     bundle: VerifiedReviewBundle,
     attempt: ReviewerRawAttempt,
-    prepare: () => Promise<string>,
+    prepare: () => Promise<readonly PreparedRecord[]>,
     retryGeneration?: RecordId,
-  ): Promise<string> {
+  ): Promise<readonly PreparedRecord[]> {
     const verified = await readVerifiedReviewBundle(bundle)
     const observed = readReviewerRawAttempt(attempt)
     const key = attemptKey(verified, observed.reviewer, observed.imageDigest, retryGeneration)
@@ -448,14 +471,71 @@ export class ReviewAttemptCoordinator {
         canonicalJson(state.attempt) !== canonicalJson(persisted(observed))
       )
         throw new Error('review publication differs from its durable attempt')
-      if (state.preparedPublication !== undefined) return state.preparedPublication
-      const preparedPublication = await prepare()
-      if (Buffer.byteLength(preparedPublication) > MAX_PUBLICATION_BYTES)
+      const binding = (publication: Omit<FrozenPublication, 'binding'>) =>
+        createHash('sha256')
+          .update(canonicalJson({ key, attempt: state.attempt, ...publication }))
+          .digest('hex')
+      if (state.preparedPublication !== undefined) {
+        const publication = state.preparedPublication
+        if (
+          Object.keys(publication).sort().join(',') !== 'binding,records,repositoryRoot' ||
+          typeof publication.repositoryRoot !== 'string' ||
+          !isAbsolute(publication.repositoryRoot) ||
+          (this.repositoryRoot !== undefined &&
+            publication.repositoryRoot !== this.repositoryRoot) ||
+          !Array.isArray(publication.records) ||
+          publication.records.length === 0 ||
+          publication.binding !==
+            binding({ repositoryRoot: publication.repositoryRoot, records: publication.records })
+        )
+          throw new Error('prepared review publication binding is corrupt')
+        const paths = new Set<string>()
+        return publication.records.map(record => {
+          if (
+            Object.keys(record).sort().join(',') !== 'bytes,path' ||
+            typeof record.path !== 'string' ||
+            typeof record.bytes !== 'string' ||
+            paths.has(record.path)
+          )
+            throw new Error('prepared review publication record is corrupt')
+          paths.add(record.path)
+          const bytes = Buffer.from(record.bytes, 'base64')
+          if (bytes.toString('base64') !== record.bytes)
+            throw new Error('prepared review publication encoding is corrupt')
+          return restorePreparedRecord(publication.repositoryRoot, record.path, bytes)
+        })
+      }
+      const capabilities = await prepare()
+      if (!Array.isArray(capabilities) || capabilities.length === 0 || capabilities.length > 10_000)
+        throw new TypeError('prepared review publication requires record capabilities')
+      let encodedBytes = 0
+      const snapshots = capabilities.map(capability => {
+        const snapshot = snapshotPreparedRecord(capability)
+        encodedBytes +=
+          4 * Math.ceil(snapshot.bytes.byteLength / 3) + Buffer.byteLength(snapshot.path)
+        if (encodedBytes > MAX_PUBLICATION_BYTES)
+          throw new Error('prepared review publication exceeds byte bound')
+        return snapshot
+      })
+      const repositoryRoot = snapshots[0]!.repositoryRoot
+      if (
+        snapshots.some(record => record.repositoryRoot !== repositoryRoot) ||
+        (this.repositoryRoot !== undefined && repositoryRoot !== this.repositoryRoot) ||
+        new Set(snapshots.map(record => record.path)).size !== snapshots.length
+      )
+        throw new TypeError('prepared review publication differs from its repository')
+      const publication = {
+        repositoryRoot,
+        records: snapshots.map(record => ({
+          path: record.path,
+          bytes: Buffer.from(record.bytes).toString('base64'),
+        })),
+      }
+      const preparedPublication = { ...publication, binding: binding(publication) }
+      if (Buffer.byteLength(canonicalJson(preparedPublication)) > MAX_PUBLICATION_BYTES)
         throw new Error('prepared review publication exceeds byte bound')
-      if (canonicalJson(JSON.parse(preparedPublication)) !== preparedPublication)
-        throw new Error('prepared review publication is not canonical')
       await atomicState(statePath, { ...state, preparedPublication })
-      return preparedPublication
+      return capabilities
     })
   }
 

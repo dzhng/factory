@@ -95,6 +95,9 @@ async function fixture() {
   let actionCalls = 0
   let authority: unknown
   const store = {
+    async preparePublication() {
+      return { prepareRecord: (path: OwnedPath, bytes: Uint8Array) => ({ path, bytes }) }
+    },
     async publishReview(
       _authority: unknown,
       group: readonly { path: OwnedPath; bytes: Uint8Array }[],
@@ -108,7 +111,7 @@ async function fixture() {
       }
       return { path: group.at(-1)!.path, sha256: 'a'.repeat(64), bytes: 1 }
     },
-    async createImmutable(path: OwnedPath, bytes: Uint8Array) {
+    async createImmutable({ path, bytes }: { path: OwnedPath; bytes: Uint8Array }) {
       const text = new TextDecoder().decode(bytes)
       const existing = records.find(record => record.path === path)
       if (existing === undefined) records.push({ path, value: JSON.parse(text) as JsonValue })

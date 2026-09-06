@@ -1,30 +1,30 @@
 import { createHash } from 'node:crypto'
+import { realpath } from 'node:fs/promises'
 
 import {
   canonicalJson,
   makeOwnedPath,
+  readAuditDraft,
   validatePublicRecord,
   type DecisionAction,
   type DecisionObservation,
   type OwnedPath,
   type RecordId,
-  type ReviewLedger,
-  type ReviewManifest,
 } from '@factory/contract'
 import {
-  deriveDecisionObservations,
   deriveStoredDecisionObservations,
   foldDecisions,
   loadVerifiedDecisionRecords,
+  loadStoredReviews,
 } from '@factory/domain'
 import {
   DecisionAuthorityConflictError,
   type DecisionRecordAuthority,
   type RecordRef,
-  type RepositoryRecords,
   type RepositoryStore,
   type DecisionActionInput,
 } from '@factory/repository'
+import { restorePreparedRecord } from '@factory/repository/internal/admission'
 
 export type { DecisionObservationSource } from '@factory/domain'
 export type { DecisionActionInput } from '@factory/repository'
@@ -37,55 +37,68 @@ export class StaleDecisionActionError extends Error {
   }
 }
 
-/** Recoverably publish all observations; deterministic IDs make interrupted retries converge. */
-export async function appendDecisionObservations(
-  store: RepositoryStore,
-  manifest: ReviewManifest,
-  ledger: ReviewLedger,
-  subjectRecord: unknown,
-): Promise<readonly RecordRef[]> {
-  const observations = deriveDecisionObservations(manifest, ledger, subjectRecord)
-  return await appendPreparedDecisionObservations(store, observations)
-}
-
-export async function appendPreparedDecisionObservations(
-  store: RepositoryStore,
-  observations: readonly DecisionObservation[],
-): Promise<readonly RecordRef[]> {
-  const refs: RecordRef[] = []
+/** Repair a crash after manifest-last review publication but before derived observations append. */
+export async function recoverDecisionObservations(store: RepositoryStore): Promise<number> {
+  // Restore only derivations from the actual store's validated immutable groups,
+  // never caller-supplied records or a fresh interpretation of the live dictionary.
+  const stored = await store.readRecords()
+  const existing = new Map(
+    stored.records
+      .filter(record => /^decisions\/observations\/[^/]+\.json$/.test(record.path))
+      .map(record => [
+        (record.value as unknown as DecisionObservation).observationId,
+        record.value,
+      ]),
+  )
+  const observations = deriveStoredDecisionObservations(stored).filter(observation => {
+    const prior = existing.get(observation.observationId)
+    if (prior === undefined) return true
+    if (canonicalJson(prior) !== canonicalJson(observation))
+      throw new TypeError('stored decision differs from its review derivation')
+    return false
+  })
+  if (observations.length === 0) return 0
+  const reviewIds = new Set(observations.map(observation => observation.reviewId))
+  const checkedObjects = new Set<string>()
+  for (const review of loadStoredReviews(stored.records)) {
+    if (review.ledger === undefined || !reviewIds.has(review.manifest.reviewId)) continue
+    const inventory = [
+      ...new Map(
+        [
+          ...review.ledger.entries.flatMap(entry => entry.evidence),
+          ...(review.ledger.summary?.evidence ?? []),
+        ].map(citation => [canonicalJson(citation.object), citation.object]),
+      ).values(),
+    ]
+    for (const object of inventory) {
+      const identity = canonicalJson(object)
+      if (!checkedObjects.has(identity)) {
+        await store.getObject(object)
+        checkedObjects.add(identity)
+      }
+    }
+    const rebuilt = readAuditDraft(
+      Buffer.from(review.submissions),
+      inventory,
+      review.manifest.reviewId,
+    )
+    if (
+      canonicalJson(rebuilt.entries) !== canonicalJson(review.ledger.entries) ||
+      canonicalJson(rebuilt.summary ?? null) !== canonicalJson(review.ledger.summary ?? null)
+    )
+      throw new TypeError('decision recovery ledger differs from its stored submissions')
+  }
+  const repositoryRoot = await realpath(store.repositoryRoot)
   for (const observation of observations) {
-    refs.push(
-      await store.createImmutable(
+    await store.createImmutable(
+      restorePreparedRecord(
+        repositoryRoot,
         makeOwnedPath('decisions', ['observations', `${observation.observationId}.json`]),
         new TextEncoder().encode(canonicalJson(observation)),
       ),
     )
   }
-  return refs
-}
-
-/** Repair a crash after manifest-last review publication but before derived observations append. */
-export async function recoverDecisionObservations(
-  store: RepositoryStore,
-  records: RepositoryRecords,
-): Promise<number> {
-  const existing = new Set(
-    records.records
-      .filter(record => /^decisions\/observations\/[^/]+\.json$/.test(record.path))
-      .map(record => (record.value as unknown as DecisionObservation).observationId),
-  )
-  let created = 0
-  for (const observation of deriveStoredDecisionObservations(records)) {
-    await store.createImmutable(
-      makeOwnedPath('decisions', ['observations', `${observation.observationId}.json`]),
-      new TextEncoder().encode(canonicalJson(observation)),
-    )
-    if (!existing.has(observation.observationId)) {
-      existing.add(observation.observationId)
-      created += 1
-    }
-  }
-  return created
+  return observations.length
 }
 
 function recordAuthority(

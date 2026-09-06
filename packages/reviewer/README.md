@@ -103,8 +103,10 @@ unproven container.
 Completed attempts retain one bounded, canonical prepared publication alongside
 private raw output until acceptance succeeds. Preparation is bound to the exact
 attempt and bundle under the same lock; replay reuses it without reading a new
-secret dictionary. Review acceptance owns its semantic validation and complete
-record graph, while the attempt coordinator owns only private durability.
+secret dictionary. Only genuine repository-issued record capabilities can enter
+that freeze; their repository root and exact bytes are bound to the completed
+attempt. Review acceptance owns semantic validation and the complete record
+graph, while the attempt coordinator owns private durability and verified restore.
 
 Per-attempt lock files live outside disposable attempt directories and remain
 after acceptance. Creation, recovery, and deletion use that same stable lock;

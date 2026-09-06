@@ -34,6 +34,7 @@ const child = Bun.spawn(
     'bun',
     'test',
     '/workspace/packages/review/test/publication.test.ts',
+    ...process.argv.slice(2).filter(argument => argument !== '--report'),
   ],
   { stdout: 'inherit', stderr: 'inherit' },
 )

@@ -1,6 +1,5 @@
 export {
   appendDecisionAction,
-  appendDecisionObservations,
   recoverDecisionObservations,
   StaleDecisionActionError,
   type DecisionActionInput,

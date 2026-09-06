@@ -26,6 +26,10 @@ identities exist. Citation objects retain exact bundle authority; sensitive
 choice keys or citation locators are refused rather than redirected. The attempt
 owner freezes the prepared publication privately before its first portable write,
 so recovery reuses those bytes even after repository env assignments change.
+Acceptance carries repository-issued capabilities for the whole review and its
+derived decisions. Missing decisions can also be reconstructed from exact stored
+review groups after checking their submissions and cited object bytes; recovery
+does not mint authority from caller-supplied records or discover a new dictionary.
 Ordinary redaction remains readable evidence, while omitted events reduce authority.
 The Docker publication probe can emit an inspectable synthetic review and human
 action with `bun run packages/review/test/docker.ts --report` from the repository root.

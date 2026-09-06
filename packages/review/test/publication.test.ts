@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { canonicalJson, objectOwnedPath, type ReviewLedger } from '@factory/contract'
+import { canonicalJson, makeOwnedPath, objectOwnedPath, type ReviewLedger } from '@factory/contract'
 import { foldDecisions, loadVerifiedDecisionRecords } from '@factory/domain'
 import {
   discoverRepositorySanitizer,
@@ -21,6 +21,7 @@ import { writerChoice, summarySubmissions } from '../../test-harness/src/choice-
 import {
   acceptReview,
   appendDecisionAction,
+  recoverDecisionObservations,
   validateReview,
   type DecisionActionInput,
 } from '../src'
@@ -53,19 +54,17 @@ async function fixture() {
     },
     {},
   )
+  const context = await store.preparePublication()
   for (const reference of verified.authority.inventory) {
     const bytes = await readFile(join(verified.path, '.factory', objectOwnedPath(reference.sha256)))
-    await store.putObject(
-      (async function* () {
-        yield bytes
-      })(),
-      reference,
-    )
+    await store.putObject(context.prepareObject(bytes, reference))
   }
   for (const record of verified.authority.records) {
     await store.createImmutable(
-      record.path,
-      await readFile(join(verified.path, '.factory', record.path)),
+      context.prepareRecord(
+        record.path,
+        await readFile(join(verified.path, '.factory', record.path)),
+      ),
     )
   }
   return { root, store, bundle, verified }
@@ -110,6 +109,11 @@ test('review publication prepares prose before ledger and decision identity', as
   expect(text).toContain('Preserve reasoning [REDACTED]')
   expect(text).not.toContain(secret)
   expect((await store.verify()).issues).toEqual([])
+  for (const record of records.filter(record => record.path.startsWith('decisions/observations/')))
+    await rm(join(root, '.factory', record.path))
+  await writeFile(join(root, '.env'), 'VALUE="unterminated\n')
+  expect(await recoverDecisionObservations(store)).toBe(1)
+  expect(canonicalJson((await store.readRecords()).records)).toBe(text)
   if (process.env.FACTORY_WRITE_PUBLICATION_REPORT === '1') {
     await writeFile(
       '/output/review.json',
@@ -159,11 +163,25 @@ test('prepared review publication survives env changes before its first public w
     },
     { imageReference: imageDigest, imageDigest, timeoutMs: 100 },
   )
-  await validateReview(bundle, raw, { repositoryRoot: root, coordinator })
+  await expect(
+    coordinator.preparePublication(bundle, raw, async () => {
+      // A shape-compatible value must not mint durable publication authority.
+      return [
+        {
+          path: makeOwnedPath('reviews', [
+            'workspace',
+            'review_000000000000000000000001',
+            'manifest.json',
+          ]),
+        },
+      ] as never
+    }),
+  ).rejects.toThrow()
+  await validateReview(bundle, raw, { store, coordinator })
   await writeFile(join(root, '.env'), 'VALUE="unterminated\n')
   const reopened = await ReviewAttemptCoordinator.open({ testRuntimeRoot: runtime })
   const prepared = await validateReview(bundle, raw, {
-    repositoryRoot: root,
+    store,
     coordinator: reopened,
   })
   await acceptReview(prepared, store)

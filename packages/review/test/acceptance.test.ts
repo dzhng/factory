@@ -69,6 +69,9 @@ async function authorizedStore(
 ): Promise<RepositoryStore> {
   const verified = await readVerifiedReviewBundle(bundle)
   const store = {
+    async preparePublication() {
+      return { prepareRecord: (path: string, bytes: Uint8Array) => ({ path, bytes }) }
+    },
     manifest: { repositoryId: verified.authority.repositoryId ?? 'repo_review_lab' },
     async readImmutable() {
       return new TextEncoder().encode(canonicalJson(verified.authority.subjectRecord))
@@ -78,6 +81,11 @@ async function authorizedStore(
     },
     ...methods,
   } as Record<string, unknown> & { manifest: { repositoryId: string } }
+  store.createImmutable = async (record: { path: string; bytes: Uint8Array }) =>
+    await (methods.createImmutable as (path: string, bytes: Uint8Array) => Promise<unknown>)(
+      record.path,
+      record.bytes,
+    )
   store.publishReview = async (
     authority: { repositoryId?: string },
     records: readonly { path: string; bytes: Uint8Array }[],

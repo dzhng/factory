@@ -44,7 +44,9 @@ limits remain the policy owner; no second config secret catalogue is introduced.
   submissions, ledger, and derived decision observations before publishing any of
   them. The existing verified bundle still owns the input records and object
   inventory; recovery reopens that exact digest instead of copying those lists
-  into the attempt again. The prepared output is capped at 8 MiB, with a 20 MiB
+  into the attempt again. The freeze accepts only repository-issued record
+  capabilities and binds their root and exact encoded bytes to the raw attempt.
+  The prepared output is capped at 8 MiB, with a 20 MiB
   outer attempt-state cap including raw diagnostic streams and JSON encoding.
 - **Gap:** The spec required durable preparation but did not select its precise
   storage shape or byte ceiling.
@@ -59,7 +61,8 @@ limits remain the policy owner; no second config secret catalogue is introduced.
 
 - **When:** human-action publication pass.
 - **Choice:** When a user submits a note containing a secret, the repository writer
-  saves a private hash of that exact request alongside its safe action semantics.
+  saves a private hash of that exact request alongside its admitted safe action
+  semantics, bound to the actual repository root.
   A retry can then return the original safe action after env values change. A
   different request under the same action ID is refused; the already-prepared
   semantics are also a valid retry. Receipts stay in existing private repository
