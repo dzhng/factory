@@ -86,6 +86,7 @@
         "@factory/domain": "workspace:*",
         "@factory/repository": "workspace:*",
         "@factory/reviewer": "workspace:*",
+        "@factory/sanitization": "workspace:*",
       },
     },
     "packages/review-plan": {

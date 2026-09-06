@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { canonicalJson, type ObjectRef, type ReviewManifest } from '@factory/contract'
 import type { RepositoryStore } from '@factory/repository'
 import { openVerifiedReviewBundle, readVerifiedReviewBundle } from '@factory/reviewer'
+import { createSanitizer } from '@factory/sanitization'
 
 import { sealReviewerRawAttempt } from '../../reviewer/src/attempt'
 import {
@@ -131,6 +132,7 @@ describe('immutable review acceptance', () => {
         startedAt: at,
         completedAt: at,
       }),
+      { sanitizer: createSanitizer([]) },
     )
     let ledger: { entries: typeof choices; summary: { reviewed: string } } | undefined
     const store = await authorizedStore(bundle, {
@@ -162,9 +164,9 @@ describe('immutable review acceptance', () => {
   })
   test('rejects forged attempts and a target repository outside the bundle authority', async () => {
     const { bundle, manifest: bundleManifest, sha256 } = await fixture()
-    await expect(validateReview(bundle, {} as RawAttempt)).rejects.toThrow(
-      'attempt capability is not verified',
-    )
+    await expect(
+      validateReview(bundle, {} as RawAttempt, { sanitizer: createSanitizer([]) }),
+    ).rejects.toThrow('attempt capability is not verified')
     const citation = bundleManifest.inventory[0]!
     const raw = sealReviewerRawAttempt({
       providerOutput: new Uint8Array(),
@@ -183,9 +185,11 @@ describe('immutable review acceptance', () => {
       startedAt: at,
       completedAt: at,
     })
-    const validated = await validateReview(bundle, raw)
+    const validated = await validateReview(bundle, raw, { sanitizer: createSanitizer([]) })
     const { bundle: otherBundle } = await partialFixture()
-    await expect(validateReview(otherBundle, raw)).rejects.toThrow('different verified bundle')
+    await expect(
+      validateReview(otherBundle, raw, { sanitizer: createSanitizer([]) }),
+    ).rejects.toThrow('different verified bundle')
     const store = await authorizedStore(bundle, {
       manifest: { repositoryId: 'repo_elsewhere' },
       async publishImmutableGroup() {
@@ -225,6 +229,7 @@ describe('immutable review acceptance', () => {
         startedAt: at,
         completedAt: at,
       }),
+      { sanitizer: createSanitizer([]) },
     )
     let published:
       | { records: readonly { path: string; bytes: Uint8Array }[]; commitPath: string }
@@ -290,6 +295,7 @@ describe('immutable review acceptance', () => {
         startedAt: at,
         completedAt: at,
       }),
+      { sanitizer: createSanitizer([]) },
     )
     let authority: { recordObjects: readonly { path: string; object: unknown }[] } | undefined
     const store = await authorizedStore(bundle, {
@@ -333,6 +339,7 @@ describe('immutable review acceptance', () => {
         startedAt: at,
         completedAt: at,
       }),
+      { sanitizer: createSanitizer([]) },
     )
     let manifest: ReviewManifest | undefined
     const store = await authorizedStore(bundle, {
@@ -374,6 +381,7 @@ describe('immutable review acceptance', () => {
         startedAt: at,
         completedAt: at,
       }),
+      { sanitizer: createSanitizer([]) },
     )
     let manifest: ReviewManifest | undefined
     const store = await authorizedStore(bundle, {
@@ -414,6 +422,7 @@ describe('immutable review acceptance', () => {
         startedAt: at,
         completedAt: at,
       }),
+      { sanitizer: createSanitizer([]) },
     )
     let publishedResponse: Uint8Array | undefined
     const store = await authorizedStore(bundle, {
@@ -470,6 +479,7 @@ describe('immutable review acceptance', () => {
           startedAt: at,
           completedAt: at,
         }),
+        { sanitizer: createSanitizer([]) },
       )
       let paths: string[] = []
       let manifest: ReviewManifest | undefined
@@ -514,6 +524,7 @@ describe('immutable review acceptance', () => {
         startedAt: at,
         completedAt: at,
       }),
+      { sanitizer: createSanitizer([]) },
     )
     const store = await authorizedStore(bundle, {
       async publishImmutableGroup(records: readonly { path: string; bytes: Uint8Array }[]) {

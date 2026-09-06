@@ -600,6 +600,7 @@ export type ReviewManifest = {
   completedAt: string
   disposition: 'complete' | 'partial' | 'failed'
   failureReason?: ReviewFailureReason
+  transformation?: EvidenceTransformation
 }
 
 export type ReviewFailureReason =
@@ -1248,6 +1249,7 @@ const RECORD_KEYS = {
     'completedAt',
     'disposition',
     'failureReason',
+    'transformation',
   ],
   ledger: ['schemaVersion', 'reviewId', 'entries', 'summary'],
   coverage: [
@@ -1820,7 +1822,8 @@ function validateRecordShape(
     associationBatch: RECORD_KEYS.associationBatch,
     trigger: RECORD_KEYS.trigger.filter(key => key !== 'repositoryObservationId'),
     review: RECORD_KEYS.review.filter(
-      key => !['head', 'codeManifest', 'priorLedger', 'failureReason'].includes(key),
+      key =>
+        !['head', 'codeManifest', 'priorLedger', 'failureReason', 'transformation'].includes(key),
     ),
     ledger: RECORD_KEYS.ledger.filter(key => key !== 'summary'),
     coverage: RECORD_KEYS.coverage.filter(key => key !== 'acceptedSubject'),
@@ -2473,6 +2476,7 @@ function validateRecordShape(
       assertIdentity(value.triggerId, path.triggerId, 'trigger.triggerId')
       break
     case 'review': {
+      if ('transformation' in value) parseEvidenceTransformation(value.transformation)
       assertRecordId(value.reviewId, 'review.reviewId')
       assertRecord(value.subject, 'review.subject')
       if (path.subject.kind === 'workspace') {

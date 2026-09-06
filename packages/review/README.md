@@ -21,6 +21,15 @@ are idempotent; conflicting reuse of a choice key retains the first submission
 and makes the review partial. Citations must match the full verified object
 reference, not just its digest. Rejected events never enter portable history.
 
+Accepted prose and structured assertions are sanitized before ledger and decision
+identities exist. Citation objects retain exact bundle authority; sensitive
+choice keys or citation locators are refused rather than redirected. The attempt
+owner freezes the prepared publication privately before its first portable write,
+so recovery reuses those bytes even after repository env assignments change.
+Ordinary redaction remains readable evidence, while omitted events reduce authority.
+The Docker publication probe can emit an inspectable synthetic review and human
+action with `bun run packages/review/test/docker.ts --report` from the repository root.
+
 The domain package owns verified stored-review grouping, subject resolution,
 coverage, and decision folds. This package uses those shared projections to
 publish rebuildable decision observations and validate human actions. The

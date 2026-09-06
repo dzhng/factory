@@ -346,7 +346,14 @@ export async function reviewCommand(
           ...(retryGeneration === undefined ? {} : { retryGeneration }),
         },
       )
-      const accepted = await acceptReview(await validateReview(bundle, raw), store)
+      const accepted = await acceptReview(
+        await validateReview(bundle, raw, {
+          repositoryRoot,
+          coordinator,
+          ...(retryGeneration === undefined ? {} : { retryGeneration }),
+        }),
+        store,
+      )
       await coordinator.finalize(bundle, selected.choice, imageDigest, accepted, retryGeneration)
       const currentRecords = await store.readRecords()
       const acceptedReview = loadStoredReviews(currentRecords.records).find(

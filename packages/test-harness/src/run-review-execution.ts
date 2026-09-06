@@ -16,6 +16,7 @@ import {
   type ReviewerChoice,
 } from '@factory/reviewer'
 import { planReviewerIsolation, runIsolationProbe } from '@factory/reviewer/testing'
+import { createSanitizer } from '@factory/sanitization'
 
 async function command(args: readonly string[]): Promise<string> {
   const child = Bun.spawn([...args], { stdout: 'pipe', stderr: 'pipe' })
@@ -74,7 +75,7 @@ async function main() {
     )
     const observation = readReviewerRawAttempt(raw)
     const verified = await readVerifiedReviewBundle(bundle)
-    const validated = await validateReview(bundle, raw)
+    const validated = await validateReview(bundle, raw, { sanitizer: createSanitizer([]) })
     const submitted = readAuditDraft(
       observation.submissions,
       verified.manifest.inventory,

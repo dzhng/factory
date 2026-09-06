@@ -100,6 +100,12 @@ history then owns durable idempotence. Recovery matches the complete attempt
 facts, uses the recorded container name and ownership label, and never cleans an
 unproven container.
 
+Completed attempts retain one bounded, canonical prepared publication alongside
+private raw output until acceptance succeeds. Preparation is bound to the exact
+attempt and bundle under the same lock; replay reuses it without reading a new
+secret dictionary. Review acceptance owns its semantic validation and complete
+record graph, while the attempt coordinator owns only private durability.
+
 Per-attempt lock files live outside disposable attempt directories and remain
 after acceptance. Creation, recovery, and deletion use that same stable lock;
 queued owners cannot accidentally lock different inodes after cleanup. These

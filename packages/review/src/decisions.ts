@@ -23,14 +23,11 @@ import {
   type RecordRef,
   type RepositoryRecords,
   type RepositoryStore,
+  type DecisionActionInput,
 } from '@factory/repository'
 
 export type { DecisionObservationSource } from '@factory/domain'
-export type DecisionActionInput = DecisionAction extends infer Action
-  ? Action extends DecisionAction
-    ? Omit<Action, 'createdAt' | 'previousActionId'>
-    : never
-  : never
+export type { DecisionActionInput } from '@factory/repository'
 export type DecisionActionRef = RecordRef & { actionId: RecordId }
 
 export class StaleDecisionActionError extends Error {
@@ -48,6 +45,13 @@ export async function appendDecisionObservations(
   subjectRecord: unknown,
 ): Promise<readonly RecordRef[]> {
   const observations = deriveDecisionObservations(manifest, ledger, subjectRecord)
+  return await appendPreparedDecisionObservations(store, observations)
+}
+
+export async function appendPreparedDecisionObservations(
+  store: RepositoryStore,
+  observations: readonly DecisionObservation[],
+): Promise<readonly RecordRef[]> {
   const refs: RecordRef[] = []
   for (const observation of observations) {
     refs.push(
@@ -121,6 +125,7 @@ export async function appendDecisionAction(
   const { observations, actions } = loadVerifiedDecisionRecords(await store.readRecords())
   const existing = actions.find(action => action.actionId === input.actionId)
   if (existing !== undefined) {
+    input = await store.prepareDecisionAction(input)
     const { createdAt: _createdAt, previousActionId: _previousActionId, ...semantic } = existing
     if (canonicalJson(semantic) !== canonicalJson(input))
       throw new TypeError('decision action identity already names different semantics')
@@ -133,6 +138,7 @@ export async function appendDecisionAction(
   const current = foldDecisions(observations, actions, canonicalBranch)
   if (input.expectedStateFingerprint !== current.stateFingerprint)
     throw new StaleDecisionActionError()
+  input = await store.prepareDecisionAction(input)
   const action = {
     ...input,
     previousActionId: current.actionHeadId ?? null,

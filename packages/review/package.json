@@ -8,12 +8,13 @@
     "build": "tsc -p tsconfig.build.json",
     "check-types": "tsc --noEmit",
     "lint": "oxlint src test",
-    "test": "bun test"
+    "test": "bun test test/acceptance.test.ts test/audit.test.ts test/coverage-acceptance.test.ts test/decisions.test.ts test/stored-reviews.test.ts && bun run test/docker.ts"
   },
   "dependencies": {
     "@factory/contract": "workspace:*",
     "@factory/domain": "workspace:*",
     "@factory/repository": "workspace:*",
-    "@factory/reviewer": "workspace:*"
+    "@factory/reviewer": "workspace:*",
+    "@factory/sanitization": "workspace:*"
   }
 }

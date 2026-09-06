@@ -67,6 +67,11 @@ authority. The writer checks the exact decision record set and configured
 canonical branch while holding mutation ownership, then creates one immutable
 action. Semantic retries keep the first stored timestamp; changed authority is
 reported separately from an immutable-path collision.
+Human prose is prepared before that comparison. A bounded private receipt binds
+the original request to its frozen safe semantics, so retrying an action does not
+reinterpret its note after env values change. Coverage actions contain only typed
+authority and Session locators; new unsafe locators are refused, while exact
+immutable retries reuse the existing action without rediscovery.
 
 Repository verification reports the bytes occupied by Factory-owned ordinary
 files as part of the same read-only traversal. Preserved foreign `.factory`

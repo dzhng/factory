@@ -76,6 +76,12 @@ export type DecisionRecordAuthority = {
   records: readonly { path: OwnedPath; sha256: Sha256 }[]
 }
 
+export type DecisionActionInput = DecisionAction extends infer Action
+  ? Action extends DecisionAction
+    ? Omit<Action, 'createdAt' | 'previousActionId'>
+    : never
+  : never
+
 export type ConfigChange = Partial<
   Pick<RepositoryConfig, 'canonicalBranch' | 'reviewer' | 'automaticReview' | 'reviewLimits'>
 >
@@ -835,11 +841,74 @@ export class RepositoryStore {
         ...semantic,
         createdAt: now().toISOString(),
       }
+      const sanitizer = await discoverRepositorySanitizer(this.repositoryRoot)
+      for (const sessionKey of Object.keys(action.settledWatermarks)) {
+        if (sanitizer.text(sessionKey).redacted) throw new SanitizationError('unsupported-content')
+      }
       const bytes = new TextEncoder().encode(canonicalJson(action))
       validateStructuredRecord(path, bytes)
       await atomicCreate(destination, path, bytes, this.stagingRoot)
       return { path, sha256: sha256(bytes), bytes: bytes.byteLength }
     })
+  }
+
+  async prepareDecisionAction(input: DecisionActionInput): Promise<DecisionActionInput> {
+    return await this.withMutationLock(async () => await this.prepareDecisionActionUnlocked(input))
+  }
+
+  private async prepareDecisionActionUnlocked(
+    input: DecisionActionInput,
+  ): Promise<DecisionActionInput> {
+    const ownedPath = makeOwnedPath('decisions', ['actions', `${input.actionId}.json`])
+    validatePublicRecord(ownedPath, {
+      ...input,
+      createdAt: '1970-01-01T00:00:00Z',
+      previousActionId: null,
+    })
+    const raw = canonicalJson(input)
+    if (Buffer.byteLength(raw) > MAX_STRUCTURED_RECORD_BYTES)
+      throw new TypeError('decision action preparation exceeds byte bound')
+    const snapshot = JSON.parse(raw) as DecisionActionInput
+    const requestHash = sha256(Buffer.from(raw))
+    const path = join(this.stagingRoot, `prepared-${snapshot.actionId}.json`)
+    const kind = await pathKind(path)
+    if (kind !== 'missing') {
+      if (kind !== 'file') throw new Error('decision action preparation is not an ordinary file')
+      const encoded = decodeUtf8(await readBoundedOrdinary(path, MAX_STRUCTURED_RECORD_BYTES))
+      const saved = JSON.parse(encoded) as {
+        policy: string
+        requestHash: string
+        semantic: DecisionActionInput
+      }
+      if (canonicalJson(saved) !== encoded || saved.policy !== 'evidence-sanitization-1')
+        throw new Error('decision action preparation is not canonical')
+      validatePublicRecord(ownedPath, {
+        ...saved.semantic,
+        createdAt: '1970-01-01T00:00:00Z',
+        previousActionId: null,
+      })
+      if (saved.requestHash !== requestHash && canonicalJson(saved.semantic) !== raw)
+        throw new ImmutableRecordConflictError(ownedPath)
+      return saved.semantic
+    }
+    const sanitizer = await discoverRepositorySanitizer(this.repositoryRoot)
+    const semantic: DecisionActionInput = {
+      ...snapshot,
+      actor:
+        snapshot.actor.kind === 'human' && snapshot.actor.label !== undefined
+          ? { ...snapshot.actor, label: sanitizer.text(snapshot.actor.label).text }
+          : snapshot.actor,
+      ...('note' in snapshot && snapshot.note !== undefined
+        ? { note: sanitizer.text(snapshot.note).text }
+        : {}),
+    }
+    const bytes = Buffer.from(
+      canonicalJson({ policy: 'evidence-sanitization-1', requestHash, semantic }),
+    )
+    if (bytes.byteLength > MAX_STRUCTURED_RECORD_BYTES)
+      throw new TypeError('decision action preparation exceeds byte bound')
+    await atomicCreate(path, ownedPath, bytes, this.stagingRoot)
+    return semantic
   }
 
   /** Append one validated action iff the exact decision records used for validation are current. */
@@ -849,6 +918,12 @@ export class RepositoryStore {
   ): Promise<RecordRef> {
     const path = makeOwnedPath('decisions', ['actions', `${action.actionId}.json`])
     return await this.withMutationLock(async () => {
+      const { createdAt, previousActionId, ...input } = action
+      action = {
+        ...(await this.prepareDecisionActionUnlocked(input)),
+        createdAt,
+        previousActionId,
+      } as DecisionAction
       const destination = await ensureOwnedParent(this.factoryRoot, path)
       if ((await pathKind(destination)) === 'file') {
         const bytes = await readBoundedOrdinary(destination, MAX_STRUCTURED_RECORD_BYTES)

@@ -1,6 +1,8 @@
 import {
   canonicalJson,
   makeOwnedPath,
+  readAuditDraft,
+  validatePublicRecord,
   type CoverageAction,
   type Limitation,
   type RecordId,
@@ -8,19 +10,21 @@ import {
   type ReviewLedger,
   type ReviewManifest,
   type Sha256,
+  type DecisionObservation,
 } from '@factory/contract'
-import { readAuditDraft } from '@factory/contract'
-import { loadStoredReviews } from '@factory/domain'
-import type { RepositoryStore } from '@factory/repository'
+import { deriveDecisionObservations, loadStoredReviews } from '@factory/domain'
+import { discoverRepositorySanitizer, type RepositoryStore } from '@factory/repository'
 import {
   readVerifiedReviewBundle,
   readReviewerRawAttempt,
   type ReviewerRawAttempt,
   type ReviewerRawAttemptSnapshot,
   type VerifiedReviewBundle,
+  type ReviewAttemptCoordinator,
 } from '@factory/reviewer'
 
-import { appendDecisionObservations } from './decisions'
+import { appendPreparedDecisionObservations } from './decisions'
+import { prepareAuditDraft, type ReviewSanitizer } from './preparation'
 
 export type AttemptTermination = import('@factory/reviewer').ReviewerExecutionTermination
 export type RawAttempt = ReviewerRawAttempt
@@ -42,12 +46,16 @@ export type PartialCoverageAcceptance = Omit<
 declare const validatedAttemptBrand: unique symbol
 export type ValidatedAttempt = { readonly [validatedAttemptBrand]: true }
 
-type ValidatedState = {
+type PreparedReview = {
   manifest: ReviewManifest
   ledger?: ReviewLedger
   submissions: Uint8Array
+  decisionObservations: readonly DecisionObservation[]
   executionFailed: boolean
   rootSegments: readonly string[]
+}
+
+type ValidatedState = PreparedReview & {
   repositoryId?: string
   subjectPath: ReturnType<typeof makeOwnedPath>
   subjectRecord: string
@@ -82,7 +90,102 @@ function compareCanonical(left: unknown, right: unknown): number {
 export async function validateReview(
   bundle: VerifiedReviewBundle,
   attempt: RawAttempt,
+  options:
+    | { sanitizer: ReviewSanitizer }
+    | {
+        repositoryRoot: string
+        coordinator: ReviewAttemptCoordinator
+        retryGeneration?: RecordId
+      },
 ): Promise<ValidatedAttempt> {
+  let prepared: PreparedReview
+  if ('sanitizer' in options)
+    prepared = await buildPreparedReview(bundle, attempt, options.sanitizer)
+  else {
+    const frozen = await options.coordinator.preparePublication(
+      bundle,
+      attempt,
+      async () => {
+        const sanitizer = await discoverRepositorySanitizer(options.repositoryRoot)
+        const prepared = await buildPreparedReview(bundle, attempt, sanitizer)
+        return canonicalJson({
+          ...prepared,
+          submissions: Buffer.from(prepared.submissions).toString('base64'),
+        })
+      },
+      options.retryGeneration,
+    )
+    const encoded = JSON.parse(frozen) as Omit<PreparedReview, 'submissions'> & {
+      submissions: string
+    }
+    prepared = { ...encoded, submissions: Buffer.from(encoded.submissions, 'base64') }
+  }
+  const verified = await readVerifiedReviewBundle(bundle)
+  const state: ValidatedState = {
+    ...prepared,
+    ...(verified.authority.repositoryId === undefined
+      ? {}
+      : { repositoryId: verified.authority.repositoryId }),
+    subjectPath: verified.authority.subjectPath,
+    subjectRecord: canonicalJson(verified.authority.subjectRecord),
+    inventory: verified.authority.inventory,
+    recordObjects: verified.authority.recordObjects,
+    records: verified.authority.records,
+  }
+  const observed = readReviewerRawAttempt(attempt)
+  if (
+    state.manifest.reviewId !== observed.reviewId ||
+    state.manifest.bundleSha256 !== verified.sha256 ||
+    canonicalJson({
+      subject: state.manifest.subject,
+      head: state.manifest.head ?? null,
+      codeManifest: state.manifest.codeManifest ?? null,
+      patches: state.manifest.patches,
+    }) !==
+      canonicalJson({
+        subject: verified.acceptance.subject,
+        head: verified.acceptance.head ?? null,
+        codeManifest: verified.acceptance.codeManifest ?? null,
+        patches: [...verified.acceptance.patches].sort(compareCanonical),
+      })
+  )
+    throw new TypeError('prepared review publication differs from bundle authority')
+  validatePublicRecord(
+    makeOwnedPath('reviews', [...state.rootSegments, 'manifest.json']),
+    state.manifest,
+  )
+  if (state.ledger !== undefined) {
+    validatePublicRecord(
+      makeOwnedPath('reviews', [...state.rootSegments, 'ledger.json']),
+      state.ledger,
+    )
+    const rebuilt = readAuditDraft(
+      state.submissions,
+      verified.manifest.inventory,
+      observed.reviewId,
+    )
+    if (
+      canonicalJson(rebuilt.entries) !== canonicalJson(state.ledger.entries) ||
+      canonicalJson(rebuilt.summary ?? null) !== canonicalJson(state.ledger.summary ?? null)
+    )
+      throw new TypeError('prepared review ledger differs from submissions')
+  }
+  const observations =
+    state.ledger === undefined
+      ? []
+      : deriveDecisionObservations(state.manifest, state.ledger, verified.authority.subjectRecord)
+  if (canonicalJson(state.decisionObservations) !== canonicalJson(observations))
+    throw new TypeError('prepared decisions differ from their review authority')
+  const capability = Object.freeze({}) as ValidatedAttempt
+  validatedAttempts.set(capability, state)
+  return capability
+}
+
+async function buildPreparedReview(
+  bundle: VerifiedReviewBundle,
+  attempt: RawAttempt,
+  sanitizer: ReviewSanitizer,
+): Promise<PreparedReview> {
   const verified = await readVerifiedReviewBundle(bundle)
   const observed = readReviewerRawAttempt(attempt)
   if (observed.bundleSha256 !== verified.sha256)
@@ -92,10 +195,11 @@ export async function validateReview(
     canonicalJson(verified.manifest.plan.policies.reviewer)
   )
     throw new TypeError('review attempt reviewer differs from the planned policy')
-  const parsed = readAuditDraft(
+  const parsed = prepareAuditDraft(
     observed.submissions,
     verified.manifest.inventory,
     observed.reviewId,
+    sanitizer,
   )
   const executionFailed =
     observed.termination !== 'completed' ||
@@ -137,6 +241,9 @@ export async function validateReview(
       ? { effect: 'reviewed-partial' as const }
       : {}),
   }
+  const providerCliVersion =
+    observed.providerCliVersion === null ? null : sanitizer.text(observed.providerCliVersion)
+  const hostPlatform = sanitizer.text(observed.hostPlatform)
   const manifest: ReviewManifest = {
     schemaVersion: 1,
     reviewId: observed.reviewId,
@@ -161,11 +268,17 @@ export async function validateReview(
     formatVersion: 1,
     bundleSha256: verified.sha256,
     containerImageDigest: observed.imageDigest,
-    providerCliVersion: observed.providerCliVersion,
-    hostPlatform: observed.hostPlatform,
+    providerCliVersion: providerCliVersion?.text ?? null,
+    hostPlatform: hostPlatform.text,
     startedAt: observed.startedAt,
     completedAt: observed.completedAt,
     disposition,
+    transformation: {
+      policy: 'evidence-sanitization-1',
+      redacted: parsed.redacted || providerCliVersion?.redacted === true || hostPlatform.redacted,
+      omittedCharacters: 0,
+      omissionReasons: parsed.omissionReasons,
+    },
     ...(reason === undefined ? {} : { failureReason: reason }),
   }
   const ledger =
@@ -187,23 +300,17 @@ export async function validateReview(
           String(manifest.subject.number),
           observed.reviewId,
         ] as const)
-  const capability = Object.freeze({}) as ValidatedAttempt
-  validatedAttempts.set(capability, {
+  return {
     manifest,
     ...(ledger === undefined ? {} : { ledger }),
     submissions: parsed.submissions,
+    decisionObservations:
+      ledger === undefined
+        ? []
+        : deriveDecisionObservations(manifest, ledger, verified.authority.subjectRecord),
     executionFailed,
     rootSegments,
-    ...(verified.authority.repositoryId === undefined
-      ? {}
-      : { repositoryId: verified.authority.repositoryId }),
-    subjectPath: verified.authority.subjectPath,
-    subjectRecord: canonicalJson(verified.authority.subjectRecord),
-    inventory: verified.authority.inventory,
-    recordObjects: verified.authority.recordObjects,
-    records: verified.authority.records,
-  })
-  return capability
+  }
 }
 
 export async function acceptReview(
@@ -238,14 +345,7 @@ export async function acceptReview(
     records,
     manifestPath,
   )
-  if (state.ledger !== undefined) {
-    await appendDecisionObservations(
-      store,
-      state.manifest,
-      state.ledger,
-      JSON.parse(state.subjectRecord),
-    )
-  }
+  await appendPreparedDecisionObservations(store, state.decisionObservations)
   return {
     reviewId: state.manifest.reviewId,
     disposition: state.manifest.disposition,

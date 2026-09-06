@@ -65,6 +65,7 @@ type AttemptState =
       phase: 'completed'
       containerIdentity: { name: string; label: string }
       attempt: PersistedSnapshot
+      preparedPublication?: string
     }
 
 function attemptKey(
@@ -176,8 +177,9 @@ async function atomicState(path: string, value: AttemptState): Promise<void> {
   }
 }
 
-// Two bounded 1 MiB streams encoded as base64, plus the fixed attempt facts.
-const MAX_STATE_BYTES = 3 * 1024 * 1024
+// Two bounded streams plus one prepared graph; the outer cap also bounds JSON string escaping.
+const MAX_PUBLICATION_BYTES = 8 * 1024 * 1024
+const MAX_STATE_BYTES = 20 * 1024 * 1024
 
 async function readState(path: string): Promise<AttemptState | undefined> {
   let handle
@@ -239,7 +241,10 @@ function isAttemptState(value: unknown): value is AttemptState {
     return false
   const attemptKeys = Object.keys(state.attempt as Record<string, unknown>).sort()
   return (
-    Object.keys(state).length === 6 &&
+    (Object.keys(state).length === 6 ||
+      (Object.keys(state).length === 7 &&
+        typeof state.preparedPublication === 'string' &&
+        Buffer.byteLength(state.preparedPublication) <= MAX_PUBLICATION_BYTES)) &&
     attemptKeys.join(',') ===
       [
         'bundleSha256',
@@ -421,6 +426,36 @@ export class ReviewAttemptCoordinator {
         executionInput,
         containerIdentity,
       )
+    })
+  }
+
+  /** Freeze acceptance bytes under the same ownership as the exact completed attempt. */
+  async preparePublication(
+    bundle: VerifiedReviewBundle,
+    attempt: ReviewerRawAttempt,
+    prepare: () => Promise<string>,
+    retryGeneration?: RecordId,
+  ): Promise<string> {
+    const verified = await readVerifiedReviewBundle(bundle)
+    const observed = readReviewerRawAttempt(attempt)
+    const key = attemptKey(verified, observed.reviewer, observed.imageDigest, retryGeneration)
+    const statePath = join(this.runtimeRoot, key, 'state.json')
+    return await withAdvisoryFileLock(join(this.lockRoot, key), 24 * 60 * 60 * 1_000, async () => {
+      const state = await readState(statePath)
+      if (
+        state?.phase !== 'completed' ||
+        state.key !== key ||
+        canonicalJson(state.attempt) !== canonicalJson(persisted(observed))
+      )
+        throw new Error('review publication differs from its durable attempt')
+      if (state.preparedPublication !== undefined) return state.preparedPublication
+      const preparedPublication = await prepare()
+      if (Buffer.byteLength(preparedPublication) > MAX_PUBLICATION_BYTES)
+        throw new Error('prepared review publication exceeds byte bound')
+      if (canonicalJson(JSON.parse(preparedPublication)) !== preparedPublication)
+        throw new Error('prepared review publication is not canonical')
+      await atomicState(statePath, { ...state, preparedPublication })
+      return preparedPublication
     })
   }
 

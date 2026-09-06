@@ -2,6 +2,25 @@
 
 Depends on slice 3.
 
+## Publication checkpoint
+
+Review acceptance now prepares accepted semantic events before ledger identities,
+keeps exact citation objects and the structural null removal sentinel, and freezes
+the complete safe output graph in the existing private attempt before publication.
+Human decision notes and actor labels use the repository action owner's private
+request receipt; exact retries survive env rotation. Coverage admission refuses
+changed Session locators without rewriting typed IDs or counters.
+
+The synthetic [review](../assets/review-publication/review.json) and
+[human action](../assets/review-publication/action.json) reports are generated with
+`bun run packages/review/test/docker.ts --report`. They exercise real storage,
+reopened private preparation, exact citation identity, and an unchanged valid graph
+without an available env dictionary on replay. Ordinary redaction remains complete;
+unsupported citation locators retain a readable partial result.
+
+Generic CAS/record/configuration admission closure is the separate remaining owner;
+this checkpoint does not claim that every RepositoryStore entry point is closed.
+
 ## Contract and seam
 
 Sanitize model response text and validated prose before final ledger/entry

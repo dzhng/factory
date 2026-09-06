@@ -37,6 +37,43 @@ limits remain the policy owner; no second config secret catalogue is introduced.
   promise to prepare the entire graph before publication.
 - **Confidence:** medium.
 
+### Prepared reviews retain their output graph, not a second copy of bundle authority
+
+- **When:** review-publication pass.
+- **Choice:** After a review finishes, its private attempt saves the safe manifest,
+  submissions, ledger, and derived decision observations before publishing any of
+  them. The existing verified bundle still owns the input records and object
+  inventory; recovery reopens that exact digest instead of copying those lists
+  into the attempt again. The prepared output is capped at 8 MiB, with a 20 MiB
+  outer attempt-state cap including raw diagnostic streams and JSON encoding.
+- **Gap:** The spec required durable preparation but did not select its precise
+  storage shape or byte ceiling.
+- **Reach:** Larger input bundles do not enlarge the receipt merely by repeating
+  their authority lists. Exceptionally large output graphs fail before publication;
+  increasing that ceiling requires a bounded acquisition probe.
+- **Verdict:** sound; one existing attempt owns recovery without a second bundle
+  inventory or an unbounded in-memory publication plan.
+- **Confidence:** medium.
+
+### Human action retries retain a private request receipt
+
+- **When:** human-action publication pass.
+- **Choice:** When a user submits a note containing a secret, the repository writer
+  saves a private hash of that exact request alongside its safe action semantics.
+  A retry can then return the original safe action after env values change. A
+  different request under the same action ID is refused; the already-prepared
+  semantics are also a valid retry. Receipts stay in existing private repository
+  runtime state so old exact retries do not need a historical secret dictionary.
+- **Gap:** The spec required stable retries but the action owner previously had
+  only the public atomic record, not a private request-to-preparation binding.
+- **Reach:** This adds one bounded private receipt per prepared decision action.
+  It contains no secret dictionary or raw note, and its request hash never enters
+  portable records. Coverage actions need no prose receipt because their payload
+  is typed authority plus unchanged Session locators.
+- **Verdict:** sound; preparation extends the existing action lock owner and keeps
+  compare-and-append authority unchanged.
+- **Confidence:** high.
+
 ### Mark combined stdout and stderr instead of preserving a false split
 
 - **When:** provider adapter pass.

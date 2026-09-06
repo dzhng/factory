@@ -13,6 +13,7 @@ import {
 import { foldDecisions } from '@factory/domain'
 import { DecisionAuthorityConflictError, type RepositoryStore } from '@factory/repository'
 import { openVerifiedReviewBundle, readVerifiedReviewBundle } from '@factory/reviewer'
+import { createSanitizer } from '@factory/sanitization'
 
 import { sealReviewerRawAttempt } from '../../reviewer/src/attempt'
 import { writerChoice, emptyAuditSummary } from '../../test-harness/src/choice-fixtures'
@@ -84,6 +85,7 @@ async function fixture() {
           startedAt: '2026-09-05T00:00:00Z',
           completedAt: `2026-09-05T00:00:0${8 + index}Z`,
         }),
+        { sanitizer: createSanitizer([]) },
       ),
     ),
   )
@@ -125,6 +127,9 @@ async function fixture() {
       const path = `decisions/actions/${value.actionId}.json` as OwnedPath
       if (!records.some(record => record.path === path)) records.push({ path, value })
       return { path, sha256: 'a'.repeat(64), bytes: 1 }
+    },
+    async prepareDecisionAction(input: unknown) {
+      return input
     },
   } as unknown as RepositoryStore
   for (const attempt of validated) await acceptReview(attempt, store)

@@ -41,9 +41,23 @@ paths and unsafe symlink targets are omitted. These are UTF-8 review snapshots,
 not promises of executable or byte-identical source. Original Git race state
 remains separate from sanitized object identity. Discovery or preparation failure
 does not authorize raw source publication. Detection remains best effort, not an
-anonymization guarantee. Provider capture uses the same policy before portable
-publication; reviewer output remains a separate boundary being converted by the
-active sanitization plan.
+anonymization guarantee. Provider capture and accepted reviewer output use the
+same policy before portable publication.
+
+Accepted reviewer submissions use the same policy before ledger entries and
+decision identities are derived. Invalid output tails and private provider final
+text never become portable response copies. Required citation locators must
+remain unchanged; citations retain exact verified bundle object references.
+The existing private review attempt freezes the complete prepared publication
+before its first portable write, so an interrupted acceptance cannot regenerate
+different bytes under the same identity after env values change. Ordinary
+redaction does not itself make an otherwise complete review partial.
+
+Human action notes and actor labels are prepared under the repository writer's
+existing mutation ownership. A private request receipt preserves their safe
+semantics across exact retries without saving a secret dictionary or exposing a
+raw-request digest in Git. Session locators in new coverage actions are refused
+if they cannot remain unchanged.
 
 Credentials, transient locks, live databases, operational machine-specific
 paths, and temporary files never belong in `.factory`. Runtime-only state lives

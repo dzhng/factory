@@ -18,6 +18,7 @@ import { join } from 'node:path'
 
 import { canonicalJson, type RecordId } from '@factory/contract'
 import type { UiReadySnapshot } from '@factory/domain'
+import { discoverRepositorySanitizer } from '@factory/repository'
 import {
   initializeRepositoryStore,
   openRepositoryStore,
@@ -271,6 +272,7 @@ async function acceptBundleReview(
       startedAt: '2026-09-05T00:00:00Z',
       completedAt: name === 'complete-bundle' ? '2026-09-05T00:00:08Z' : '2026-09-05T00:00:09Z',
     }),
+    { sanitizer: await discoverRepositorySanitizer(store.repositoryRoot) },
   )
   await acceptReview(validated, store)
 }
