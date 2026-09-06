@@ -227,7 +227,7 @@ export function foldCoverage(input: CoverageFoldInput): CoverageView {
       for (const selection of review.selections) {
         if (
           selection.selectedForReview &&
-          ['eligible-included', 'eligible-gap'].includes(selection.coverageEffect)
+          ['eligible-included', 'eligible-gap', 'context-only'].includes(selection.coverageEffect)
         ) {
           priorSelections.set(selection.triggerId, selection)
         }

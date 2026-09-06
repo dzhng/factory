@@ -1076,7 +1076,11 @@ function planVerifiedReview(input: ReviewInputs): ReviewPlan {
     )
     let classification =
       'trigger' in candidate ? candidateClassification(candidate) : candidate.availability
-    let reason: string = classification
+    if (scope === 'weak' && classification !== 'excluded') classification = 'weak-context'
+    let reason: string =
+      classification === 'weak-context' && scope === 'weak'
+        ? 'same-non-detached-branch-without-exact-anchor'
+        : classification
     const candidateLimitations = [
       ...('trigger' in candidate ? candidate.trigger.limitations : []),
       ...('trigger' in candidate ? candidate.turn.limitations : []),
@@ -1124,9 +1128,11 @@ function planVerifiedReview(input: ReviewInputs): ReviewPlan {
     ) {
       classification = 'excluded'
       reason =
-        coverage.priorSelections[identity.triggerId]!.coverageEffect === 'eligible-included'
-          ? 'previously-analyzed-complete'
-          : 'previously-analyzed-partial'
+        coverage.priorSelections[identity.triggerId]!.coverageEffect === 'context-only'
+          ? 'previously-analyzed-context'
+          : coverage.priorSelections[identity.triggerId]!.coverageEffect === 'eligible-included'
+            ? 'previously-analyzed-complete'
+            : 'previously-analyzed-partial'
     } else if (
       identity.kind === 'range' &&
       !admittedSessions.has(identity.sessionKey) &&
@@ -1140,24 +1146,22 @@ function planVerifiedReview(input: ReviewInputs): ReviewPlan {
       reason === 'no-completed-exact-association' ||
       reason === 'unproven-subject-scope'
         ? 'out-of-scope'
-        : reason === 'previously-analyzed-complete'
-          ? 'previously-analyzed-complete'
-          : reason === 'previously-analyzed-partial'
-            ? 'previously-analyzed-partial'
-            : reason === 'settled-trigger'
-              ? 'settled'
-              : reason === 'session-limit' ||
-                  candidate.limitations?.some(item => item.code === 'excluded-by-limit')
-                ? 'deferred-by-limit'
-                : scope === 'weak' || classification === 'weak-context'
-                  ? 'context-only'
-                  : classification === 'included'
-                    ? 'eligible-included'
-                    : 'eligible-gap'
-    if (scope === 'weak' && classification !== 'excluded') {
-      classification = 'weak-context'
-      reason = 'same-non-detached-branch-without-exact-anchor'
-    }
+        : reason === 'previously-analyzed-context'
+          ? 'context-only'
+          : reason === 'previously-analyzed-complete'
+            ? 'previously-analyzed-complete'
+            : reason === 'previously-analyzed-partial'
+              ? 'previously-analyzed-partial'
+              : reason === 'settled-trigger'
+                ? 'settled'
+                : reason === 'session-limit' ||
+                    candidate.limitations?.some(item => item.code === 'excluded-by-limit')
+                  ? 'deferred-by-limit'
+                  : scope === 'weak' || classification === 'weak-context'
+                    ? 'context-only'
+                    : classification === 'included'
+                      ? 'eligible-included'
+                      : 'eligible-gap'
     const selectedForReview =
       ['included', 'readable-partial', 'weak-context'].includes(classification) &&
       coverageEffect !== 'deferred-by-limit'

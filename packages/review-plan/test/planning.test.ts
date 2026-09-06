@@ -615,6 +615,88 @@ describe('review planning', () => {
     expect(plan.sessionWatermarks).toEqual({ 'session-z': 2 })
   })
 
+  test('does not replay analyzed weak context or settle its Session coverage', () => {
+    const input = inputs()
+    input.candidates = [candidate(1)]
+    const first = planReview(input)
+    expect(first.status).toBe('ready')
+    expect(first.selections[0]).toEqual(
+      expect.objectContaining({
+        triggerId: trigger(1).triggerId,
+        classification: 'weak-context',
+        coverageEffect: 'context-only',
+        selectedForReview: true,
+      }),
+    )
+    input.reviews = [
+      {
+        reviewId: firstReviewId,
+        subject: input.subject,
+        subjectFingerprint: first.subjectFingerprint,
+        subjectAttempt: settledSubject(first.subjectFingerprint),
+        sessionWatermarks: first.sessionWatermarks,
+        coverageTargetWatermarks: first.coverageTargetWatermarks,
+        inputProblems: [],
+        selections: first.selections,
+        triggerIds: first.triggerIds,
+        disposition: 'complete',
+        policies: input.policies,
+      },
+    ]
+    const unchanged = planReview(input)
+    expect(unchanged.coverageTargetWatermarks).toEqual({})
+    expect(unchanged.status).toBe('already-reviewed')
+    expect(unchanged.triggerIds).toEqual([])
+    expect(unchanged.selections[0]).toEqual(
+      expect.objectContaining({
+        triggerId: trigger(1).triggerId,
+        selectedForReview: false,
+        coverageEffect: 'context-only',
+        reason: 'previously-analyzed-context',
+      }),
+    )
+    expect(foldCoverage(input).settledWatermarks).toEqual({})
+    const changedInput = {
+      ...input,
+      subject: { kind: 'workspace' as const, observation: observation(3) },
+    }
+    const changed = planReview(changedInput)
+    expect(changed.status).toBe('ready')
+    expect(changed.coverageTargetWatermarks).toEqual({})
+    changedInput.reviews = [
+      ...input.reviews,
+      {
+        ...input.reviews[0]!,
+        reviewId: secondReviewId,
+        subject: changedInput.subject,
+        subjectFingerprint: changed.subjectFingerprint,
+        subjectAttempt: settledSubject(changed.subjectFingerprint),
+        selections: changed.selections,
+        triggerIds: changed.triggerIds,
+      },
+    ]
+    expect(planReview(changedInput).status).toBe('already-reviewed')
+    input.candidates = [candidate(1), candidate(3)]
+    const newContext = planReview(input)
+    expect(newContext.status).toBe('ready')
+    expect(newContext.selections.filter(selection => selection.selectedForReview)).toEqual([
+      expect.objectContaining({
+        triggerId: trigger(3).triggerId,
+        classification: 'weak-context',
+        coverageEffect: 'context-only',
+      }),
+    ])
+    expect(newContext.coverageTargetWatermarks).toEqual({})
+    input.candidates = [candidate(1), candidate(2)]
+    const anchored = planReview(input)
+    expect(anchored.status).toBe('ready')
+    expect(anchored.triggerIds).toEqual([trigger(1).triggerId, trigger(2).triggerId])
+    expect(anchored.selections.map(selection => selection.coverageEffect)).toEqual([
+      'eligible-included',
+      'eligible-included',
+    ])
+  })
+
   test('keeps a raced readable subject pending until its exact limitations are accepted', () => {
     const input = inputs()
     input.candidates = []
