@@ -21,6 +21,11 @@ SHA authority; unknown metadata strings and keys receive the shared policy.
 Operational repository locators and refs must remain unchanged. A collision
 between sanitized JSON keys omits the opaque record explicitly while preserving
 readable sibling evidence.
+The repository's shared evidence-shape validator and preparation policy own the exact
+GraphQL field exemptions, so acquisition and final object admission cannot
+disagree about a SHA that also appears in the discovered secret dictionary.
+Raw provider validation remains strict here; prepared timestamps and scalar
+values may contain markers and cannot be parsed as untouched provider responses.
 Patch sections for env files, binary payloads, or sensitive paths are omitted
 as whole sections, including encoded headers; retained diffs are review context.
 
@@ -32,7 +37,9 @@ observation identity instead of retaining a transaction or secret dictionary.
 
 Association policy is a pure fold owned by `@factory/domain`. Persistence
 publishes immutable evidence first and a validated completion marker last;
-orphaned prefixes from a crash are not projected. Provider acquisition bounds
+orphaned prefixes from a crash are not projected. The same preparation context
+admits every record before the first record write.
+Provider acquisition bounds
 also cover content-addressed evidence writes. A store that finishes after its
 deadline can leave only an already sanitized, unreferenced object. Optional code
 capture has its own

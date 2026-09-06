@@ -24,6 +24,9 @@ import {
   initializeRepositoryStore,
   openRepositoryStore,
   snapshotPreparedObject,
+  type RepositoryStore,
+  type ImmutableGroupRecord,
+  type ReviewPublicationAuthority,
 } from '../src/index'
 
 if (process.env.FACTORY_DOCKER_TEST !== '1') {
@@ -31,6 +34,48 @@ if (process.env.FACTORY_DOCKER_TEST !== '1') {
 }
 
 const roots: string[] = []
+async function publishFixtureObject(
+  store: RepositoryStore,
+  source: AsyncIterable<Uint8Array>,
+  metadata = { mediaType: 'text/plain', role: 'test-evidence' },
+) {
+  const chunks: Uint8Array[] = []
+  for await (const chunk of source) chunks.push(chunk)
+  return await store.putObject(
+    (await store.preparePublication()).prepareObject(Buffer.concat(chunks), metadata),
+  )
+}
+async function publishFixtureRecord(
+  store: RepositoryStore,
+  path: ImmutableGroupRecord['path'],
+  bytes: Uint8Array,
+) {
+  return await store.createImmutable((await store.preparePublication()).prepareRecord(path, bytes))
+}
+async function publishFixtureGroup(
+  store: RepositoryStore,
+  records: readonly ImmutableGroupRecord[],
+  commitPath: ImmutableGroupRecord['path'],
+) {
+  const context = await store.preparePublication()
+  return await store.publishImmutableGroup(
+    records.map(record => context.prepareRecord(record.path, record.bytes)),
+    commitPath,
+  )
+}
+async function publishFixtureReview(
+  store: RepositoryStore,
+  authority: ReviewPublicationAuthority,
+  records: readonly ImmutableGroupRecord[],
+  commitPath: ImmutableGroupRecord['path'],
+) {
+  const context = await store.preparePublication()
+  return await store.publishReview(
+    authority,
+    records.map(record => context.prepareRecord(record.path, record.bytes)),
+    commitPath,
+  )
+}
 const recordId = (prefix: string) => `${prefix}_${'0'.repeat(26)}` as RecordId
 async function fixtureRoot(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'factory-repository-'))
@@ -272,15 +317,17 @@ describe('sole repository writer', () => {
   test('round-trips objects and converges concurrent identical creation', async () => {
     const root = await fixtureRoot()
     const store = await initializeRepositoryStore(root, manifest, { canonicalBranch: 'main' })
-    const bytes = new TextEncoder().encode('exact raw bytes\0\xff')
+    const bytes = new TextEncoder().encode('exact prepared UTF-8 bytes ü')
     const refs = await Promise.all([
-      store.putObject(
+      publishFixtureObject(
+        store,
         (async function* () {
           yield bytes.subarray(0, 4)
           yield bytes.subarray(4)
         })(),
       ),
-      store.putObject(
+      publishFixtureObject(
+        store,
         (async function* () {
           yield bytes
         })(),
@@ -294,12 +341,13 @@ describe('sole repository writer', () => {
     const path = makeOwnedPath('review-triggers', [`${recordId('trigger')}.json`])
     const record = new TextEncoder().encode(canonicalJson(trigger))
     const created = await Promise.all([
-      store.createImmutable(path, record),
-      store.createImmutable(path, record),
+      publishFixtureRecord(store, path, record),
+      publishFixtureRecord(store, path, record),
     ])
     expect(created[0]).toEqual(created[1])
     await expect(
-      store.createImmutable(
+      publishFixtureRecord(
+        store,
         path,
         new TextEncoder().encode(canonicalJson({ ...trigger, evidenceWatermark: 2 })),
       ),
@@ -439,7 +487,8 @@ describe('sole repository writer', () => {
       canonicalJson({ ...manifest, minimumReaderVersion: '9.0.0' }),
     )
     await expect(
-      store.putObject(
+      publishFixtureObject(
+        store,
         (async function* () {
           yield new TextEncoder().encode('must not publish')
         })(),
@@ -510,7 +559,8 @@ describe('sole repository writer', () => {
     await mkdir(join(root, '.factory', 'decisions'))
     await symlink('../decisions', join(root, '.factory', 'decisions', 'cycle'))
     await expect(
-      store.createImmutable(
+      publishFixtureRecord(
+        store,
         makeOwnedPath('sessions', ['codex', 'session_01', 'identity.json']),
         new TextEncoder().encode(
           canonicalJson({
@@ -528,7 +578,8 @@ describe('sole repository writer', () => {
 
     const limited = await openRepositoryStore(root, { maxObjectBytes: 3 })
     await expect(
-      limited.putObject(
+      publishFixtureObject(
+        limited,
         (async function* () {
           yield new Uint8Array([1, 2, 3, 4])
         })(),
@@ -559,7 +610,8 @@ describe('sole repository writer', () => {
   test('verification detects substituted objects and absolute metadata paths', async () => {
     const root = await fixtureRoot()
     const store = await initializeRepositoryStore(root, manifest, {})
-    const ref = await store.putObject(
+    const ref = await publishFixtureObject(
+      store,
       (async function* () {
         yield new TextEncoder().encode('raw')
       })(),
@@ -570,7 +622,8 @@ describe('sole repository writer', () => {
     )
 
     await expect(
-      store.createImmutable(
+      publishFixtureRecord(
+        store,
         makeOwnedPath('repository-observations', [`${recordId('observation')}.json`]),
         new TextEncoder().encode(
           canonicalJson({
@@ -595,7 +648,8 @@ describe('sole repository writer', () => {
   test('materializes verified objects create-only and refuses a canonical-path symlink', async () => {
     const root = await fixtureRoot()
     const store = await initializeRepositoryStore(root, manifest, {})
-    const ref = await store.putObject(
+    const ref = await publishFixtureObject(
+      store,
       (async function* () {
         yield new TextEncoder().encode('bundle evidence')
       })(),
@@ -613,12 +667,14 @@ describe('sole repository writer', () => {
   test('verification reports missing references and truncated records as typed issues', async () => {
     const root = await fixtureRoot()
     const store = await initializeRepositoryStore(root, manifest, {})
-    const ref = await store.putObject(
+    const ref = await publishFixtureObject(
+      store,
       (async function* () {
         yield new TextEncoder().encode('raw lifecycle event')
       })(),
     )
-    await store.createImmutable(
+    await publishFixtureRecord(
+      store,
       makeOwnedPath('sessions', ['codex', 'session_01', 'lifecycle', `${recordId('event')}.json`]),
       new TextEncoder().encode(
         canonicalJson({
@@ -647,12 +703,14 @@ describe('sole repository writer', () => {
   test('does not treat provider-parsed or decision-subject data as authoritative object refs', async () => {
     const root = await fixtureRoot()
     const store = await initializeRepositoryStore(root, manifest, {})
-    const evidence = await store.putObject(
+    const evidence = await publishFixtureObject(
+      store,
       (async function* () {
         yield new TextEncoder().encode('cited evidence')
       })(),
     )
-    await store.createImmutable(
+    await publishFixtureRecord(
+      store,
       makeOwnedPath('decisions', ['observations', `${recordId('decision')}.json`]),
       new TextEncoder().encode(
         canonicalJson({
@@ -715,7 +773,7 @@ describe('sole repository writer', () => {
       `${observation.observationId}.json`,
     ])
     const observationBytes = new TextEncoder().encode(canonicalJson(observation))
-    await store.createImmutable(observationPath, observationBytes)
+    await publishFixtureRecord(store, observationPath, observationBytes)
     const authority = {
       canonicalBranch: 'main',
       records: [
@@ -788,8 +846,8 @@ describe('sole repository writer', () => {
       },
     ]
 
-    await store.publishImmutableGroup(records, commitPath)
-    await store.publishImmutableGroup(records, commitPath)
+    await publishFixtureGroup(store, records, commitPath)
+    await publishFixtureGroup(store, records, commitPath)
     const snapshot = await store.readRecords()
     expect(snapshot.config).toEqual({})
     expect(snapshot.records.map(record => record.path)).toEqual([firstPath, commitPath])
@@ -800,16 +858,16 @@ describe('sole repository writer', () => {
     const store = await initializeRepositoryStore(root, manifest, {})
     const complete = reviewRecords(recordId('review'))
     await Promise.all([
-      store.publishImmutableGroup(complete.records, complete.manifestPath),
-      store.publishImmutableGroup(complete.records, complete.manifestPath),
+      publishFixtureGroup(store, complete.records, complete.manifestPath),
+      publishFixtureGroup(store, complete.records, complete.manifestPath),
     ])
     const failed = reviewRecords(`review_${'0'.repeat(25)}1`, 'failed')
-    await store.publishImmutableGroup(failed.records, failed.manifestPath)
+    await publishFixtureGroup(store, failed.records, failed.manifestPath)
     expect(await store.readImmutable(complete.manifestPath)).toEqual(complete.records.at(-1)!.bytes)
     expect(await store.readImmutable(failed.manifestPath)).toEqual(failed.records.at(-1)!.bytes)
 
     await expect(
-      store.publishImmutableGroup([...complete.records, failed.records[0]!], complete.manifestPath),
+      publishFixtureGroup(store, [...complete.records, failed.records[0]!], complete.manifestPath),
     ).rejects.toThrow('only its exact manifest, response, and ledger')
     const conflicting = complete.records.map(record =>
       record.path.endsWith('submissions.jsonl')
@@ -822,7 +880,7 @@ describe('sole repository writer', () => {
         : record,
     )
     await expect(
-      store.publishImmutableGroup(conflicting, complete.manifestPath),
+      publishFixtureGroup(store, conflicting, complete.manifestPath),
     ).rejects.toBeInstanceOf(ImmutableRecordConflictError)
   })
 
@@ -832,7 +890,7 @@ describe('sole repository writer', () => {
     const subjectPath = makeOwnedPath('review-triggers', [`${recordId('trigger')}.json`])
     const subjectBytes = new TextEncoder().encode(canonicalJson(trigger))
     const subjectSha256 = createHash('sha256').update(subjectBytes).digest('hex')
-    await store.publishImmutableGroup([{ path: subjectPath, bytes: subjectBytes }], subjectPath)
+    await publishFixtureGroup(store, [{ path: subjectPath, bytes: subjectBytes }], subjectPath)
     const review = reviewRecords(recordId('review'))
     const authority = {
       repositoryId: manifest.repositoryId,
@@ -844,21 +902,24 @@ describe('sole repository writer', () => {
     }
 
     await expect(
-      store.publishReview(
+      publishFixtureReview(
+        store,
         { ...authority, records: [{ path: subjectPath, sha256: 'f'.repeat(64) }] },
         review.records,
         review.manifestPath,
       ),
     ).rejects.toThrow('failed verification')
     await expect(
-      store.publishReview(
+      publishFixtureReview(
+        store,
         { ...authority, subjectRecord: canonicalJson({ ...trigger, evidenceWatermark: 99 }) },
         review.records,
         review.manifestPath,
       ),
     ).rejects.toThrow('subject differs')
     await expect(
-      store.publishReview(
+      publishFixtureReview(
+        store,
         {
           ...authority,
           inventory: [
@@ -882,7 +943,8 @@ describe('sole repository writer', () => {
       mediaType: 'application/json',
       role: 'review-history-record',
     }
-    await store.publishReview(
+    await publishFixtureReview(
+      store,
       { ...authority, recordObjects: [{ path: subjectPath, object: subjectObject }] },
       review.records,
       review.manifestPath,

@@ -146,17 +146,54 @@ test('production PR acquisition freezes one discovered sanitizer across GitHub r
   expect((await store.verify()).issues).toEqual([])
 })
 
+test('production PR admission preserves validated Git identities but redacts matching unknown prose', async () => {
+  const { root, store, environment, secret } = await subjectFixture()
+  const sha = '3'.repeat(40)
+  await writeFile(join(root, '.env'), `VALUE=${secret}\nHASH=${sha}\n`)
+  const inputPath = join(root, 'github-fixture.json')
+  const input = JSON.parse(await readFile(inputPath, 'utf8'))
+  input.metadata.data.repository.pullRequest.explanation = sha
+  await writeFile(inputPath, JSON.stringify(input))
+  const subjectPath = await observeReviewSubject(root, store, 42, environment)
+  const observation = JSON.parse(
+    Buffer.from(await store.readImmutable(subjectPath)).toString(),
+  ) as AvailablePullRequestObservation
+  expect(observation.head.sha).toBe(sha)
+  const metadata = observation.evidence.find(reference => reference.role === 'github-pr-metadata')!
+  const evidence = JSON.parse(Buffer.from(await store.getObject(metadata)).toString())
+  expect(evidence.data.repository.pullRequest.headRefOid).toBe(sha)
+  expect(evidence.data.repository.pullRequest.explanation).toBe('[REDACTED]')
+})
+
+test('production PR admission accepts sanitized provider timestamps and numeric metadata', async () => {
+  const { root, store, environment, secret } = await subjectFixture()
+  await writeFile(join(root, '.env'), `VALUE=${secret}\nCUTOFF=2026-09-05\nTOKEN=98765\n`)
+  const inputPath = join(root, 'github-fixture.json')
+  const input = JSON.parse(await readFile(inputPath, 'utf8'))
+  input.metadata.data.repository.pullRequest.numericToken = 98765
+  await writeFile(inputPath, JSON.stringify(input))
+  const subjectPath = await observeReviewSubject(root, store, 42, environment)
+  const observation = JSON.parse(
+    Buffer.from(await store.readImmutable(subjectPath)).toString(),
+  ) as AvailablePullRequestObservation
+  const metadata = observation.evidence.find(reference => reference.role === 'github-pr-metadata')!
+  const evidence = JSON.parse(Buffer.from(await store.getObject(metadata)).toString())
+  expect(evidence.data.repository.pullRequest.updatedAt).toStartWith('[REDACTED]')
+  expect(evidence.data.repository.pullRequest.numericToken).toBe('[REDACTED]')
+})
+
 test('manual PR assertions publish prepared prose and return the matching association', async () => {
   const { root, store, environment, secret } = await subjectFixture()
   const value = fixture()
   const candidate = value.input.candidates[0]!
   if (!('trigger' in candidate)) throw new Error('fixture candidate is not readable')
+  const preparation = await store.preparePublication()
   for (const reference of candidate.turn.inventory) {
     await store.putObject(
-      (async function* () {
-        yield value.objects.get(reference.sha256)!
-      })(),
-      reference,
+      preparation.prepareObject(value.objects.get(reference.sha256)!, {
+        mediaType: reference.mediaType,
+        role: reference.role,
+      }),
     )
   }
   const turnRoot = ['codex', 'session-a', 'turns', candidate.turn.turnId]
@@ -171,18 +208,24 @@ test('manual PR assertions publish prepared prose and return the matching associ
     ],
   ]
   for (const [path, record] of records)
-    await store.createImmutable(path, Buffer.from(canonicalJson(record)))
+    await store.createImmutable(preparation.prepareRecord(path, Buffer.from(canonicalJson(record))))
   await store.createImmutable(
-    makeOwnedPath('sessions', [...turnRoot, 'events.jsonl']),
-    Buffer.from(candidate.events.map(canonicalJson).join('')),
+    preparation.prepareRecord(
+      makeOwnedPath('sessions', [...turnRoot, 'events.jsonl']),
+      Buffer.from(candidate.events.map(canonicalJson).join('')),
+    ),
   )
   await store.createImmutable(
-    makeOwnedPath('sessions', [...turnRoot, 'transcript.jsonl']),
-    new Uint8Array(),
+    preparation.prepareRecord(
+      makeOwnedPath('sessions', [...turnRoot, 'transcript.jsonl']),
+      new Uint8Array(),
+    ),
   )
   await store.createImmutable(
-    makeOwnedPath('review-triggers', [`${candidate.trigger.triggerId}.json`]),
-    Buffer.from(canonicalJson(candidate.trigger)),
+    preparation.prepareRecord(
+      makeOwnedPath('review-triggers', [`${candidate.trigger.triggerId}.json`]),
+      Buffer.from(canonicalJson(candidate.trigger)),
+    ),
   )
   const result = await associateReviewSession(
     root,

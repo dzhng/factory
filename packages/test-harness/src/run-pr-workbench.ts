@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
-import { mkdir, rm, writeFile } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { mkdir, mkdtemp, readdir, unlink, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { resolve, join } from 'node:path'
 
 import {
   githubRepositoryKey,
@@ -18,16 +19,49 @@ import {
   type GhCommandResult,
   type PrObjectStore,
 } from '@factory/github'
+import { initializeRepositoryStore } from '@factory/repository'
 import { createSanitizer } from '@factory/sanitization'
 
 const repositoryRoot = resolve(import.meta.dir, '../../..')
-const evidenceRoot = resolve(repositoryRoot, 'specs/evidence-sanitization/assets/pr-workbench')
-const tests = Bun.spawn(['bun', 'run', '--cwd', 'packages/github', 'test'], {
-  cwd: repositoryRoot,
-  stdout: 'inherit',
-  stderr: 'inherit',
-})
-if ((await tests.exited) !== 0) process.exit(1)
+const evidenceRoot =
+  process.env.FACTORY_PR_REPORT_ROOT ??
+  resolve(repositoryRoot, 'specs/evidence-sanitization/assets/pr-workbench')
+if (process.env.FACTORY_DOCKER_TEST !== '1') {
+  const tests = Bun.spawn(['bun', 'run', '--cwd', 'packages/github', 'test'], {
+    cwd: repositoryRoot,
+    stdout: 'inherit',
+    stderr: 'inherit',
+  })
+  if ((await tests.exited) !== 0) process.exit(1)
+  await mkdir(evidenceRoot, { recursive: true })
+  const report = Bun.spawn(
+    [
+      'docker',
+      'run',
+      '--rm',
+      '--network',
+      'none',
+      '--read-only',
+      '--tmpfs',
+      '/tmp:rw,noexec,nosuid,nodev,size=128m',
+      '--mount',
+      `type=bind,src=${repositoryRoot},dst=/workspace,readonly`,
+      '--mount',
+      `type=bind,src=${evidenceRoot},dst=/output`,
+      '--workdir',
+      '/tmp',
+      '--env',
+      'FACTORY_DOCKER_TEST=1',
+      '--env',
+      'FACTORY_PR_REPORT_ROOT=/output',
+      'oven/bun:1.3.14',
+      'bun',
+      '/workspace/packages/test-harness/src/run-pr-workbench.ts',
+    ],
+    { stdout: 'inherit', stderr: 'inherit' },
+  )
+  process.exit(await report.exited)
+}
 
 const key = (value: string) => githubRepositoryKey('github.com', `R_${value}`)
 const id = (value: string) => `${value}_${'0'.repeat(26)}` as RecordId
@@ -294,28 +328,48 @@ const batchAssociations = deriveAssociations({
     },
   ],
 })
-const persistedPaths: string[] = []
-let publicationCalls = 0
-let injectCrash = true
-const batchStore = {
-  createImmutable: async (path: unknown) => {
-    publicationCalls += 1
-    if (injectCrash && publicationCalls === 3) throw new Error('workbench crash')
-    persistedPaths.push(String(path))
+const batchRoot = await mkdtemp(join(tmpdir(), 'factory-pr-report-'))
+await mkdir(join(batchRoot, '.git'))
+const batchStore = await initializeRepositoryStore(
+  batchRoot,
+  {
+    schemaVersion: 1,
+    format: 'factory-repository',
+    minimumReaderVersion: '0.1.0',
+    repositoryId: localRepositoryId,
+    createdAt: '2026-09-05T00:00:00Z',
   },
-} as unknown as Parameters<typeof persistPullRequestEvidence>[0]
+  {},
+)
+const preparation = await batchStore.preparePublication()
+const associationRoot = join(
+  batchRoot,
+  '.factory',
+  'pull-requests',
+  'github',
+  observation.repositoryKey,
+  String(observation.number),
+  'associations',
+  observation.observationId,
+)
+await mkdir(associationRoot, { recursive: true })
+const blockedBatchDirectory = join(associationRoot, 'batches')
+await writeFile(blockedBatchDirectory, 'synthetic publication interruption')
 try {
-  await persistPullRequestEvidence(batchStore, observation, batchAssociations)
+  await persistPullRequestEvidence(batchStore, observation, batchAssociations, { preparation })
+  throw new Error('expected publication interruption')
 } catch (error) {
-  if (!(error instanceof Error) || error.message !== 'workbench crash') throw error
+  if (!(error instanceof Error) || !error.message.includes('requires a directory')) throw error
 }
-const orphanPrefixesIgnored = !persistedPaths.some(path => path.includes('/batches/'))
-injectCrash = false
-publicationCalls = 0
+const orphanPrefixesIgnored =
+  (await readdir(associationRoot)).filter(path => path.endsWith('.json')).length ===
+  batchAssociations.length
+await unlink(blockedBatchDirectory)
 const completedBatches = await persistPullRequestEvidence(
   batchStore,
   observation,
   batchAssociations,
+  { preparation },
 )
 const batchesVerified = completedBatches.every(batch =>
   verifyAssociationBatch(
@@ -500,7 +554,8 @@ const scenarios = [
     reason: 'provider state is never rewritten',
   },
 ]
-await rm(evidenceRoot, { recursive: true, force: true })
+if (scenarios.some(scenario => scenario.result.includes('FAILED')))
+  throw new Error('PR workbench scenario failed')
 await mkdir(evidenceRoot, { recursive: true })
 await writeFile(
   resolve(evidenceRoot, 'report.json'),

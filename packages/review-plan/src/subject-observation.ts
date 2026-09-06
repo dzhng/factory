@@ -15,7 +15,7 @@ import {
   persistGithubRepositoryMapping,
   persistPullRequestEvidence,
 } from '@factory/github'
-import { GitObserver, discoverRepositorySanitizer, type RepositoryStore } from '@factory/repository'
+import { GitObserver, type PublicationPreparation, type RepositoryStore } from '@factory/repository'
 import { SanitizationError } from '@factory/sanitization'
 
 import { loadCandidateEvidence } from './candidate-loader'
@@ -29,18 +29,19 @@ export async function observeReviewSubject(
   environment: NodeJS.ProcessEnv,
   options: { manual?: readonly ManualAssociation[] } = {},
 ): Promise<OwnedPath> {
-  const sanitizer = await discoverRepositorySanitizer(repositoryRoot)
+  const preparation = await store.preparePublication()
+  const sanitizer = preparation.sanitizer
   return await observePreparedSubject(
     repositoryRoot,
     store,
     pullRequest,
     environment,
-    sanitizer,
+    preparation,
     (options.manual ?? []).map(assertion => prepareManualAssertion(assertion, sanitizer)),
   )
 }
 
-type SubjectSanitizer = Awaited<ReturnType<typeof discoverRepositorySanitizer>>
+type SubjectSanitizer = PublicationPreparation['sanitizer']
 
 function requireSafeSessionKey(sessionKey: string, sanitizer: SubjectSanitizer): void {
   if (sanitizer.text(sessionKey).redacted) throw new SanitizationError('unsupported-content')
@@ -63,17 +64,13 @@ async function observePreparedSubject(
   store: RepositoryStore,
   pullRequest: number | undefined,
   environment: NodeJS.ProcessEnv,
-  sanitizer: SubjectSanitizer,
+  preparation: PublicationPreparation,
   manual: readonly ManualAssociation[],
 ): Promise<OwnedPath> {
+  const sanitizer = preparation.sanitizer
   const objects = {
     put: async (bytes: Uint8Array, metadata: { mediaType: string; role: string }) =>
-      await store.putObject(
-        (async function* () {
-          yield bytes
-        })(),
-        metadata,
-      ),
+      await store.putObject(preparation.prepareObject(bytes, metadata)),
   }
   if (pullRequest === undefined) {
     const observationId = newRecordId('observation')
@@ -86,7 +83,9 @@ async function observePreparedSubject(
       throw new Error(`workspace observation unavailable: ${observed.reason.code}`)
     const observation = observed.kind === 'raced' ? observed.partial : observed.observation
     const path = `repository-observations/${observation.observationId}.json` as OwnedPath
-    await store.createImmutable(path, new TextEncoder().encode(canonicalJson(observation)))
+    await store.createImmutable(
+      preparation.prepareRecord(path, new TextEncoder().encode(canonicalJson(observation))),
+    )
     return path
   }
 
@@ -144,7 +143,7 @@ async function observePreparedSubject(
   })
   if ('availability' in mapping)
     throw new Error(`pull-request repository mapping unavailable: ${mapping.reason}`)
-  await persistGithubRepositoryMapping(store, mapping)
+  await persistGithubRepositoryMapping(store, mapping, preparation)
   const [owner, name, ...extra] = mapping.repository.split('/')
   if (!owner || !name || extra.length !== 0)
     throw new Error('pull-request repository mapping returned an invalid name')
@@ -161,7 +160,7 @@ async function observePreparedSubject(
   })
   if (observation.availability === 'unavailable') {
     if (observation.record !== undefined)
-      await persistPullRequestEvidence(store, observation.record, [])
+      await persistPullRequestEvidence(store, observation.record, [], { preparation })
     throw new Error(`pull-request observation unavailable: ${observation.reason}`)
   }
 
@@ -226,7 +225,7 @@ async function observePreparedSubject(
     previous,
   })
   for (const association of associations) requireSafeSessionKey(association.sessionKey, sanitizer)
-  await persistPullRequestEvidence(store, observation, associations)
+  await persistPullRequestEvidence(store, observation, associations, { preparation })
   return `pull-requests/github/${observation.repositoryKey}/${observation.number}/observations/${observation.observationId}.json` as OwnedPath
 }
 
@@ -239,14 +238,14 @@ export async function associateReviewSession(
   environment: NodeJS.ProcessEnv,
 ): Promise<{ subjectPath: OwnedPath; associationPath: OwnedPath }> {
   const observedAt = new Date().toISOString()
-  const sanitizer = await discoverRepositorySanitizer(repositoryRoot)
-  const prepared = prepareManualAssertion({ ...assertion, observedAt }, sanitizer)
+  const preparation = await store.preparePublication()
+  const prepared = prepareManualAssertion({ ...assertion, observedAt }, preparation.sanitizer)
   const subjectPath = await observePreparedSubject(
     repositoryRoot,
     store,
     pullRequest,
     environment,
-    sanitizer,
+    preparation,
     [prepared],
   )
   const records = (await store.readRecords()).records

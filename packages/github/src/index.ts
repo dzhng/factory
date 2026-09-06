@@ -21,16 +21,14 @@ import {
   type AssociationBatch,
   type SessionPullRequestAssociation,
 } from '@factory/contract'
-import { RepositoryStore } from '@factory/repository'
+import {
+  RepositoryStore,
+  prepareGithubMetadata,
+  type PublicationPreparation,
+} from '@factory/repository'
 import { SanitizationError } from '@factory/sanitization'
 
-import {
-  PreparedPrObjects,
-  prepareMetadata,
-  preparePatch,
-  requireUnchanged,
-  type Sanitizer,
-} from './preparation'
+import { PreparedPrObjects, preparePatch, requireUnchanged, type Sanitizer } from './preparation'
 
 export type PullRequestRef = {
   hostname: string
@@ -234,6 +232,8 @@ function isUtcTimestamp(value: string): boolean {
 }
 
 function parseMetadata(bytes: Uint8Array, requestedNumber: number, hostname: string): Metadata {
+  if (!Number.isSafeInteger(requestedNumber) || requestedNumber <= 0)
+    throw new TypeError('pull request number is invalid')
   const decoded = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
   const value = JSON.parse(decoded) as Record<string, unknown>
   if ('errors' in value && (!Array.isArray(value.errors) || value.errors.length > 0)) {
@@ -630,7 +630,7 @@ export class GithubPrObserver {
     ): Promise<{ kind: 'stored'; object: ObjectRef } | { kind: 'timeout' }> => {
       const safe =
         metadata.mediaType === 'application/json'
-          ? prepareMetadata(bytes, this.options.sanitizer, prepared.transformation, true)
+          ? prepareGithubMetadata(bytes, this.options.sanitizer, prepared.transformation, true)
           : preparePatch(bytes, this.options.sanitizer, prepared.transformation)
       if (performance.now() >= deadline) return { kind: 'timeout' }
       return { kind: 'stored', object: await prepared.put(safe, metadata) }
@@ -1262,7 +1262,7 @@ export async function observeGithubRepositoryMapping(
   const prepared = new PreparedPrObjects(maximumBytes * 2)
   let evidenceBytes: Uint8Array
   try {
-    evidenceBytes = prepareMetadata(
+    evidenceBytes = prepareGithubMetadata(
       result.stdout,
       options.sanitizer,
       prepared.transformation,
@@ -1328,6 +1328,7 @@ export async function observeGithubRepositoryMapping(
 export async function persistGithubRepositoryMapping(
   store: RepositoryStore,
   observation: GithubRepositoryMappingObservation,
+  preparation: PublicationPreparation,
 ): Promise<void> {
   const path = makeOwnedPath('pull-requests', [
     'github',
@@ -1337,14 +1338,16 @@ export async function persistGithubRepositoryMapping(
     `${observation.observationId}.json`,
   ])
   validatePublicRecord(path, observation)
-  await store.createImmutable(path, new TextEncoder().encode(canonicalJson(observation)))
+  await store.createImmutable(
+    preparation.prepareRecord(path, new TextEncoder().encode(canonicalJson(observation))),
+  )
 }
 
 export async function persistPullRequestEvidence(
   store: RepositoryStore,
   observation: PullRequestObservation,
   associations: readonly SessionPullRequestAssociation[],
-  options: { policyVersion?: string } = {},
+  options: { preparation: PublicationPreparation; policyVersion?: string },
 ): Promise<readonly AssociationBatch[]> {
   const root = ['github', observation.repositoryKey, String(observation.number)]
   if (observation.availability === 'unavailable' && associations.length !== 0) {
@@ -1454,8 +1457,9 @@ export async function persistPullRequestEvidence(
     })
     batches.push(batch)
   }
-  await store.createImmutable(observationRecord.path, observationRecord.bytes)
-  for (const record of records) await store.createImmutable(record.path, record.bytes)
-  for (const record of batchRecords) await store.createImmutable(record.path, record.bytes)
+  const prepared = [observationRecord, ...records, ...batchRecords].map(record =>
+    options.preparation.prepareRecord(record.path, record.bytes),
+  )
+  for (const record of prepared) await store.createImmutable(record)
   return batches
 }

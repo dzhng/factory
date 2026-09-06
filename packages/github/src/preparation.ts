@@ -125,57 +125,6 @@ export function preparePatch(
   return new TextEncoder().encode(sections.join(''))
 }
 
-/** SHA exemptions belong only to already validated GraphQL fields, never unknown JSON. */
-export function prepareMetadata(
-  bytes: Uint8Array,
-  sanitizer: Sanitizer,
-  transformation: EvidenceTransformation,
-  graphql: boolean,
-): Uint8Array {
-  const value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
-  const pr = graphql ? value.data?.repository?.pullRequest : undefined
-  const preserved: { index?: number; key: string; value: string }[] = []
-  const keep = (parent: Record<string, unknown>, key: string, index?: number) => {
-    const value = parent[key]
-    if (typeof value === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(value)) {
-      preserved.push({ index, key, value })
-      parent[key] = null
-    }
-  }
-  if (pr) {
-    keep(pr, 'baseRefOid')
-    keep(pr, 'headRefOid')
-    for (const [index, node] of pr.commits.nodes.entries()) keep(node.commit, 'oid', index)
-  }
-  // Prepare the whole tree, including unknown fields and keys. Restore only the
-  // explicitly validated paths; changed schema keys cannot become new authority.
-  let transformed: ReturnType<Sanitizer['json']>
-  try {
-    transformed = sanitizer.json(value)
-  } catch (error) {
-    if (!(error instanceof SanitizationError) || error.code !== 'json-key-collision') throw error
-    transformation.redacted = true
-    transformation.omissionReasons = [
-      ...new Set([...transformation.omissionReasons, 'json-key-collision' as const]),
-    ]
-    return new TextEncoder().encode(canonicalJson({ omitted: 'json-key-collision' }))
-  }
-  transformation.redacted ||= transformed.redacted
-  const safe = transformed.value as typeof value
-  if (pr) {
-    const safePr = safe.data?.repository?.pullRequest
-    if (!safePr || !Array.isArray(safePr.commits?.nodes))
-      throw new SanitizationError('unsupported-content')
-    for (const { index, key, value: sha } of preserved) {
-      const destination = index === undefined ? safePr : safePr.commits.nodes[index]?.commit
-      if (!destination || !Object.hasOwn(destination, key))
-        throw new SanitizationError('unsupported-content')
-      destination[key] = sha
-    }
-  }
-  return new TextEncoder().encode(canonicalJson(safe))
-}
-
 /** One bounded acquisition freezes all safe leaves before publication starts. */
 export class PreparedPrObjects implements PrObjectStore {
   readonly transformation: EvidenceTransformation = {

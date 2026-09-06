@@ -5,7 +5,11 @@ import {
   type OwnedPath,
 } from '@factory/contract'
 
+export const MAX_STRUCTURED_RECORD_BYTES = 4 * 1024 * 1024
+
 export function validateStructuredRecord(path: OwnedPath, bytes: Uint8Array): void {
+  if (bytes.byteLength > MAX_STRUCTURED_RECORD_BYTES)
+    throw new TypeError('immutable structured record exceeds its read bound')
   const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
   if (path.endsWith('.json')) {
     const value = JSON.parse(text) as JsonValue

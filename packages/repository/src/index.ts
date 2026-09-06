@@ -48,7 +48,7 @@ import {
 import { restorePreparedRecord } from './admission-internal'
 import { withAdvisoryFileLock } from './confined-writer'
 import { discoverRepositorySanitizer } from './git-observer'
-import { validateStructuredRecord } from './record-validation'
+import { validateStructuredRecord, MAX_STRUCTURED_RECORD_BYTES } from './record-validation'
 export {
   snapshotPreparedObject,
   snapshotPreparedRecord,
@@ -65,6 +65,7 @@ export {
 } from './confined-writer'
 
 export * from './git-observer'
+export { prepareGithubMetadata } from './github-metadata'
 export { ReconstructionUnavailableError } from './confined-writer'
 
 export type RecordRef = {
@@ -154,7 +155,6 @@ export type RepositoryStoreOptions = {
 }
 
 const DEFAULT_MAX_OBJECT_BYTES = 64 * 1024 * 1024
-const MAX_STRUCTURED_RECORD_BYTES = 4 * 1024 * 1024
 const OWNED_DIRECTORIES = [
   'sessions',
   'repository-observations',
@@ -540,7 +540,7 @@ export class RepositoryStore {
   }
 
   async preparePublication() {
-    return await preparePublication(this.repositoryRoot)
+    return await preparePublication(this.repositoryRoot, this.maxObjectBytes)
   }
 
   private async preparedRecords(records: readonly PreparedRecord[]) {

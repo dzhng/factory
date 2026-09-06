@@ -188,24 +188,20 @@ describe.serial('safe Git observation', () => {
         },
         {},
       )
+      const preparation = await store.preparePublication()
       let writes = 0
       const result = await new GitObserver(
         root,
         {
           get: ref => store.getObject(ref),
           put: async (bytes, metadata) => {
-            const ref = await store.putObject(
-              (async function* () {
-                yield bytes
-              })(),
-              metadata,
-            )
+            const ref = await store.putObject(preparation.prepareObject(bytes, metadata))
             expect(Buffer.from(await store.getObject(ref))).toEqual(Buffer.from(bytes))
             if (++writes === failAfter) throw new Error('synthetic interruption')
             return ref
           },
         },
-        { repositoryId: 'repo_test' },
+        { repositoryId: 'repo_test', sanitizer: preparation.sanitizer },
       ).observe()
       expect(result.kind).toBe('unavailable')
       expect(writes).toBe(failAfter)

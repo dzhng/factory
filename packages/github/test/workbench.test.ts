@@ -13,7 +13,12 @@ import {
   type Sha256,
 } from '../../contract/src/index'
 import { deriveAssociations, verifyAssociationBatch } from '../../domain/src/index'
-import { initializeRepositoryStore, type RepositoryStore } from '../../repository/src/index'
+import {
+  initializeRepositoryStore,
+  snapshotPreparedRecord,
+  type PreparedRecord,
+  type RepositoryStore,
+} from '../../repository/src/index'
 import { createSanitizer } from '../../sanitization/src/index'
 import {
   GithubPrObserver,
@@ -27,6 +32,23 @@ import {
 
 if (process.env.FACTORY_DOCKER_TEST !== '1') throw new Error('PR tests require Docker')
 const roots: string[] = []
+async function fixturePreparation() {
+  const root = await mkdtemp(join(tmpdir(), 'factory-pr-preparation-'))
+  roots.push(root)
+  await mkdir(join(root, '.git'))
+  const store = await initializeRepositoryStore(
+    root,
+    {
+      schemaVersion: 1,
+      format: 'factory-repository',
+      minimumReaderVersion: '0.1.0',
+      repositoryId: 'repo_fixture',
+      createdAt: '2026-09-05T00:00:00Z',
+    },
+    {},
+  )
+  return await store.preparePublication()
+}
 afterEach(async () =>
   Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))),
 )
@@ -781,14 +803,9 @@ test('persists immutable PR evidence through the sole repository writer', async 
     },
     {},
   )
+  const preparation = await store.preparePublication()
   const objects: PrObjectStore = {
-    put: async (bytes, metadata) =>
-      store.putObject(
-        (async function* () {
-          yield bytes
-        })(),
-        metadata,
-      ),
+    put: async (bytes, metadata) => store.putObject(preparation.prepareObject(bytes, metadata)),
   }
   const fixture = metadata()
   const observed = await new GithubPrObserver({
@@ -818,8 +835,8 @@ test('persists immutable PR evidence through the sole repository writer', async 
       },
     ],
   })
-  const batches = await persistPullRequestEvidence(store, observed, associations)
-  await persistPullRequestEvidence(store, observed, associations)
+  const batches = await persistPullRequestEvidence(store, observed, associations, { preparation })
+  await persistPullRequestEvidence(store, observed, associations, { preparation })
   expect(batches).toHaveLength(3)
   for (const batch of batches) {
     const members = associations.filter(association =>
@@ -852,18 +869,13 @@ test('prepares PR metadata and patches before publishing exact evidence objects'
     {},
   )
   const secret = 'synthetic-pr-credential'
+  const preparation = await store.preparePublication()
   const fixture = JSON.parse(metadata())
   fixture.data.repository.pullRequest.extra = { [secret]: `reason ${secret} ${sha('3')}` }
   const observed = await new GithubPrObserver({
     sanitizer: createSanitizer([`VALUE=${secret}\nHASH=${sha('3')}`]),
     objects: {
-      put: (bytes, metadata) =>
-        store.putObject(
-          (async function* () {
-            yield bytes
-          })(),
-          metadata,
-        ),
+      put: (bytes, metadata) => store.putObject(preparation.prepareObject(bytes, metadata)),
     },
     run: async args => completed(args[0] === 'pr' ? `+reason ${secret}` : JSON.stringify(fixture)),
   }).observe(ref)
@@ -899,16 +911,11 @@ test('refuses a secret-bearing locator without publishing an earlier safe prefix
     {},
   )
   const responses = [metadata(), '+safe patch', metadata({ headRef: 'secret-ref-name' })]
+  const preparation = await store.preparePublication()
   const observer = new GithubPrObserver({
     sanitizer: createSanitizer(['VALUE=secret-ref-name']),
     objects: {
-      put: (bytes, metadata) =>
-        store.putObject(
-          (async function* () {
-            yield bytes
-          })(),
-          metadata,
-        ),
+      put: (bytes, metadata) => store.putObject(preparation.prepareObject(bytes, metadata)),
     },
     run: async () => completed(responses.shift()!),
   })
@@ -1053,17 +1060,12 @@ test('preparation expansion failure publishes no earlier object prefix', async (
     },
     {},
   )
+  const preparation = await store.preparePublication()
   const observer = new GithubPrObserver({
     sanitizer: createSanitizer(['TOKEN=Q']),
     maxGhBytes: 8192,
     objects: {
-      put: (bytes, metadata) =>
-        store.putObject(
-          (async function* () {
-            yield bytes
-          })(),
-          metadata,
-        ),
+      put: (bytes, metadata) => store.putObject(preparation.prepareObject(bytes, metadata)),
     },
     run: async args => completed(args[0] === 'pr' ? '+Q\n'.repeat(2000) : metadata()),
   })
@@ -1111,20 +1113,24 @@ test('association batches are semantic commit points and retry after every crash
     let calls = 0
     let failAt = failureAt
     const store = {
-      createImmutable: async (path: unknown, bytes: Uint8Array) => {
+      createImmutable: async (record: PreparedRecord) => {
+        const { path, bytes } = snapshotPreparedRecord(record)
         calls += 1
         if (calls === failAt) throw new Error('injected crash')
         written.set(String(path), bytes)
       },
     } as unknown as RepositoryStore
-    await expect(persistPullRequestEvidence(store, observation, associations)).rejects.toThrow(
-      'injected crash',
-    )
+    const preparation = await fixturePreparation()
+    await expect(
+      persistPullRequestEvidence(store, observation, associations, { preparation }),
+    ).rejects.toThrow('injected crash')
     const committedBeforeRetry = [...written.keys()].filter(path => path.includes('/batches/'))
     expect(committedBeforeRetry.length).toBeLessThanOrEqual(1)
     calls = 0
     failAt = Number.POSITIVE_INFINITY
-    const batches = await persistPullRequestEvidence(store, observation, associations)
+    const batches = await persistPullRequestEvidence(store, observation, associations, {
+      preparation,
+    })
     expect(batches).toHaveLength(2)
     for (const batch of batches) {
       const members = associations.filter(record =>
@@ -1143,11 +1149,15 @@ test('batch verification rejects semantic and public-record tampering before pro
   })
   const writes: Array<[unknown, Uint8Array]> = []
   const store = {
-    createImmutable: async (path: unknown, bytes: Uint8Array) => {
+    createImmutable: async (record: PreparedRecord) => {
+      const { path, bytes } = snapshotPreparedRecord(record)
       writes.push([path, bytes])
     },
   } as unknown as RepositoryStore
-  const [batch] = await persistPullRequestEvidence(store, observation, associations)
+  const preparation = await fixturePreparation()
+  const [batch] = await persistPullRequestEvidence(store, observation, associations, {
+    preparation,
+  })
   expect(batch).toBeDefined()
   if (!batch) return
   expect(verifyAssociationBatch({ ...batch, kind: 'manual' }, observation, associations)).toBe(
@@ -1187,7 +1197,10 @@ test('batch verification rejects semantic and public-record tampering before pro
     },
   } as unknown as RepositoryStore
   await expect(
-    persistPullRequestEvidence(invalidStore, observation, associations, { policyVersion: '' }),
+    persistPullRequestEvidence(invalidStore, observation, associations, {
+      preparation,
+      policyVersion: '',
+    }),
   ).rejects.toThrow()
   expect(noWrites).toEqual([])
 })

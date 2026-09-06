@@ -47,38 +47,42 @@ const valid = await initializeRepositoryStore(validRoot, manifest, {
   futurePolicy: { preserved: true },
 })
 const raw = new TextEncoder().encode('{"provider":"codex","unknown":{"future":true}}\n')
+const validPreparation = await valid.preparePublication()
 const rawRef = await valid.putObject(
-  (async function* () {
-    yield raw.subarray(0, 11)
-    yield raw.subarray(11)
-  })(),
-  { mediaType: 'application/jsonl', role: 'provider-event' },
+  validPreparation.prepareObject(raw, {
+    mediaType: 'application/x-ndjson',
+    role: 'provider-event',
+  }),
 )
 await valid.createImmutable(
-  makeOwnedPath('sessions', ['codex', 'session_01', 'identity.json']),
-  new TextEncoder().encode(
-    canonicalJson({
-      schemaVersion: 1,
-      provider: 'codex',
-      nativeSessionId: 'native-session-01',
-      sessionKey: 'session_01',
-      captureGeneration: 1,
-      repositoryId: manifest.repositoryId,
-      firstObservedAt: manifest.createdAt,
-    }),
+  validPreparation.prepareRecord(
+    makeOwnedPath('sessions', ['codex', 'session_01', 'identity.json']),
+    new TextEncoder().encode(
+      canonicalJson({
+        schemaVersion: 1,
+        provider: 'codex',
+        nativeSessionId: 'native-session-01',
+        sessionKey: 'session_01',
+        captureGeneration: 1,
+        repositoryId: manifest.repositoryId,
+        firstObservedAt: manifest.createdAt,
+      }),
+    ),
   ),
 )
 await valid.createImmutable(
-  makeOwnedPath('sessions', ['codex', 'session_01', 'lifecycle', `${recordId('event')}.json`]),
-  new TextEncoder().encode(
-    canonicalJson({
-      schemaVersion: 1,
-      eventId: recordId('event'),
-      sessionKey: 'session_01',
-      providerEvent: 'SessionStart',
-      observedAt: manifest.createdAt,
-      evidence: rawRef,
-    }),
+  validPreparation.prepareRecord(
+    makeOwnedPath('sessions', ['codex', 'session_01', 'lifecycle', `${recordId('event')}.json`]),
+    new TextEncoder().encode(
+      canonicalJson({
+        schemaVersion: 1,
+        eventId: recordId('event'),
+        sessionKey: 'session_01',
+        providerEvent: 'SessionStart',
+        observedAt: manifest.createdAt,
+        evidence: rawRef,
+      }),
+    ),
   ),
 )
 const validVerification = await valid.verify()
@@ -86,20 +90,23 @@ if (validVerification.issues.length !== 0) throw new Error('valid workbench tree
 
 const partialRoot = await makeRepository('partial')
 const partial = await initializeRepositoryStore(partialRoot, manifest, {})
+const partialPreparation = await partial.preparePublication()
 await partial.createImmutable(
-  makeOwnedPath('review-triggers', [`${recordId('trigger')}.json`]),
-  new TextEncoder().encode(
-    canonicalJson({
-      schemaVersion: 1,
-      triggerId: recordId('trigger'),
-      sessionKey: 'session_01',
-      turnId: recordId('turn'),
-      evidenceWatermark: 3,
-      provider: 'codex',
-      createdAt: manifest.createdAt,
-      materialization: 'partial',
-      limitations: [{ code: 'missing-transcript-range', detail: 'fixture gap' }],
-    }),
+  partialPreparation.prepareRecord(
+    makeOwnedPath('review-triggers', [`${recordId('trigger')}.json`]),
+    new TextEncoder().encode(
+      canonicalJson({
+        schemaVersion: 1,
+        triggerId: recordId('trigger'),
+        sessionKey: 'session_01',
+        turnId: recordId('turn'),
+        evidenceWatermark: 3,
+        provider: 'codex',
+        createdAt: manifest.createdAt,
+        materialization: 'partial',
+        limitations: [{ code: 'missing-transcript-range', detail: 'fixture gap' }],
+      }),
+    ),
   ),
 )
 const partialVerification = await partial.verify()
@@ -110,9 +117,10 @@ if (partialVerification.issues.length !== 0) {
 const corruptRoot = await makeRepository('corrupt')
 const corrupt = await initializeRepositoryStore(corruptRoot, manifest, {})
 const corruptRef = await corrupt.putObject(
-  (async function* () {
-    yield new TextEncoder().encode('expected')
-  })(),
+  (await corrupt.preparePublication()).prepareObject(Buffer.from('expected'), {
+    mediaType: 'text/plain',
+    role: 'test',
+  }),
 )
 await writeFile(join(corruptRoot, '.factory', objectOwnedPath(corruptRef.sha256)), 'substituted')
 const corruptVerification = await corrupt.verify()
