@@ -38,6 +38,8 @@ import type {
 } from '@factory/runtime-journal'
 import type { RuntimeJournal } from '@factory/runtime-journal'
 
+import { prepareEvidence } from './evidence'
+
 export {
   inspectCaptureProviderEnvironment,
   type CaptureProviderEnvironmentOptions,
@@ -82,6 +84,11 @@ export type HookEventInspection = {
 export type HookInspection = { events: readonly HookEventInspection[] }
 
 export interface CaptureAdapter {
+  prepareEvidence(
+    kind: Parameters<typeof prepareEvidence>[1],
+    bytes: Uint8Array,
+    sanitizer: Parameters<typeof prepareEvidence>[3],
+  ): ReturnType<typeof prepareEvidence>
   classify(raw: Uint8Array): CaptureEnvelope
   providerResponse(result: CaptureResult): Uint8Array
   inspectHooks(existing: Uint8Array | undefined, executable?: string): HookInspection
@@ -355,6 +362,7 @@ export function createCaptureAdapter(
     prior.set(item.event, values)
   }
   return {
+    prepareEvidence: (kind, bytes, sanitizer) => prepareEvidence(provider, kind, bytes, sanitizer),
     classify: raw => classify(provider, raw, () => new Date()),
     providerResponse: _result => encoder.encode('{}\n'),
     inspectHooks: (existing, executable) => inspectHooks(provider, existing, executable, prior),
