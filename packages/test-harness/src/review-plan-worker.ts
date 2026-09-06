@@ -687,7 +687,7 @@ const names = [
   'pr-unchanged-diff-new-session-range',
   'pr-force-push-base-change',
   'pr-valid-association-with-corrupt-and-unsafe-batches',
-  'pr-missing-raw-subject-provenance',
+  'pr-missing-subject-evidence',
 ]
 let reviewerDockerStarts = 0
 let noOpBundleBuilds = 0

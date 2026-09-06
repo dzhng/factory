@@ -832,6 +832,45 @@ describe('verified review bundles', () => {
     expect(plan.selections.some(selection => selection.triggerId === unrelated.triggerId)).toBe(
       false,
     )
+    await rm(join(root, objectOwnedPath(raw.sha256)))
+    const missingEvidenceReader = await openReviewRepositoryReader(root)
+    const partial = planLoadedReview(
+      await loadReviewInputs(missingEvidenceReader, {
+        mode: 'incremental',
+        subjectPath,
+        history: await loadReviewHistory(missingEvidenceReader),
+        policies: value.input.policies,
+        reviewLimits: { maxSessions: 1 },
+      }),
+    )
+    expect(partial.inputProblems).toContainEqual(
+      expect.objectContaining({
+        kind: 'subject-object',
+        field: 'evidence',
+        object: raw,
+        classification: 'unavailable',
+      }),
+    )
+    const parent = await mkdtemp(join(tmpdir(), 'factory-review-evidence-problem-'))
+    roots.push(parent)
+    const built = await buildBundle(
+      partial,
+      {
+        getObject: reference => readFile(join(root, objectOwnedPath(reference.sha256))),
+      },
+      join(parent, 'bundle'),
+      'repo_test',
+    )
+    expect((await verifyBundle(built.path, built.sha256)).valid).toBe(true)
+    const manifestPath = join(built.path, 'bundle.json')
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+    manifest.plan.inputProblems[0].field = 'raw'
+    const { problemId: _oldIdentity, ...oldProblem } = manifest.plan.inputProblems[0]
+    manifest.plan.inputProblems[0].problemId = reviewInputProblemId(oldProblem)
+    const legacy = new TextEncoder().encode(canonicalJson(manifest))
+    await rm(manifestPath)
+    await writeFile(manifestPath, legacy)
+    expect((await verifyBundle(built.path, digest(legacy))).valid).toBe(false)
   })
 
   test('history limitation problems must name an object owned by the exact code manifest', async () => {

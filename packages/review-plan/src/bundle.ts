@@ -463,7 +463,7 @@ export function validateReviewPlanRecord(plan: ReviewPlanRecord): void {
     } else {
       validateObjectRef(problem.object)
       if (
-        !['codeManifest', 'stagedPatch', 'unstagedPatch', 'raw', 'limitation'].includes(
+        !['codeManifest', 'stagedPatch', 'unstagedPatch', 'evidence', 'limitation'].includes(
           problem.field,
         ) ||
         !['unavailable', 'unsafe', 'corrupt', 'excluded'].includes(problem.classification) ||
@@ -1185,7 +1185,7 @@ export async function verifyBundle(
           if (bundledSubject.kind === 'workspace') {
             if (problem.field === 'stagedPatch') return bundledSubject.observation.stagedPatch
             if (problem.field === 'unstagedPatch') return bundledSubject.observation.unstagedPatch
-          } else if (problem.field === 'raw') {
+          } else if (problem.field === 'evidence') {
             return bundledSubject.observation.evidence.find(
               item => canonicalJson(item) === canonicalJson(problem.object),
             )

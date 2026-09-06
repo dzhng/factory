@@ -544,7 +544,7 @@ export type ReviewInputProblem =
   | {
       kind: 'subject-object'
       problemId: Sha256
-      field: 'codeManifest' | 'stagedPatch' | 'unstagedPatch' | 'raw' | 'limitation'
+      field: 'codeManifest' | 'stagedPatch' | 'unstagedPatch' | 'evidence' | 'limitation'
       object: ObjectRef
       classification: 'unavailable' | 'unsafe' | 'corrupt' | 'excluded'
       limitation: Limitation
@@ -2762,7 +2762,7 @@ function validateRecordShape(
           )
           assertEnum(
             problem.field,
-            ['codeManifest', 'stagedPatch', 'unstagedPatch', 'raw', 'limitation'],
+            ['codeManifest', 'stagedPatch', 'unstagedPatch', 'evidence', 'limitation'],
             `${label}.field`,
           )
           assertObjectRef(problem.object, `${label}.object`)

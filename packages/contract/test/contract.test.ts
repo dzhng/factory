@@ -13,6 +13,7 @@ import {
   parseRepositoryConfig,
   parseRepositoryManifest,
   reviewSubjectCoverageId,
+  reviewInputProblemId,
   UnsupportedRepositoryVersionError,
   validatePublicRecord,
 } from '../src/index'
@@ -489,6 +490,45 @@ describe('public repository contract', () => {
     ]
 
     for (const [path, value] of cases) expect(() => validatePublicRecord(path, value)).not.toThrow()
+    const review = cases.find(
+      ([path]) => path.startsWith('reviews/') && path.endsWith('/manifest.json'),
+    )!
+    const problem = {
+      kind: 'subject-object' as const,
+      field: 'evidence' as const,
+      object,
+      classification: 'unavailable' as const,
+      limitation: {
+        code: 'unverified-object' as const,
+        detail: 'Optional PR evidence is unavailable',
+        object,
+      },
+    }
+    const withProblem = (input: unknown) => ({
+      ...(review[1] as Record<string, unknown>),
+      disposition: 'partial',
+      limitations: [problem.limitation],
+      inputProblems: [input],
+    })
+    expect(() =>
+      validatePublicRecord(
+        review[0],
+        withProblem({
+          ...problem,
+          problemId: reviewInputProblemId(problem),
+        }),
+      ),
+    ).not.toThrow()
+    const rawProblem = { ...problem, field: 'raw' }
+    expect(() =>
+      validatePublicRecord(
+        review[0],
+        withProblem({
+          ...rawProblem,
+          problemId: reviewInputProblemId(rawProblem as never),
+        }),
+      ),
+    ).toThrow('field')
     expect(() =>
       validatePublicRecord(makeOwnedPath('review-triggers', [`${recordId('trigger')}.json`]), {
         ...(cases[7]![1] as Record<string, unknown>),

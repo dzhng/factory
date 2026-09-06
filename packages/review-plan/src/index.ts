@@ -431,7 +431,10 @@ async function loadReviewInputsFromReader(
         await readSubjectObject(reference)
         subjectObjectRefs.push(reference)
       } catch (error) {
-        subjectLimitations = [...subjectLimitations, subjectObjectProblem('raw', reference, error)]
+        subjectLimitations = [
+          ...subjectLimitations,
+          subjectObjectProblem('evidence', reference, error),
+        ]
       }
     }
     if (subject.observation.codeManifest !== undefined) {
