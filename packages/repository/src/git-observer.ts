@@ -23,6 +23,10 @@ import { discoverSanitizer, SanitizationError } from '@factory/sanitization'
 
 import { ConfinedWriter } from './confined-writer'
 
+export async function discoverRepositorySanitizer(repositoryRoot: string) {
+  return await discoverSanitizer(bounds => ConfinedWriter.readFiles(repositoryRoot, bounds))
+}
+
 export type RaceFact = {
   code: 'repository-changed-during-observation'
   startState: string
@@ -780,8 +784,7 @@ export class GitObserver {
 
     try {
       const sanitizer =
-        this.options.sanitizer ??
-        (await discoverSanitizer(bounds => ConfinedWriter.readFiles(this.repositoryRoot, bounds)))
+        this.options.sanitizer ?? (await discoverRepositorySanitizer(this.repositoryRoot))
       const safePath = (path: Uint8Array) =>
         !sanitizer.text(Buffer.from(path).toString('utf8')).redacted
       const pathLabel = (path: Uint8Array) => (safePath(path) ? pathKey(path) : 'omitted path')
