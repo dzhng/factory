@@ -17,6 +17,9 @@ The [v1 rationale](specs/done/factory-v1/README.md) records product principles,
 trade-offs, and verification provenance. Its [public format](specs/done/factory-v1/format.md)
 is separate so portable data does not depend on one package layout.
 
+The active [evidence sanitization plan](specs/evidence-sanitization/README.md)
+defines the planned cutover from lossless capture to sanitized review evidence.
+
 The [security model](SECURITY.md) owns repository trust, credentials, container
 isolation, and local interface policy. The implementation follows these ownership
 boundaries:
