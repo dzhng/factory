@@ -100,6 +100,7 @@ describe('runtime journal', () => {
     })
     const claim = (await journal.claimStop(crashStop)).claim
     const { path, bytes } = turnFixture('codex', 'session', 'stop', 'prepared for another worktree')
+    const otherTurn = turnFixture('codex', 'session', 'other-stop', 'other worktree evidence')
     const completion = { path, sha256: createHash('sha256').update(bytes).digest('hex') }
     await expect(
       journal.prepareCapture(
@@ -108,7 +109,7 @@ describe('runtime journal', () => {
           objects: [],
           records: [
             await prepareFixtureRecord(root, path, bytes),
-            await prepareFixtureRecord(other, path, bytes),
+            await prepareFixtureRecord(other, otherTurn.path, otherTurn.bytes),
           ],
           commitPath: path,
           completion,
