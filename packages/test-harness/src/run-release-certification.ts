@@ -172,8 +172,9 @@ try {
   })
 
   const auth = join(scratch, 'review-auth.json')
-  await writeFile(auth, 'factory-test-decision\n', { mode: 0o444 })
-  await chmod(auth, 0o444)
+  // Match the consumer UID so private submission files remain readable after Docker exits.
+  await writeFile(auth, 'factory-test-decision\n', { mode: 0o600 })
+  await chmod(auth, 0o600)
   const image = (
     await succeed(
       'docker',
