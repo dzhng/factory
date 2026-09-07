@@ -127,8 +127,8 @@ function decisionView(records: RepositoryRecords, canonicalBranch?: string) {
 }
 
 const FACTORY_REVIEWER_DEFAULTS = {
-  codex: { model: 'gpt-5.6-sol', effort: 'xhigh' },
-  claude: { model: 'claude-opus-5', effort: 'high' },
+  codex: { model: 'gpt-5.6-sol', effort: 'medium' },
+  claude: { model: 'claude-opus-5', effort: 'medium' },
 } as const
 
 function requiredReviewDefaults(environment: NodeJS.ProcessEnv): ReviewerDefaults {

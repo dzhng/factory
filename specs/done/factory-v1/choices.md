@@ -48,15 +48,15 @@ recommendations below are implemented defaults, not requests to pause work.
   can be added later with a deliberately narrower, inspectable contract.
 - **Confidence:** Low.
 
-## Needs-user — medium confidence
+## User-resolved
 
 ### Pin reviewer settings, with explicit product defaults
 
 - **When:** Review identity contract.
 - **The choice:** Before a review is planned, Factory resolves the provider,
   model, and effort and writes that requested identity into the immutable
-  attempt. Its defaults are Codex `gpt-5.6-sol` at `xhigh` and Claude
-  `claude-opus-5` at `high`; explicit supported overrides replace them. A later
+  attempt. Its defaults are Codex `gpt-5.6-sol` and Claude
+  `claude-opus-5`, both at `medium`; explicit supported overrides replace them. A later
   review does not reinterpret an old manifest as whatever model the provider
   happens to default to today. The adapter passes model and effort explicitly
   to the selected CLI and rejects unsupported effort values. This records
@@ -64,12 +64,13 @@ recommendations below are implemented defaults, not requests to pause work.
   actual execution; Factory does not verify a provider-reported effective
   model/effort against the request.
 - **The gap:** Exact model identity was required, but the quality, latency, and
-  cost defaults were not selected by the user.
+  cost defaults were initially unspecified. The user selected medium effort
+  for both providers on 2026-09-08.
 - **The reach:** Changing defaults is a versioned policy change and can require
   a fresh current-code review. Existing evidence keeps its original identity.
-- **Verdict:** Needs-user. Keep these explicit defaults provisionally; change
-  the versioned defaults when a different cost/quality balance is preferred.
-- **Confidence:** Medium.
+- **Verdict:** Resolved by the user; medium effort is the explicit product default.
+
+## Needs-user — medium confidence
 
 ### Do not automatically retry an unchanged failed review
 
