@@ -1,0 +1,31 @@
+"$schema" = "https://conductor.build/schemas/settings.repo.schema.json"
+
+# Shared Conductor defaults for Factory. Bun workspaces + Turbo; no dev server.
+# `factory open` binds an OS-assigned loopback port, so CONDUCTOR_PORT is unused.
+
+[scripts]
+# Matches CI: exact lockfile install with the pinned packageManager (bun@1.3.14).
+setup = "bun install --frozen-lockfile"
+
+# Test gates build Docker images with fixed tags (e.g. factory-local-ui-test:local)
+# that are shared across worktrees, so only one workspace should run at a time.
+run_mode = "nonconcurrent"
+
+[scripts.run.check]
+command = "bun run format:check && bun run lint && bun run check-types"
+default = true
+icon = "check"
+
+[scripts.run.build]
+command = "bun run build"
+icon = "hammer"
+
+[scripts.run.test]
+available_in = [ "local" ]
+command = "bun run test"
+icon = "test-tube"
+
+[scripts.run.localhost-ui]
+available_in = [ "local" ]
+command = "bun run check:localhost-ui"
+icon = "monitor"
