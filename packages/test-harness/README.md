@@ -32,6 +32,8 @@ through the real isolated reviewer and repository publication owners. The outer
 test container alone receives the Docker socket; shared scratch paths retain
 their host spelling so sibling reviewer mounts resolve to the same bytes.
 Its report names the checks actually exercised, not real-model judgment quality.
+The consumer image needs Git and Docker, not a browser. Its localhost action
+checks use HTTP; browser rendering belongs to the separate browser workbench.
 Default-image selection is checked separately by removing the image override
 and refusing the recorded Docker pull before execution. The published image's
 own probe, not this trap, certifies its packaged submission server.
