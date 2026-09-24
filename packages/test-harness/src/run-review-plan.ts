@@ -1,11 +1,9 @@
-import { cp, mkdir, mkdtemp, rm } from 'node:fs/promises'
-import { dirname, join, resolve } from 'node:path'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 
 const root = resolve(import.meta.dir, '../../..')
-const output = resolve(root, 'specs/done/factory-v1/assets/review-plan')
-const dockerOutput = await mkdtemp(join(dirname(root), 'factory-review-plan-output-'))
-await rm(output, { recursive: true, force: true })
-await mkdir(output, { recursive: true })
+const dockerOutput = await mkdtemp(join(tmpdir(), 'factory-review-plan-'))
 const child = Bun.spawn(
   [
     'docker',
@@ -44,6 +42,5 @@ if (status === 0) {
   }
 }
 await rm(join(dockerOutput, 'reconstructed'), { recursive: true, force: true })
-if (status === 0) await cp(dockerOutput, output, { recursive: true })
-await rm(dockerOutput, { recursive: true, force: true })
+process.stdout.write(`Review plan workbench: ${dockerOutput}\n`)
 process.exit(status)

@@ -1,9 +1,10 @@
-import { mkdir } from 'node:fs/promises'
+import { mkdtemp } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const repositoryRoot = fileURLToPath(new URL('../../..', import.meta.url)).replace(/\/$/, '')
-const outputRoot = `${repositoryRoot}/specs/done/factory-v1/assets/repository-workbench`
-await mkdir(outputRoot, { recursive: true })
+const outputRoot = await mkdtemp(join(tmpdir(), 'factory-repository-'))
 
 const child = Bun.spawn(
   [

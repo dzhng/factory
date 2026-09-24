@@ -22,9 +22,8 @@ Stop is an observation boundary, not proof that a provider's transcript has
 finished growing. Readable partial evidence remains useful to an LLM, provided
 missing, excluded, racing, and corrupt inputs remain explicit. Invalid bytes
 must not acquire verified authority because surrounding data is useful.
-The [provider oracle](assets/provider-capture-oracle/index.html) is fixture
-evidence; the [live capture certificate](assets/live-capture/README.md) separately
-identifies authenticated callback observations and their limits.
+The [provider fixtures](../../../packages/test-harness/fixtures/providers/) preserve
+provider-native inputs; authenticated capture remains a separate opt-in journey.
 
 The private [runtime journal](../../../packages/runtime-journal/README.md)
 survives the gap between a hook and portable publication. SQLite owns
@@ -109,44 +108,7 @@ Factory's upgrade authority; GitHub attestations establish separate provenance.
 Install, repair, uninstall, and upgrade share one recovery owner, and upgrade
 does not migrate repository data. V1 has no donor import or compatibility layer.
 
-The [candidate and publication evidence](assets/final-candidate/README.md)
-records exact byte identities, native platform scope, and authenticated provider
-journeys. Earlier reports retain their original unavailable authorities: a
-later successful run does not retroactively certify them. The
-[test harness](../../../packages/test-harness/README.md) owns release-shaped
-journeys and the distinction between deterministic fixtures and real providers.
-
-## Visual provenance
-
-The visual standard is readable evidence and honest authority, not a borrowed
-product skin. The retained images are browser captures of Factory's generated
-reports and deterministic UI fixtures, not user-supplied aesthetic references.
-
-- [Local UI captures and critique](assets/localhost-ui/visual-review.md) record
-  the wide/narrow fixture standard: distinguish exact from ambiguous PR evidence,
-  partial coverage from completion, and canonical scope from human action.
-  The [capture set](assets/localhost-ui/screenshots/) remains the regression reference.
-- [Repository workbench critique](assets/repository-workbench/visual-review.md)
-  and [accepted screenshot](assets/repository-workbench/screenshot.png) preserve
-  the standard of readable paths and distinct invalid-input versus handling outcomes.
-- [Live-capture report comparison](assets/live-capture/visual-review.md) retains
-  the [before/after set](assets/live-capture/visual/), including mobile table-access
-  crops. Those drove fixture-versus-live authority copy and reachable columns,
-  not provider-certification claims.
-- [Historical release critique](assets/release-certification/visual-review.md)
-  retains its [full-page capture](assets/release-certification/screenshot.png).
-  Its explicit unavailable authority is the standard; green journey rows alone
-  do not mean release certification.
-- [Final candidate comparison](assets/final-candidate/visual/README.md) preserves
-  the desktop/mobile fixture and authenticated report captures. The comparison
-  verifies readable provider authority without retroactively changing the
-  pre-publication reports into publication evidence.
-- The [journal report critique](assets/journal-crash/visual-review.md) preserves
-  an engineering checkpoint with its then-unavailable runtime authority. The
-  [roadmap visualization](visualizations/roadmap.html) is historical design
-  provenance, not a current build sequence.
-
-The [closeout audit](assets/closeout-audit.md) records the independent claim and
-reference checks. All [assets](assets/) remain available, including machine-readable fixtures,
-historical review evidence, and reports whose original verdicts are narrower
-than the final release. Git history retains the removed implementation ladder.
+The [test harness](../../../packages/test-harness/README.md) owns runnable release
+journeys and distinguishes deterministic fixture coverage from real providers.
+Current browser baselines and frozen review bundles live beside those tests.
+Historical reports and visual explorations remain in Git history.

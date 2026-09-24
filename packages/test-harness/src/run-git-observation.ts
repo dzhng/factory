@@ -1,10 +1,11 @@
-import { mkdir } from 'node:fs/promises'
+import { mkdtemp } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const repositoryRoot = fileURLToPath(new URL('../../..', import.meta.url)).replace(/\/$/, '')
-const outputRoot = `${repositoryRoot}/specs/done/evidence-sanitization/assets/git-observation-workbench`
+const outputRoot = await mkdtemp(join(tmpdir(), 'factory-git-observation-'))
 const image = 'factory-git-observation-test:local'
-await mkdir(outputRoot, { recursive: true })
 
 let child = Bun.spawn(
   [

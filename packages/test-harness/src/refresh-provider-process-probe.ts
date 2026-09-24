@@ -1,4 +1,3 @@
-import { writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 
 const packageRoot = fileURLToPath(new URL('..', import.meta.url))
@@ -24,5 +23,4 @@ const result = Bun.spawnSync(
 if (result.exitCode !== 0) throw new Error(new TextDecoder().decode(result.stderr))
 const output = new TextDecoder().decode(result.stdout)
 JSON.parse(output)
-await writeFile(`${packageRoot}/fixtures/provider-process-probe.json`, output, 'utf8')
 process.stdout.write(output)

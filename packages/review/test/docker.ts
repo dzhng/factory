@@ -1,9 +1,10 @@
-import { mkdir } from 'node:fs/promises'
+import { mkdtemp } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 const repositoryRoot = new URL('../../..', import.meta.url).pathname.replace(/\/$/, '')
 const report = process.argv.includes('--report')
-const output = `${repositoryRoot}/specs/done/evidence-sanitization/assets/review-publication`
-if (report) await mkdir(output, { recursive: true })
+const output = report ? await mkdtemp(join(tmpdir(), 'factory-review-publication-')) : undefined
 const child = Bun.spawn(
   [
     'docker',

@@ -19,7 +19,7 @@ const reviewId = 'review_00000000000000000000000009' as const
 const at = '2026-09-05T00:00:00Z'
 
 async function fixture() {
-  const root = join(import.meta.dir, '../../../specs/done/factory-v1/assets/review-plan')
+  const root = join(import.meta.dir, '../../../packages/test-harness/fixtures/review-plan')
   const report = JSON.parse(await readFile(join(root, 'report.json'), 'utf8')) as {
     bundles: { complete: string; partial: string }
   }
@@ -33,7 +33,7 @@ async function fixture() {
 }
 
 async function partialFixture() {
-  const root = join(import.meta.dir, '../../../specs/done/factory-v1/assets/review-plan')
+  const root = join(import.meta.dir, '../../../packages/test-harness/fixtures/review-plan')
   const report = JSON.parse(await readFile(join(root, 'report.json'), 'utf8')) as {
     bundles: { partial: string }
   }
@@ -47,7 +47,7 @@ async function partialFixture() {
 }
 
 async function incrementalFixture() {
-  const root = join(import.meta.dir, '../../../specs/done/factory-v1/assets/review-plan')
+  const root = join(import.meta.dir, '../../../packages/test-harness/fixtures/review-plan')
   const report = JSON.parse(await readFile(join(root, 'report.json'), 'utf8')) as {
     bundles: { pullRequestIncremental: string }
   }

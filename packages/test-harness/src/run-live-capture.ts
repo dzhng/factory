@@ -34,7 +34,7 @@ const choice: ReviewerChoice = {
 await mkdir(bundlePath)
 const fixturePath = resolve(
   import.meta.dir,
-  '../../../specs/done/factory-v1/assets/review-plan/complete-bundle',
+  '../../../packages/test-harness/fixtures/review-plan/complete-bundle',
 )
 const manifest = JSON.parse(await readFile(join(fixturePath, 'bundle.json'), 'utf8'))
 manifest.plan.policies.reviewer = choice.settings

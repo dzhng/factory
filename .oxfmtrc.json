@@ -3,6 +3,7 @@
   "arrowParens": "avoid",
   "endOfLine": "lf",
   "importSorting": true,
+  "ignorePatterns": ["packages/test-harness/fixtures/review-plan/**"],
   "semi": false,
   "singleQuote": true,
   "sortImports": {

@@ -11,7 +11,7 @@ if (process.env.FACTORY_DOCKER_TEST !== '1') throw new Error('Submission tests r
 
 async function batch(root: string, calls: { name: string; arguments: unknown }[]) {
   const bundlePath = new URL(
-    '../../../specs/done/factory-v1/assets/review-plan/complete-bundle',
+    '../../../packages/test-harness/fixtures/review-plan/complete-bundle',
     import.meta.url,
   ).pathname
   const report = JSON.parse(await readFile(join(bundlePath, '../report.json'), 'utf8'))
@@ -159,7 +159,7 @@ test('aggregate overflow retains the acknowledged prefix within both durable bou
 test('acknowledged submissions survive SIGKILL and exact retry after process restart', async () => {
   const root = await mkdtemp(join(tmpdir(), 'factory-audit-crash-'))
   const bundlePath = new URL(
-    '../../../specs/done/factory-v1/assets/review-plan/complete-bundle',
+    '../../../packages/test-harness/fixtures/review-plan/complete-bundle',
     import.meta.url,
   ).pathname
   const report = JSON.parse(await readFile(join(bundlePath, '../report.json'), 'utf8'))
@@ -229,7 +229,7 @@ test('acknowledged submissions survive SIGKILL and exact retry after process res
 test('stdio submission resolves a compact evidence handle into a durable canonical event', async () => {
   const root = await mkdtemp(join(tmpdir(), 'factory-audit-'))
   const bundlePath = new URL(
-    '../../../specs/done/factory-v1/assets/review-plan/complete-bundle',
+    '../../../packages/test-harness/fixtures/review-plan/complete-bundle',
     import.meta.url,
   ).pathname
   const manifest = JSON.parse(await readFile(join(bundlePath, 'bundle.json'), 'utf8'))

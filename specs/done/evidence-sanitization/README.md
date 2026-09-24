@@ -62,22 +62,11 @@ authority. The internal recovery interface is an ownership boundary for trusted
 Factory code, not a sandbox against a repository the developer already runs;
 [SECURITY.md](../../../SECURITY.md) owns that trust model.
 
-## Verification provenance
+## Verification
 
-The combined [installed journey](assets/installed-audit/README.md) names its exact
-native candidate and separates actual Factory/Docker execution from synthetic
-provider and GitHub responses. It checks retained reasoning, reduced results,
-safe physical files, interruption/retry, and committed-only reconstruction.
-It does not certify real-model judgment quality.
-
-Earlier synthetic checkpoints preserve readable evidence for the separate
-boundaries: [source observation](assets/git-observation-workbench/report.json),
-[PR observation](assets/pr-workbench/report.json),
-[Codex capture](assets/capture-vertical/sanitized-capture-codex.json),
-[Claude capture](assets/capture-vertical/sanitized-capture-claude.json),
-[journal crash recovery](assets/journal-crash/report.json),
-[review publication](assets/review-publication/review.json), and
-[human actions](assets/review-publication/action.json).
-Their original authority is retained; a pure policy probe or Bun-driven capture
-test is not relabeled as an installed native journey. The
-[test harness](../../../packages/test-harness/README.md) owns runnable gates.
+The [installed journey](../../../packages/test-harness/src/run-installed-audit.ts)
+checks retained reasoning, reduced results, safe physical files, interruption/retry,
+and committed-only reconstruction. Synthetic provider and GitHub responses do not
+certify real-model judgment quality. Focused crash and publication tests exercise
+failure boundaries; the [test harness](../../../packages/test-harness/README.md)
+owns the runnable gates. Historical run reports remain in Git history.

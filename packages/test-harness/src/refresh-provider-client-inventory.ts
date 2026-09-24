@@ -1,4 +1,3 @@
-import { writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 
 const packageRoot = fileURLToPath(new URL('..', import.meta.url))
@@ -35,5 +34,4 @@ const output = run([
   image,
 ])
 JSON.parse(output)
-await writeFile(`${packageRoot}/fixtures/provider-client-inventory.json`, output, 'utf8')
 process.stdout.write(output)

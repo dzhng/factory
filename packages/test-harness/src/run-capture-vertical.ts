@@ -1,13 +1,9 @@
-import { mkdir, rm } from 'node:fs/promises'
+import { mkdtemp } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 
 const repositoryRoot = resolve(import.meta.dir, '../../..')
-const evidenceRoot = resolve(
-  repositoryRoot,
-  'specs/done/evidence-sanitization/assets/capture-vertical',
-)
-await rm(evidenceRoot, { recursive: true, force: true })
-await mkdir(evidenceRoot, { recursive: true })
+const evidenceRoot = await mkdtemp(resolve(tmpdir(), 'factory-capture-vertical-'))
 
 const child = Bun.spawn(['bun', 'run', '--cwd', 'packages/cli', 'test'], {
   cwd: repositoryRoot,

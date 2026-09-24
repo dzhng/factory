@@ -58,11 +58,9 @@ with an older version and the real npm registry to prove notices do not replace
 the executable, then exercise explicit replacement in a disposable global prefix. Its network authority is separate
 from the deterministic offline gates.
 
-The [authenticated capture certificate](../../specs/done/factory-v1/assets/live-capture/README.md)
-separates real lifecycle callbacks from fixture replay and model-only review
-authority. Its test-only image enables hooks and persistence in disposable
-provider homes while reusing the production attempt and Docker owners. Its
-output is never accepted as semantic review history.
+The authenticated capture runner separates real lifecycle callbacks from fixture
+replay and model-only review authority. Its disposable provider homes reuse the
+production attempt and Docker owners. Its output never becomes semantic history.
 
 Release certification uses the same provider-owned CLI logins that production
 automatically discovers. The disposable journey exposes only the selected
@@ -71,11 +69,10 @@ into the fixture. On macOS it passes the validated login Keychain path to the
 packaged CLI, which keeps token extraction inside its own review-attempt cleanup
 boundary. If both CLIs are not already authenticated, the report records
 real-provider authority as unavailable instead of simulating a pass. Generated
-scratch reports stay outside the repository unless a spec deliberately promotes
-them into its `assets/`; the default lab output is written under the operating
-system's temporary directory. The provider oracle is deliberately promoted into
-the Factory v1 spec because it records the evidence used to shape the capture
-contract.
+reports stay in temporary directories. Active provider inputs, frozen
+review bundles, and current browser baselines live in `fixtures/`; historical
+reports are not test dependencies.
+Review bundle bytes are digest-bound protocol fixtures and must not be formatted.
 
 `bun run release:verify -- --version <version>` builds from a clean committed
 checkout, verifies the resulting archive through the public release boundary,
@@ -110,11 +107,11 @@ container boundaries are owned by [`SECURITY.md`](../../SECURITY.md).
 
 `bun run lab:capture-vertical` runs the built CLI in a networkless disposable
 home, replays both provider fixtures, deletes the journal's derived index, and
-promotes the rebuilt portable tree and diagnostic report into the archived
-capture-vertical evidence directory.
+writes the rebuilt portable tree and diagnostic report to a temporary directory.
 
-`bun run check:localhost-ui` exercises twelve deterministic browser states at
-wide and narrow viewports, including partial coverage and decision actions,
+`bun run check:localhost-ui` exercises deterministic browser states at
+wide and narrow viewports, including partial coverage, choice presentation,
+read-only states, and decision actions,
 and compares their stable screenshots. The CLI vertical separately opens a
 real two-provider repository and proves the interface projection is rebuilt
 from its portable records. A repository-backed action journey sends decision

@@ -34,7 +34,7 @@ afterEach(async () => {
 })
 
 async function fixture(incremental = false) {
-  const assets = join(import.meta.dir, '../../../specs/done/factory-v1/assets/review-plan')
+  const assets = join(import.meta.dir, '../../../packages/test-harness/fixtures/review-plan')
   const report = JSON.parse(await readFile(join(assets, 'report.json'), 'utf8'))
   const bundle = await openVerifiedReviewBundle(
     join(assets, incremental ? 'pr-incremental-bundle' : 'complete-bundle'),

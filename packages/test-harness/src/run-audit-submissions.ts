@@ -32,13 +32,13 @@ await command([
   '--mount',
   `type=bind,src=${root},dst=/workspace,readonly`,
   '--mount',
-  `type=bind,src=${root}/specs/done/factory-v1/assets/review-plan/complete-bundle,dst=/review-input,readonly`,
+  `type=bind,src=${root}/packages/test-harness/fixtures/review-plan/complete-bundle,dst=/review-input,readonly`,
   '--entrypoint',
   'bun',
   'factory-choice-audit-reviewer:local',
   '/workspace/packages/test-harness/src/provider-tools-probe.ts',
 ])
-const assets = resolve(root, 'specs/done/factory-v1/assets/review-plan')
+const assets = resolve(root, 'packages/test-harness/fixtures/review-plan')
 const report = JSON.parse(await readFile(resolve(assets, 'report.json'), 'utf8'))
 await command([
   'docker',
@@ -62,7 +62,7 @@ await command([
   'factory-choice-audit-reviewer:local',
   '/workspace/packages/test-harness/src/audit-submission-probe.ts',
   '/opt/factory/audit-server.js',
-  '/workspace/specs/done/factory-v1/assets/review-plan/complete-bundle',
+  '/workspace/packages/test-harness/fixtures/review-plan/complete-bundle',
   report.bundles.complete,
   '/out',
 ])

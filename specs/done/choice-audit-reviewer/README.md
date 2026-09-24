@@ -66,24 +66,11 @@ and a portable advertised schema preserve the intended authority while the
 shared validator enforces all semantic conditions. These are observed client
 constraints, not reasons to loosen acceptance.
 
-## Visual and execution provenance
+## Verification
 
-The [presentation comparison](assets/presentation/README.md) preserves the
-original deterministic Factory UI and the redesigned ledger under identical
-synthetic inputs. It records why the ledger became the primary surface and why
-long mobile explanations use ordinary vertical scrolling. These are production
-browser captures, not external inspiration or generated mockups.
-
-The subsequent [confirmation comparison](assets/confirmation/README.md) preserves
-the before/after standard for “Confirm recorded choice.” A fresh reviewer
-inspected the complete wide/narrow capture set and enlarged crops; the clearer
-referent fits without clipping or changing the action's target. Historical
-self-critique is not presented as fresh-agent verification.
-
-The [combined installed journey](../evidence-sanitization/assets/installed-audit/README.md)
-covers both deterministic providers, partial submissions, committed-only
-reconstruction, exact citations, and choice attention. Its report distinguishes
-synthetic model behavior from actual installed CLI and Docker execution.
-The [synthetic ledger](assets/audit-contract-report.md) is an inspectable example
-of the required standalone explanations. Runnable probes and isolation authority
-are owned by the [test harness](../../../packages/test-harness/README.md).
+The [browser workbench](../../../packages/test-harness/src/run-local-ui.ts) checks
+choice explanations, confirmation targets, ordering, and read-only states at wide
+and narrow viewports. The [installed journey](../../../packages/test-harness/src/run-installed-audit.ts)
+covers deterministic providers, partial submissions, committed-only reconstruction,
+and exact citations through actual CLI and Docker execution. Real-model judgment
+quality is separate. Historical visual comparisons remain in Git history.
