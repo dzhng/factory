@@ -93,23 +93,17 @@ Reach: external research needs an explicit capture-and-citation path before it
 can support this analyzer. Verdict: sound because the reviewer judges the history
 Factory supplied, rather than adding a second, mutable evidence source.
 
-### Copy the complete explanation into derived decision observations
+### Derive complete decision explanations from accepted reviews
 
 Confidence: medium.
 
-After accepting a review about receipt retention, Factory creates a decision
-observation: a rebuildable record used to combine that choice with later reviews
-and human actions. It includes the scenario, gap, reach, judgment, citations, and
-corrected or provisional decision, not just the underlying assertion. The browser
-can then explain the decision from the history projection without resolving its
-source review again for every field.
+The shared history projection derives decision observations from accepted
+reviews and their pinned subjects. It carries the complete explanation so the
+browser can combine that choice with later reviews and exact human actions.
 
-Gap: verdict-aware history did not specify how much explanation the derived
-record should carry. Reach: records are larger and repeat accepted prose, but
-their complete bytes must reproduce from the authoritative review and subject.
-A reference-only record would save duplication while moving those joins into
-every reader. Verdict: sound because duplication is checked derivation, not a
-second independently editable judgment.
+Gap: verdict-aware history did not specify where those joins belong. Reach:
+one domain projection serves every reader without storing duplicate judgment
+records. Verdict: sound because accepted reviews remain the only judgment source.
 
 ### Use closed Claude configuration sources instead of safe mode
 

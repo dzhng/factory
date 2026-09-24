@@ -10,9 +10,8 @@ import {
   type ReviewLedger,
   type ReviewManifest,
   type Sha256,
-  type DecisionObservation,
 } from '@factory/contract'
-import { deriveDecisionObservations, loadStoredReviews } from '@factory/domain'
+import { loadStoredReviews } from '@factory/domain'
 import {
   snapshotPreparedRecord,
   type PreparedRecord,
@@ -53,7 +52,6 @@ type PreparedReview = {
   manifest: ReviewManifest
   ledger?: ReviewLedger
   submissions: Uint8Array
-  decisionObservations: readonly DecisionObservation[]
   executionFailed: boolean
   rootSegments: readonly string[]
 }
@@ -140,9 +138,6 @@ export async function validateReview(
       ...(ledger === undefined
         ? {}
         : { ledger: JSON.parse(new TextDecoder().decode(ledger.bytes)) as ReviewLedger }),
-      decisionObservations: snapshots
-        .filter(record => record.path.startsWith('decisions/observations/'))
-        .map(record => JSON.parse(new TextDecoder().decode(record.bytes)) as DecisionObservation),
       executionFailed: manifest.limitations.some(
         limitation => limitation.code === 'invalid-review-output',
       ),
@@ -209,12 +204,6 @@ export async function validateReview(
     )
       throw new TypeError('prepared review ledger differs from submissions')
   }
-  const observations =
-    state.ledger === undefined
-      ? []
-      : deriveDecisionObservations(state.manifest, state.ledger, verified.authority.subjectRecord)
-  if (canonicalJson(state.decisionObservations) !== canonicalJson(observations))
-    throw new TypeError('prepared decisions differ from their review authority')
   const capability = Object.freeze({}) as ValidatedAttempt
   validatedAttempts.set(capability, state)
   return capability
@@ -334,10 +323,6 @@ async function buildPreparedReview(
     manifest,
     ...(ledger === undefined ? {} : { ledger }),
     submissions: parsed.submissions,
-    decisionObservations:
-      ledger === undefined
-        ? []
-        : deriveDecisionObservations(manifest, ledger, verified.authority.subjectRecord),
     executionFailed,
     rootSegments,
   }
@@ -369,10 +354,6 @@ function reviewRecords(state: PreparedReview) {
           },
         ]),
     { path: manifestPath, bytes: new TextEncoder().encode(canonicalJson(state.manifest)) },
-    ...state.decisionObservations.map(observation => ({
-      path: makeOwnedPath('decisions', ['observations', `${observation.observationId}.json`]),
-      bytes: new TextEncoder().encode(canonicalJson(observation)),
-    })),
   ]
 }
 
@@ -399,11 +380,9 @@ export async function acceptReview(
       inventory: state.inventory,
       recordObjects: state.recordObjects,
     },
-    publication.filter(record => record.path.startsWith('reviews/')),
+    publication,
     manifestPath,
   )
-  for (const record of publication.filter(record => record.path.startsWith('decisions/')))
-    await store.createImmutable(record)
   return {
     reviewId: state.manifest.reviewId,
     disposition: state.manifest.disposition,

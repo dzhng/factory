@@ -34,6 +34,7 @@ import {
   type RepositoryConfig,
   type RepositoryManifest,
   type RepositoryRecords as ContractRepositoryRecords,
+  type ReviewManifest,
   type Sha256,
 } from '@factory/contract'
 import { SanitizationError } from '@factory/sanitization'
@@ -91,6 +92,44 @@ export type RepositoryRecords = ContractRepositoryRecords
 export type DecisionRecordAuthority = {
   canonicalBranch: string
   records: readonly { path: OwnedPath; sha256: Sha256 }[]
+}
+
+/** Compare review sources and human actions while the sole writer owns mutation. */
+export function decisionRecordAuthority(
+  records: RepositoryRecords,
+  canonicalBranch: string,
+): DecisionRecordAuthority {
+  const reviews = records.records.filter(
+    record => record.path.startsWith('reviews/') && record.path.endsWith('/manifest.json'),
+  )
+  const reviewRoots = new Set(reviews.map(record => dirname(record.path)))
+  const subjects = new Set(
+    reviews.map(record => {
+      const { subject } = record.value as unknown as ReviewManifest
+      return subject.kind === 'workspace'
+        ? `repository-observations/${subject.repositoryObservationId}.json`
+        : `pull-requests/${subject.provider}/${subject.repositoryKey}/${subject.number}/observations/${subject.observationId}.json`
+    }),
+  )
+  return {
+    canonicalBranch,
+    records: records.records
+      .filter(
+        record =>
+          reviewRoots.has(dirname(record.path)) ||
+          record.path.startsWith('decisions/actions/') ||
+          subjects.has(record.path),
+      )
+      .map(record => ({
+        path: record.path,
+        sha256: sha256(
+          new TextEncoder().encode(
+            typeof record.value === 'string' ? record.value : canonicalJson(record.value),
+          ),
+        ),
+      }))
+      .sort((left, right) => left.path.localeCompare(right.path)),
+  }
 }
 
 export type DecisionActionInput = DecisionAction extends infer Action
@@ -966,13 +1005,10 @@ export class RepositoryStore {
           throw new ImmutableRecordConflictError(path)
         return { path, sha256: sha256(bytes), bytes: bytes.byteLength }
       }
-      const current = (await this.readRecords()).records
-        .filter(record => record.path.startsWith('decisions/'))
-        .map(record => ({
-          path: record.path,
-          sha256: sha256(new TextEncoder().encode(canonicalJson(record.value))),
-        }))
-        .sort((left, right) => left.path.localeCompare(right.path))
+      const current = decisionRecordAuthority(
+        await this.readRecords(),
+        authority.canonicalBranch,
+      ).records
       const expected = [...authority.records].sort((left, right) =>
         left.path.localeCompare(right.path),
       )

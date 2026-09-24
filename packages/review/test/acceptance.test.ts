@@ -270,13 +270,7 @@ describe('immutable review acceptance', () => {
     expect(review.reviewer).toEqual(bundleManifest.plan.policies.reviewer)
     expect(review.bundleSha256).toHaveLength(64)
     expect(canonicalJson(review.limitations)).toBe(canonicalJson([]))
-    expect(decisionRecords).toHaveLength(1)
-    expect(decisionRecords[0]!.path).toMatch(/^decisions\/observations\/decision_.*\.json$/)
-    expect(JSON.parse(new TextDecoder().decode(decisionRecords[0]!.bytes))).toMatchObject({
-      choiceKey: 'repository.single-writer',
-      effect: 'assert',
-      source: { kind: 'workspace', exactSnapshot: true },
-    })
+    expect(decisionRecords).toEqual([])
   })
 
   test('carries prior ledger bytes into CAS publication authority', async () => {

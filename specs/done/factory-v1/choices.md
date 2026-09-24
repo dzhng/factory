@@ -1013,20 +1013,17 @@ recommendations below are implemented defaults, not requests to pause work.
   writer checks the complete authority it extends.
 - **Confidence:** High.
 
-### Admit decision observations only when accepted review evidence reproduces them
+### Derive decision observations from accepted review evidence
 
-- **When:** Stored decision verification.
-- **The choice:** A standalone observation file claims a canonical change.
-  Factory admits it only if its exact bytes reproduce from an accepted review
-  decision entry and exact subject record. Recovery recreates missing derived
-  files through create-only publication and rejects unequal bytes at an
-  existing identity. The observation file is a rebuildable projection, not an
-  independent source of truth just because its JSON passes schema validation.
-- **The gap:** Schema-valid orphans could otherwise manufacture decision
-  authority without any accepted analysis behind them.
-- **The reach:** Clones and recovery can rebuild projections from raw review
-  evidence; conflicts stay inspectable instead of being silently overwritten.
-- **Verdict:** Sound. Derived records cannot outrank their verified source.
+- **When:** Reading decision history.
+- **The choice:** Accepted review entries and exact subject records derive
+  decision observations in memory. Stable identities preserve human action
+  targets without separately publishing or repairing observation files.
+- **The gap:** Persisting a derived copy would create another consistency
+  boundary without providing new evidence.
+- **The reach:** Clones rebuild the same projection from portable review
+  evidence; action writes compare those sources under mutation ownership.
+- **Verdict:** Sound. Reviews own judgments and human actions own responses.
 - **Confidence:** High.
 
 ### Keep impossible first transitions diagnostic rather than actionable

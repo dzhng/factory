@@ -12,7 +12,6 @@ import {
 
 import { writerChoice, emptyAuditSummary } from '../../test-harness/src/choice-fixtures'
 import { presentationDecisions } from '../../test-harness/src/choice-presentation-fixtures'
-import { deriveDecisionObservations } from '../src/decisions'
 import { buildUiProjection, presentDecisions } from '../src/ui'
 
 const identity = {
@@ -116,7 +115,6 @@ const ledger: ReviewLedger = {
     },
   ],
 }
-const decision = deriveDecisionObservations(manifest, ledger, repositoryObservation)[0]!
 
 const records: RepositoryRecords['records'] = [
   { path: 'sessions/codex/session-one/identity.json' as never, value: identity },
@@ -145,10 +143,6 @@ const records: RepositoryRecords['records'] = [
     value: ledger as unknown as JsonValue,
   },
   { path: `reviews/workspace/${reviewId}/submissions.jsonl` as never, value: 'review response' },
-  {
-    path: `decisions/observations/${decision.observationId}.json` as never,
-    value: decision as unknown as JsonValue,
-  },
 ]
 
 describe('UI projection', () => {

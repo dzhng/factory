@@ -238,7 +238,7 @@ export function deriveAssociations(
   for (const prior of input.previous ?? []) {
     validatePrevious(input.pullRequest, prior)
     const previous = prior.association
-    if (!['commit', 'head', 'code-state-continuity'].includes(previous.kind)) continue
+    if (!['commit', 'head'].includes(previous.kind)) continue
     if (input.pullRequest.commitMembership !== 'complete') continue
     const absent = [...new Set(previous.shas.filter(sha => !commits.has(sha)))].sort()
     if (absent.length === 0) continue

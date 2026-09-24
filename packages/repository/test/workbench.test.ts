@@ -6,7 +6,6 @@ import { join } from 'node:path'
 
 import {
   canonicalJson,
-  decisionAssertionFingerprint,
   makeOwnedPath,
   objectOwnedPath,
   reviewSubjectCoverageId,
@@ -22,6 +21,7 @@ import {
 import {
   ImmutableRecordConflictError,
   initializeRepositoryStore,
+  decisionRecordAuthority,
   openRepositoryStore,
   snapshotPreparedObject,
   type RepositoryStore,
@@ -711,38 +711,25 @@ describe('sole repository writer', () => {
     )
     await publishFixtureRecord(
       store,
-      makeOwnedPath('decisions', ['observations', `${recordId('decision')}.json`]),
+      makeOwnedPath('reviews', ['workspace', recordId('review'), 'ledger.json']),
       new TextEncoder().encode(
         canonicalJson({
           schemaVersion: 1,
-          observationId: recordId('decision'),
           reviewId: recordId('review'),
-          reviewEntryId: recordId('entry'),
-          ...writerChoice,
-          choiceKey: 'fixture.object-shaped-assertion',
-          evidence: [{ object: evidence }],
-          effect: 'assert',
-          assertion: {
-            algorithm: 'sha256',
-            sha256: 'f'.repeat(64),
-            bytes: 99,
-            mediaType: 'incidental',
-            role: 'not-authority',
-          },
-          assertionFingerprint: decisionAssertionFingerprint({
-            effect: 'assert',
-            assertion: {
-              algorithm: 'sha256',
-              sha256: 'f'.repeat(64),
-              bytes: 99,
-              mediaType: 'incidental',
-              role: 'not-authority',
+          entries: [
+            {
+              entryId: recordId('entry'),
+              ...writerChoice,
+              evidence: [{ object: evidence }],
+              assertion: {
+                algorithm: 'sha256',
+                sha256: 'f'.repeat(64),
+                bytes: 99,
+                mediaType: 'incidental',
+                role: 'not-authority',
+              },
             },
-          }),
-          headline: 'Object-shaped assertion data remains ordinary JSON',
-          source: { kind: 'workspace', branch: 'main', exactSnapshot: true },
-          confidence: 'high',
-          observedAt: manifest.createdAt,
+          ],
         }),
       ),
     )
@@ -752,48 +739,28 @@ describe('sole repository writer', () => {
   test('appends a decision action once against exact decision-record authority', async () => {
     const root = await fixtureRoot()
     const store = await initializeRepositoryStore(root, manifest, { canonicalBranch: 'main' })
-    const assertion = { owner: 'repository' }
-    const observation = {
-      ...writerChoice,
-      schemaVersion: 1 as const,
-      observationId: recordId('decision'),
-      reviewId: recordId('review'),
-      reviewEntryId: recordId('entry'),
-      choiceKey: 'repository.writer',
-      effect: 'assert' as const,
-      assertion,
-      assertionFingerprint: decisionAssertionFingerprint({ effect: 'assert', assertion }),
-      headline: 'Repository owns durable writes',
-      source: { kind: 'workspace' as const, branch: 'main', exactSnapshot: true },
-      confidence: 'high' as const,
-      observedAt: manifest.createdAt,
-    }
-    const observationPath = makeOwnedPath('decisions', [
-      'observations',
-      `${observation.observationId}.json`,
-    ])
-    const observationBytes = new TextEncoder().encode(canonicalJson(observation))
-    await publishFixtureRecord(store, observationPath, observationBytes)
-    const authority = {
-      canonicalBranch: 'main',
-      records: [
-        {
-          path: observationPath,
-          sha256: createHash('sha256').update(observationBytes).digest('hex'),
-        },
-      ],
-    }
+    const review = reviewRecords(recordId('review'))
+    await publishFixtureGroup(store, review.records, review.manifestPath)
+    const authority = decisionRecordAuthority(await store.readRecords(), 'main')
     const action: DecisionAction = {
       schemaVersion: 1,
       actionId: recordId('action'),
       previousActionId: null,
       kind: 'confirm',
-      targetObservationId: observation.observationId,
+      targetObservationId: recordId('decision'),
       actor: { kind: 'human' },
       expectedStateFingerprint: 'a'.repeat(64),
       createdAt: manifest.createdAt,
     }
-    const first = await store.createDecisionAction(action, authority)
+    const laterReview = reviewRecords(`review_${'0'.repeat(25)}1`)
+    await publishFixtureGroup(store, laterReview.records, laterReview.manifestPath)
+    await expect(store.createDecisionAction(action, authority)).rejects.toThrow(
+      'decision authority changed before append',
+    )
+    const first = await store.createDecisionAction(
+      action,
+      decisionRecordAuthority(await store.readRecords(), 'main'),
+    )
     const retry = await store.createDecisionAction(
       { ...action, createdAt: '2026-09-05T00:00:01Z' },
       { canonicalBranch: 'main', records: [] },

@@ -3,7 +3,6 @@ import { describe, expect, test } from 'bun:test'
 import { writerChoice, emptyAuditSummary } from '../../test-harness/src/choice-fixtures'
 import {
   canonicalJson,
-  decisionAssertionFingerprint,
   decodeGitPath,
   encodeGitPath,
   githubRepositoryKey,
@@ -454,27 +453,6 @@ describe('public repository contract', () => {
         },
       ],
       [
-        makeOwnedPath('decisions', ['observations', `${recordId('decision')}.json`]),
-        {
-          schemaVersion: 1,
-          observationId: recordId('decision'),
-          reviewId: recordId('review'),
-          reviewEntryId: recordId('entry'),
-          ...writerChoice,
-          choiceKey: 'repository.single-writer',
-          effect: 'assert',
-          assertion: { owner: 'repository' },
-          assertionFingerprint: decisionAssertionFingerprint({
-            effect: 'assert',
-            assertion: { owner: 'repository' },
-          }),
-          headline: 'Fixture decision',
-          source: { kind: 'workspace', branch: 'main', exactSnapshot: true },
-          confidence: 'high',
-          observedAt: timestamp,
-        },
-      ],
-      [
         makeOwnedPath('decisions', ['actions', `${recordId('action')}.json`]),
         {
           schemaVersion: 1,
@@ -624,27 +602,6 @@ describe('public repository contract', () => {
             },
           ],
         }),
-      ).toThrow('assertion must be null exactly for remove')
-
-      expect(() =>
-        validatePublicRecord(
-          makeOwnedPath('decisions', ['observations', `${recordId('decision')}.json`]),
-          {
-            schemaVersion: 1,
-            observationId: recordId('decision'),
-            reviewId,
-            reviewEntryId: recordId('entry'),
-            ...writerChoice,
-            choiceKey: 'repository.single-writer',
-            effect,
-            assertion: null,
-            assertionFingerprint: decisionAssertionFingerprint({ effect, assertion: null }),
-            headline: 'Missing meaning',
-            source: { kind: 'workspace', branch: 'main', exactSnapshot: true },
-            confidence: 'high',
-            observedAt: '2026-09-05T00:00:00Z',
-          },
-        ),
       ).toThrow('assertion must be null exactly for remove')
     }
   })
@@ -1254,27 +1211,6 @@ describe('public repository contract', () => {
           acceptedProblemIds: [],
           settledWatermarks: {},
           createdAt: timestamp,
-        },
-      ],
-      [
-        makeOwnedPath('decisions', ['observations', `${recordId('decision', '0')}.json`]),
-        {
-          schemaVersion: 1,
-          observationId: recordId('decision', '1'),
-          ...writerChoice,
-          reviewId: recordId('review'),
-          reviewEntryId: recordId('entry'),
-          choiceKey: 'fixture',
-          effect: 'assert',
-          assertion: { owner: 'repository' },
-          assertionFingerprint: decisionAssertionFingerprint({
-            effect: 'assert',
-            assertion: { owner: 'repository' },
-          }),
-          headline: 'Fixture',
-          source: { kind: 'workspace', branch: 'feature', exactSnapshot: true },
-          confidence: 'low',
-          observedAt: timestamp,
         },
       ],
       [

@@ -113,10 +113,6 @@ export function deriveDecisionObservations(
         source,
         observedAt: manifest.completedAt,
       }
-      validatePublicRecord(
-        makeOwnedPath('decisions', ['observations', `${observation.observationId}.json`]),
-        observation,
-      )
       return observation
     })
     .sort((left, right) => left.observationId.localeCompare(right.observationId))
@@ -288,12 +284,6 @@ export function foldDecisions(
   canonicalBranch: string,
 ): DecisionView {
   if (canonicalBranch.trim().length === 0) throw new TypeError('canonicalBranch must be nonblank')
-  observations.forEach(observation =>
-    validatePublicRecord(
-      makeOwnedPath('decisions', ['observations', `${observation.observationId}.json`]),
-      observation,
-    ),
-  )
   actions.forEach(action =>
     validatePublicRecord(
       makeOwnedPath('decisions', ['actions', `${action.actionId}.json`]),

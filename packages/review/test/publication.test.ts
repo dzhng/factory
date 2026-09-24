@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { canonicalJson, makeOwnedPath, objectOwnedPath, type ReviewLedger } from '@factory/contract'
-import { foldDecisions, loadVerifiedDecisionRecords } from '@factory/domain'
+import { foldDecisions, loadDecisionHistory } from '@factory/domain'
 import {
   discoverRepositorySanitizer,
   initializeRepositoryStore,
@@ -22,7 +22,6 @@ import { writerChoice, summarySubmissions } from '../../test-harness/src/choice-
 import {
   acceptReview,
   appendDecisionAction,
-  recoverDecisionObservations,
   validateReview,
   type DecisionActionInput,
 } from '../src'
@@ -75,7 +74,7 @@ async function fixture(incremental = false) {
   return { root, store, bundle, verified }
 }
 
-test('publication imports prior-ledger citations for decision recovery', async () => {
+test('publication imports prior-ledger citations for derived decisions', async () => {
   const { root, store, bundle, verified } = await fixture(true)
   const prior = verified.manifest.plan.priorLedger!.object
   await expect(store.getObject(prior)).rejects.toThrow()
@@ -117,13 +116,13 @@ test('publication imports prior-ledger citations for decision recovery', async (
   await acceptReview(prepared, store)
   expect(await store.getObject(prior)).toEqual(Buffer.from(canonicalJson(priorLedger)))
   const before = await store.readRecords()
-  for (const record of before.records.filter(record =>
-    record.path.startsWith('decisions/observations/'),
-  ))
-    await rm(join(root, '.factory', record.path))
-  expect(await recoverDecisionObservations(store)).toBeGreaterThan(0)
+  expect(loadDecisionHistory(before).observations).toContainEqual(
+    expect.objectContaining({
+      choiceKey: writerChoice.choiceKey,
+      evidence,
+    }),
+  )
   expect(await store.readRecords()).toEqual(before)
-  expect(await recoverDecisionObservations(store)).toBe(0)
 })
 
 test('review publication prepares prose before ledger and decision identity', async () => {
@@ -161,14 +160,18 @@ test('review publication prepares prose before ledger and decision identity', as
   })
   await acceptReview(prepared, store)
   const records = (await store.readRecords()).records
+  expect(records.filter(record => record.path.startsWith('decisions/'))).toEqual([])
   const text = canonicalJson(records)
   expect(text).toContain('Preserve reasoning [REDACTED]')
   expect(text).not.toContain(secret)
   expect((await store.verify()).issues).toEqual([])
-  for (const record of records.filter(record => record.path.startsWith('decisions/observations/')))
-    await rm(join(root, '.factory', record.path))
+  const before = loadDecisionHistory(await store.readRecords())
+  expect(before.observations[0]).toMatchObject({
+    headline: 'Preserve reasoning [REDACTED]',
+    assertion: { owner: '[REDACTED]' },
+  })
   await writeFile(join(root, '.env'), 'VALUE="unterminated\n')
-  expect(await recoverDecisionObservations(store)).toBe(1)
+  expect(loadDecisionHistory(await store.readRecords())).toEqual(before)
   expect(canonicalJson((await store.readRecords()).records)).toBe(text)
   if (process.env.FACTORY_WRITE_PUBLICATION_REPORT === '1') {
     await writeFile(
@@ -316,7 +319,7 @@ test('human action retries reuse prepared prose after env rotation and reject a 
     await validateReview(bundle, raw, { sanitizer: await discoverRepositorySanitizer(root) }),
     store,
   )
-  const { observations, actions } = loadVerifiedDecisionRecords(await store.readRecords())
+  const { observations, actions } = loadDecisionHistory(await store.readRecords())
   const current = foldDecisions(observations, actions, 'feature/review')
   const input: DecisionActionInput = {
     schemaVersion: 1,

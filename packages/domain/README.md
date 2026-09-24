@@ -18,9 +18,7 @@ and worktree identity are context only.
 Manual inclusion is an explicit human assertion, never relabeled as verified.
 When a later complete commit set proves old SHAs absent, the fold emits another
 immutable fact and leaves the original association intact. Partial membership
-never proves absence. Code-state continuity remains a
-public format variant but no fold produces it until a separate corpus proves a
-deterministic algorithm.
+never proves absence.
 
 Decision history is another pure fold. It groups only explicit choice keys,
 derives canonical scope from exact snapshots of the configured branch, and
@@ -35,9 +33,9 @@ Unsound and needs-user verdicts require attention even when the assertion is a
 replay or a person has confirmed it. Confirmation records the person's action;
 it does not erase the analyzer's judgment or its corrected/provisional decision.
 
-Derived decision records are admitted only when their bytes reproduce from an
-accepted review entry and its exact subject. Raw review evidence remains the
-authority; these folds may be rerun after cloning or derived-state loss.
+Decision observations are derived from accepted review entries and their exact
+subjects. Only human actions need separate records; a clone can rebuild the
+same decision identities without a repair or publication step.
 
 Browser presentation is a projection of that fold, not another ledger. It keeps
 the standalone explanation and exact citation digests but drops structured

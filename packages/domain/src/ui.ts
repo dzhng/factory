@@ -18,7 +18,7 @@ import {
 
 import { verifyAssociationBatch } from './associations'
 import { foldCoverage, type PriorCoverageReview } from './coverage'
-import { loadVerifiedDecisionRecords } from './decision-records'
+import { loadDecisionHistory } from './decision-records'
 import { foldDecisions, type DecisionView, type DecisionObservationView } from './decisions'
 import { loadStoredReviews, resolveStoredReviewSubject } from './stored-reviews'
 
@@ -328,7 +328,7 @@ export function buildUiProjection(input: RepositoryRecords): UiSnapshot {
 
   const reviews = loadStoredReviews(input.records)
   const { observations: decisionObservations, actions: decisionActions } =
-    loadVerifiedDecisionRecords(input)
+    loadDecisionHistory(input)
   const acceptedReviews = new Set(coverageActions.map(action => action.reviewId))
   const triggerCoverage = new Map<string, UiTrigger['coverage']>()
   const reviewsById = new Map(reviews.map(review => [review.manifest.reviewId, review]))

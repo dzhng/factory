@@ -76,7 +76,8 @@ Verified object and record reads are capabilities used by the runtime journal;
 paths alone never prove that committed evidence exists.
 
 Decision actions use the same sole-writer rule with compare-and-append
-authority. The writer checks the exact decision record set and configured
+authority. The writer checks the exact review sources, their pinned subjects,
+human actions, and configured
 canonical branch while holding mutation ownership, then creates one immutable
 action. Semantic retries keep the first stored timestamp; changed authority is
 reported separately from an immutable-path collision.

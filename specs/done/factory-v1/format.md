@@ -220,7 +220,7 @@ the source as the PR base or a different repository; missing or conflicting
 mappings leave classification unavailable without weakening the SHA proof.
 
 An association freezes Session, PR observation, evidence kind (`commit`,
-`head`, verified `code-state-continuity`, `manual`, or `invalidation`),
+`head`, `manual`, or `invalidation`),
 strength, relevant SHAs, repository-identity result, and source observation
 IDs. Exact evidence must name nonempty SHA and source-observation proof. Manual
 evidence is visibly asserted and carries its actor and reason; it is never
@@ -307,16 +307,16 @@ read the live checkout or Git metadata.
 ## Decisions
 
 ```text
-decisions/observations/<decision-observation-id>.json
 decisions/actions/<decision-action-id>.json
 ```
 
-An observation references its originating review and validated decision entry.
+An observation is derived from its originating review and validated decision entry.
 Its explicit choice key is the only grouping authority; Factory never matches
 prose. The structured assertion and effect have a canonical fingerprint
 that excludes wording, verdict, and confidence, so exact replays and material
-changes are reproducible. A derived observation enters the fold only when its
-exact bytes reproduce from the accepted review, entry, and subject record. Its
+changes are reproducible. Observations are not stored separately from their
+accepted review, entry, and subject record. Their stable identities keep human
+action targets exact across clones. An observation's
 source records either an exact/inexact workspace
 branch snapshot or an exact pull-request observation. Pull-request and
 non-canonical workspace observations remain proposals. Only an exact workspace
@@ -335,8 +335,8 @@ therefore produce one deterministic winner after merge; the other branch and
 its descendants remain stale diagnostics. Every request includes a
 decision-view fingerprint
 that commits to both the projection and its complete observation/action
-history. The repository appends only while the exact observation and
-action record set and configured canonical branch used for validation are still
+history. The repository appends only while the exact review sources, pinned
+subjects, human actions, and configured canonical branch used for validation are still
 current. An identical retry converges on the first immutable action and keeps
 its first timestamp. Reviewers emit observations only; v1 actions require a
 human actor.

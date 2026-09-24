@@ -13,7 +13,6 @@ import {
 import {
   acceptPartialCoverageByReviewId,
   acceptReview,
-  recoverDecisionObservations,
   storedReviewHasVerdict,
   storedReviewResult,
   subjectPathLineage,
@@ -260,8 +259,7 @@ export async function reviewCommand(
       options.pullRequest,
       environment,
     )
-    let stored = await store.readRecords()
-    if ((await recoverDecisionObservations(store)) > 0) stored = await store.readRecords()
+    const stored = await store.readRecords()
     const committedReviews = loadStoredReviews(stored.records)
     const lineage = subjectPathLineage(subjectPath, stored.records)
     const retryGeneration = committedReviews

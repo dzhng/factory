@@ -444,13 +444,6 @@ export type ExactHeadAssociation = SessionPullRequestAssociationBase & {
   repositoryIdentity: 'same' | 'different' | 'unavailable'
   sourceObservationIds: readonly [RecordId, ...RecordId[]]
 }
-export type VerifiedCodeStateContinuityAssociation = SessionPullRequestAssociationBase & {
-  kind: 'code-state-continuity'
-  strength: 'verified'
-  shas: readonly [string, ...string[]]
-  repositoryIdentity: 'same' | 'different' | 'unavailable'
-  sourceObservationIds: readonly [RecordId, ...RecordId[]]
-}
 export type ManualAssociationEvidence = SessionPullRequestAssociationBase & {
   kind: 'manual'
   strength: 'asserted'
@@ -470,7 +463,6 @@ export type PullRequestAssociationInvalidation = SessionPullRequestAssociationBa
 export type SessionPullRequestAssociation =
   | ExactCommitAssociation
   | ExactHeadAssociation
-  | VerifiedCodeStateContinuityAssociation
   | ManualAssociationEvidence
   | PullRequestAssociationInvalidation
 
@@ -1263,30 +1255,6 @@ const RECORD_KEYS = {
     'settledWatermarks',
     'createdAt',
   ],
-  decisionObservation: [
-    'schemaVersion',
-    'observationId',
-    'reviewId',
-    'reviewEntryId',
-    'choiceKey',
-    'effect',
-    'assertion',
-    'assertionFingerprint',
-    'when',
-    'headline',
-    'scenario',
-    'gap',
-    'reach',
-    'verdict',
-    'rationale',
-    'evidence',
-    'correctedDecision',
-    'provisionalCall',
-    'reversal',
-    'source',
-    'confidence',
-    'observedAt',
-  ],
   decisionAction: [
     'schemaVersion',
     'actionId',
@@ -1352,7 +1320,6 @@ type RecordPath =
         | { kind: 'pull-request'; repositoryKey: string; number: number }
     }
   | { kind: 'coverage'; actionId: string }
-  | { kind: 'decisionObservation'; observationId: string }
   | { kind: 'decisionAction'; actionId: string }
 
 function parseRecordPath(path: OwnedPath): RecordPath {
@@ -1465,8 +1432,6 @@ function parseRecordPath(path: OwnedPath): RecordPath {
     }
   match = /^reviews\/coverage-actions\/([^/]+)\.json$/.exec(path)
   if (match) return { kind: 'coverage', actionId: match[1]! }
-  match = /^decisions\/observations\/([^/]+)\.json$/.exec(path)
-  if (match) return { kind: 'decisionObservation', observationId: match[1]! }
   match = /^decisions\/actions\/([^/]+)\.json$/.exec(path)
   if (match) return { kind: 'decisionAction', actionId: match[1]! }
   throw new TypeError(`path is not a declared Factory v1 record: ${path}`)
@@ -1827,9 +1792,6 @@ function validateRecordShape(
     ),
     ledger: RECORD_KEYS.ledger.filter(key => key !== 'summary'),
     coverage: RECORD_KEYS.coverage.filter(key => key !== 'acceptedSubject'),
-    decisionObservation: RECORD_KEYS.decisionObservation.filter(
-      key => !['correctedDecision', 'provisionalCall', 'reversal'].includes(key),
-    ),
     decisionAction: [
       'schemaVersion',
       'actionId',
@@ -2346,11 +2308,7 @@ function validateRecordShape(
       assertRecordId(value.evidenceId, 'association.evidenceId')
       assertString(value.sessionKey, 'association.sessionKey')
       assertRecordId(value.pullRequestObservationId, 'association.pullRequestObservationId')
-      assertEnum(
-        value.kind,
-        ['commit', 'head', 'code-state-continuity', 'manual', 'invalidation'],
-        'association.kind',
-      )
+      assertEnum(value.kind, ['commit', 'head', 'manual', 'invalidation'], 'association.kind')
       assertEnum(value.strength, ['verified', 'asserted'], 'association.strength')
       assertGitObjectIds(value.shas, 'association.shas')
       assertEnum(
@@ -3013,72 +2971,6 @@ function validateRecordShape(
       assertWatermarks(value.settledWatermarks, 'coverage.settledWatermarks')
       assertTimestamp(value.createdAt, 'coverage.createdAt')
       assertIdentity(value.actionId, path.actionId, 'coverage.actionId')
-      break
-    case 'decisionObservation':
-      {
-        validateChoiceAuditSubmission(
-          Object.fromEntries(
-            Object.entries(value).filter(
-              ([key]) =>
-                ![
-                  'schemaVersion',
-                  'observationId',
-                  'reviewId',
-                  'reviewEntryId',
-                  'assertionFingerprint',
-                  'source',
-                  'observedAt',
-                ].includes(key),
-            ),
-          ),
-        )
-      }
-      assertRecordId(value.observationId, 'decisionObservation.observationId')
-      assertRecordId(value.reviewId, 'decisionObservation.reviewId')
-      assertRecordId(value.reviewEntryId, 'decisionObservation.reviewEntryId')
-      assertSha256(value.assertionFingerprint, 'decisionObservation.assertionFingerprint')
-      if (
-        value.assertionFingerprint !==
-        decisionAssertionFingerprint({
-          effect: value.effect as DecisionObservation['effect'],
-          assertion: value.assertion as JsonValue,
-        })
-      )
-        throw new TypeError('decisionObservation.assertionFingerprint must match its assertion')
-      assertRecord(value.source, 'decisionObservation.source')
-      if (value.source.kind === 'workspace') {
-        assertExactKeys(
-          value.source,
-          ['kind', 'branch', 'exactSnapshot'],
-          'decisionObservation.source',
-        )
-        requireFields(
-          value.source,
-          ['kind', 'branch', 'exactSnapshot'],
-          'decisionObservation.source',
-        )
-        if (value.source.branch !== null)
-          assertString(value.source.branch, 'decisionObservation.source.branch')
-        assertBoolean(value.source.exactSnapshot, 'decisionObservation.source.exactSnapshot')
-      } else if (value.source.kind === 'pull-request') {
-        assertExactKeys(
-          value.source,
-          ['kind', 'provider', 'repositoryKey', 'number', 'observationId'],
-          'decisionObservation.source',
-        )
-        requireFields(
-          value.source,
-          ['kind', 'provider', 'repositoryKey', 'number', 'observationId'],
-          'decisionObservation.source',
-        )
-        assertEnum(value.source.provider, ['github'], 'decisionObservation.source.provider')
-        assertString(value.source.repositoryKey, 'decisionObservation.source.repositoryKey')
-        assertPositiveInteger(value.source.number, 'decisionObservation.source.number')
-        assertRecordId(value.source.observationId, 'decisionObservation.source.observationId')
-      } else throw new TypeError('decisionObservation.source.kind is unsupported')
-      assertEnum(value.confidence, ['low', 'medium', 'high'], 'decisionObservation.confidence')
-      assertTimestamp(value.observedAt, 'decisionObservation.observedAt')
-      assertIdentity(value.observationId, path.observationId, 'decisionObservation.observationId')
       break
     case 'decisionAction':
       assertRecordId(value.actionId, 'decisionAction.actionId')

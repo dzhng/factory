@@ -5,12 +5,11 @@ import { join } from 'node:path'
 import {
   canonicalJson,
   type DecisionAction,
-  type DecisionObservation,
   type JsonValue,
   type OwnedPath,
   type RecordId,
 } from '@factory/contract'
-import { foldDecisions } from '@factory/domain'
+import { foldDecisions, loadDecisionHistory } from '@factory/domain'
 import { DecisionAuthorityConflictError, type RepositoryStore } from '@factory/repository'
 import { openVerifiedReviewBundle, readVerifiedReviewBundle } from '@factory/reviewer'
 import { createSanitizer } from '@factory/sanitization'
@@ -136,9 +135,7 @@ async function fixture() {
     },
   } as unknown as RepositoryStore
   for (const attempt of validated) await acceptReview(attempt, store)
-  const observations = records
-    .filter(record => record.path.startsWith('decisions/observations/'))
-    .map(record => record.value as unknown as DecisionObservation)
+  const { observations } = loadDecisionHistory(await store.readRecords())
   const initial = foldDecisions(observations, [], 'feature/review')
   const current = observations.find(
     item => item.observationId === initial.lineages[0]!.currentObservationId,
@@ -208,20 +205,12 @@ describe('decision action validation', () => {
     expect(state.actionCalls()).toBe(0)
   })
 
-  test('rejects a stored observation that is not exactly derived from its review', async () => {
+  test('decisions remain readable without separately published observations', async () => {
     const state = await fixture()
-    const forged = state.records.find(record => record.path.startsWith('decisions/observations/'))!
-    forged.value = { ...(forged.value as object), headline: 'forged' } as JsonValue
-    await expect(
-      appendDecisionAction(state.store, {
-        schemaVersion: 1,
-        actionId: id('action', '4'),
-        kind: 'confirm',
-        targetObservationId: state.current.observationId,
-        actor: { kind: 'human' },
-        expectedStateFingerprint: '0'.repeat(64),
-      }),
-    ).rejects.toThrow('not derived from its accepted review entry')
+    expect(state.records.filter(record => record.path.startsWith('decisions/'))).toEqual([])
+    expect(loadDecisionHistory(await state.store.readRecords()).observations).toContainEqual(
+      state.current,
+    )
   })
 
   test('reports an authority race as a stale decision view', async () => {

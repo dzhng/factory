@@ -26,17 +26,15 @@ identities exist. Citation objects retain exact bundle authority; sensitive
 choice keys or citation locators are refused rather than redirected. The attempt
 owner freezes the prepared publication privately before its first portable write,
 so recovery reuses those bytes even after repository env assignments change.
-Acceptance carries repository-issued capabilities for the whole review and its
-derived decisions. Missing decisions can also be reconstructed from exact stored
-review groups after checking their submissions and cited object bytes; recovery
-does not mint authority from caller-supplied records or discover a new dictionary.
+Acceptance carries repository-issued capabilities for the whole review.
+Decision observations are derived from the accepted ledger and pinned subject,
+so reading them does not publish additional records or discover a new dictionary.
 Ordinary redaction remains readable evidence, while omitted events reduce authority.
 The Docker publication probe can emit an inspectable synthetic review and human
 action with `bun run packages/review/test/docker.ts --report` from the repository root.
 
 The domain package owns verified stored-review grouping, subject resolution,
 coverage, and decision folds. This package uses those shared projections to
-publish rebuildable decision observations and validate human actions. The
-repository writer performs the final compare-and-append, so a concurrent
-history or canonical-branch change becomes a stale request rather than an
-action on unseen state.
+derive decision observations and validate human actions. The repository writer
+compares the review sources, their subjects, human actions, and canonical branch
+under mutation ownership, so a concurrent history change becomes a stale request.
