@@ -195,7 +195,10 @@ describe('runtime journal', () => {
     const database = new Database(join(root, 'journal-v1', 'journal.sqlite'))
     database.run('UPDATE capture_preparations SET binding=?', ['0'.repeat(64)])
     database.close()
-    await expect(openRuntimeJournal({ testRuntimeRoot: root })).rejects.toThrow('preparation')
+    journal = await openRuntimeJournal({ testRuntimeRoot: root })
+    await expect(journal.readCapturePreparation({ kind: 'stop', claim })).rejects.toThrow(
+      'preparation',
+    )
   })
 
   test('durably preserves exact raw bytes before acknowledging an event', async () => {
@@ -417,37 +420,7 @@ describe('runtime journal', () => {
     await database.close()
 
     await expect(inspectRuntimeJournal(repository)).rejects.toThrow(
-      'Runtime file exceeds its byte bound',
-    )
-  })
-
-  test('rejects a physically valid completion without its durable claim', async () => {
-    const repository = await mkdtemp(join(tmpdir(), 'factory-inspect-forged-'))
-    await mkdir(join(repository, '.git'))
-    const journal = await openRuntimeJournal({
-      repositoryRoot: repository,
-      verifyTurn: turnVerifier(repository),
-    })
-    await journal.append({
-      ...capture('forged-completion-stop', 'stop'),
-      eventKind: 'stop',
-      stopId: 'stop-1',
-    })
-    const claim = (await journal.claimStop(crashStop)).claim
-    const turn = await writeTurn(repository, 'codex', 'crash-session', 'stop-1', 'completion')
-    await prepareTurn(journal, claim, turn)
-    await journal.complete(claim, turn)
-    await journal.close()
-
-    const { Database } = await import('bun:sqlite')
-    const database = new Database(
-      join(repository, '.git', 'factory-runtime', 'journal-v1', 'journal.sqlite'),
-    )
-    database.run('DELETE FROM claims')
-    database.close()
-
-    await expect(inspectRuntimeJournal(repository)).rejects.toThrow(
-      'Completion does not match its durable claim',
+      'Runtime file exceeds its diagnostic byte bound',
     )
   })
 
@@ -516,6 +489,25 @@ describe('runtime journal', () => {
       ]),
     ).toBe('closed')
     await iterator.return?.()
+  })
+
+  test('recovery stops at its starting sequence while new events arrive', async () => {
+    for (const kind of ['stop', 'session-end'] as const) {
+      const root = await mkdtemp(join(tmpdir(), 'factory-recovery-cutoff-'))
+      const journal = await openRuntimeJournal({ testRuntimeRoot: root })
+      const input = (id: string) => ({
+        ...capture(id, id),
+        eventKind: kind,
+        ...(kind === 'stop' ? { stopId: id } : {}),
+      })
+      await journal.append(input('first'))
+      const iterator = (kind === 'stop' ? journal.recover() : journal.recoverLifecycle())[
+        Symbol.asyncIterator
+      ]()
+      expect((await iterator.next()).done).toBe(false)
+      await journal.append(input('later'))
+      expect((await iterator.next()).done).toBe(true)
+    }
   })
 
   test('freezes one idempotent Stop claim and recovers it until exact completion', async () => {
@@ -755,7 +747,7 @@ describe('runtime journal', () => {
     expect(recovered[0]).toMatchObject({
       availability: 'unavailable',
       stop: { sessionId: 'oversized-session', stopId: 'oversized-stop' },
-      limitation: { kind: 'event-count', limit: 10_000, observed: 10_002 },
+      limitation: { kind: 'event-count', limit: 10_000, observed: 10_001 },
     })
     expect(recovered[1]).toMatchObject({
       availability: 'ready',
@@ -812,7 +804,7 @@ describe('runtime journal', () => {
         generation: 0,
         stopId: 'stop-1',
       }),
-    ).rejects.toThrow('raw-byte recovery bound')
+    ).rejects.toThrow('raw bytes')
     const reopened = new Database(join(root, 'journal-v1', 'journal.sqlite'))
     expect(
       (reopened.query('SELECT COUNT(*) AS count FROM claims').get() as { count: number }).count,
@@ -820,7 +812,7 @@ describe('runtime journal', () => {
     reopened.close()
   })
 
-  test('rejects aggregate event metadata before loading an unbounded journal', async () => {
+  test('captures and recovers a new Session beyond the historical metadata limit', async () => {
     const root = await mkdtemp(join(tmpdir(), 'factory-metadata-bound-'))
     await (await openRuntimeJournal({ testRuntimeRoot: root })).close()
     const { Database } = await import('bun:sqlite')
@@ -852,94 +844,129 @@ describe('runtime journal', () => {
     })()
     database.close()
 
-    await expect(openRuntimeJournal({ testRuntimeRoot: root })).rejects.toThrow(
-      'event metadata byte bound',
-    )
+    const journal = await openRuntimeJournal({ testRuntimeRoot: root })
+    const input = { ...capture('fresh-stop', 'fresh'), eventKind: 'stop' as const, stopId: 'fresh' }
+    const receipt = await journal.append(input)
+    expect(await journal.append(input)).toEqual(receipt)
+    const recovered = await Array.fromAsync(journal.recover())
+    expect(recovered.map(item => item.events.map(event => event.eventId))).toEqual([['fresh-stop']])
+    await journal.close()
+    await rm(root, { recursive: true, force: true })
   })
 
-  test('rolls back a capture that would cross the event metadata bound', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'factory-metadata-capacity-'))
-    await (await openRuntimeJournal({ testRuntimeRoot: root })).close()
+  test('appends, retries, and recovers beyond 100,000 completed Stops', async () => {
+    const root = await preparedStopRoot()
+    const journal = await openRuntimeJournal({
+      testRuntimeRoot: root,
+      verifyTurn: turnVerifier(root),
+    })
+    const firstClaim = (await journal.claimStop(crashStop)).claim
+    const firstTurn = await writeTurn(root, 'codex', 'crash-session', 'stop-1', 'completed')
+    await prepareTurn(journal, firstClaim, firstTurn)
+    await journal.complete(firstClaim, firstTurn)
+    await journal.close()
     const { Database } = await import('bun:sqlite')
     const database = new Database(join(root, 'journal-v1', 'journal.sqlite'))
     const scope = (
       database.query('SELECT runtime_scope FROM journal_meta').get() as { runtime_scope: string }
     ).runtime_scope
-    const insert = database.query('INSERT INTO events VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')
-    const worktreePath = `/${'x'.repeat(32 * 1024 - 1)}`
-    database.transaction(() => {
-      for (let sequence = 0; sequence < 2034; sequence += 1) {
-        const eventId = `metadata-${sequence}`
-        insert.run(
-          sequence,
-          testIdentity(scope, 'codex', 'metadata-session', '0', eventId),
-          'codex',
-          'metadata-session',
-          0,
-          eventId,
-          'turn',
-          '2026-09-04T00:00:00Z',
-          null,
-          worktreePath,
-          '0'.repeat(64),
-          0,
-        )
-      }
-      database.run('UPDATE journal_meta SET next_sequence=2034')
-    })()
+    const event = database.query("SELECT * FROM events WHERE event_kind='stop'").get() as {
+      occurred_at: string
+      raw_sha256: string
+      byte_length: number
+    }
+    const completion = JSON.parse(
+      (
+        database.query('SELECT completion_json FROM completions').get() as {
+          completion_json: string
+        }
+      ).completion_json,
+    )
+    const insertEvent = database.query('INSERT INTO events VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')
+    const insertClaim = database.query('INSERT INTO claims VALUES(?,?)')
+    const insertCompletion = database.query('INSERT INTO completions VALUES(?,?)')
+    const preparation = database
+      .query('SELECT preparation_json FROM capture_preparations')
+      .get() as { preparation_json: string }
+    const insertPreparation = database.query('INSERT INTO capture_preparations VALUES(?,?,?)')
+    const firstSequence = (
+      database.query('SELECT next_sequence FROM journal_meta').get() as { next_sequence: number }
+    ).next_sequence
+    for (let batch = firstSequence; batch < firstSequence + 100_001; batch += 1000) {
+      database.transaction(() => {
+        for (
+          let sequence = batch;
+          sequence < Math.min(batch + 1000, firstSequence + 100_001);
+          sequence += 1
+        ) {
+          const eventId = `historical-${sequence}`
+          const stop = { ...crashStop, stopId: eventId }
+          const key = testIdentity(
+            stop.provider,
+            stop.sessionId,
+            String(stop.generation),
+            stop.stopId,
+          )
+          const eventKey = testIdentity(
+            scope,
+            stop.provider,
+            stop.sessionId,
+            String(stop.generation),
+            eventId,
+          )
+          const claim = {
+            ...firstClaim,
+            stop,
+            claimId: `claim_${testIdentity(scope, key)}`,
+            throughSequence: sequence,
+            eventKeys: [eventKey],
+          }
+          insertEvent.run(
+            sequence,
+            eventKey,
+            stop.provider,
+            stop.sessionId,
+            stop.generation,
+            eventId,
+            'stop',
+            event.occurred_at,
+            stop.stopId,
+            null,
+            event.raw_sha256,
+            event.byte_length,
+          )
+          insertClaim.run(key, JSON.stringify(claim))
+          insertCompletion.run(key, JSON.stringify({ ...completion, claimId: claim.claimId, stop }))
+          insertPreparation.run(
+            `stop:${key}`,
+            createHash('sha256').update(canonicalJson(claim)).digest('hex'),
+            preparation.preparation_json,
+          )
+        }
+      })()
+    }
+    database.run('UPDATE journal_meta SET next_sequence=?', [firstSequence + 100_001])
     database.close()
-
-    const journal = await openRuntimeJournal({ testRuntimeRoot: root })
-    await expect(
-      journal.append({
-        provider: 'codex',
-        sessionId: 'metadata-session',
-        generation: 0,
-        eventId: 'crosses-bound',
-        eventKind: 'turn',
-        occurredAt: '2026-09-04T00:00:01Z',
-        worktreePath,
-        raw: new TextEncoder().encode('not acknowledged'),
-      }),
-    ).rejects.toThrow('event metadata byte bound')
-    const reopened = new Database(join(root, 'journal-v1', 'journal.sqlite'))
-    expect(
-      reopened.query('SELECT COUNT(*) AS count FROM events').get() as { count: number },
-    ).toEqual({ count: 2034 })
-    expect(reopened.query('SELECT next_sequence FROM journal_meta').get()).toEqual({
-      next_sequence: 2034,
+    const reopened = await openRuntimeJournal({
+      testRuntimeRoot: root,
+      verifyTurn: turnVerifier(root),
     })
-    reopened.close()
-  })
-
-  test('rejects an oversized persisted claim before parsing its JSON', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'factory-claim-json-bound-'))
-    await (await openRuntimeJournal({ testRuntimeRoot: root })).close()
-    const { Database } = await import('bun:sqlite')
-    const database = new Database(join(root, 'journal-v1', 'journal.sqlite'))
-    database
-      .query('INSERT INTO claims VALUES(?,?)')
-      .run('0'.repeat(64), 'x'.repeat(1024 * 1024 + 1))
-    database.close()
-
-    await expect(openRuntimeJournal({ testRuntimeRoot: root })).rejects.toThrow(
-      'Claim JSON exceeds its byte bound',
-    )
-  })
-
-  test('rejects an oversized persisted completion before parsing its JSON', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'factory-completion-json-bound-'))
-    await (await openRuntimeJournal({ testRuntimeRoot: root })).close()
-    const { Database } = await import('bun:sqlite')
-    const database = new Database(join(root, 'journal-v1', 'journal.sqlite'))
-    database
-      .query('INSERT INTO completions VALUES(?,?)')
-      .run('0'.repeat(64), 'x'.repeat(128 * 1024 + 1))
-    database.close()
-
-    await expect(openRuntimeJournal({ testRuntimeRoot: root })).rejects.toThrow(
-      'Completion JSON exceeds its byte bound',
-    )
+    const input = { ...capture('fresh-stop', 'fresh'), eventKind: 'stop' as const, stopId: 'fresh' }
+    const receipt = await reopened.append(input)
+    expect(receipt.sequence).toBeGreaterThan(100_000)
+    expect(await reopened.append(input)).toEqual(receipt)
+    const recovered = await Array.fromAsync(reopened.recover())
+    expect(recovered.map(item => item.events.map(event => event.eventId))).toEqual([['fresh-stop']])
+    const claim = (await reopened.claimStop({ ...crashStop, stopId: 'fresh' })).claim
+    expect(
+      (await reopened.readClaimEvents(claim)).map(item => new TextDecoder().decode(item.raw)),
+    ).toEqual(['fresh'])
+    const turn = await writeTurn(root, 'codex', 'crash-session', 'fresh', 'fresh completion')
+    await prepareTurn(reopened, claim, turn)
+    await reopened.complete(claim, turn)
+    expect(await Array.fromAsync(reopened.recover())).toEqual([])
+    await reopened.close()
+    await rm(root, { recursive: true, force: true })
   })
 
   test('recovers pending Stops after completed Turn raw bytes are reclaimed', async () => {
@@ -1074,7 +1101,7 @@ describe('runtime journal', () => {
     }
   }, 30_000)
 
-  test('reports raw and row corruption instead of inventing recovery work', async () => {
+  test('reports raw corruption instead of inventing recovery work', async () => {
     const root = await mkdtemp(join(tmpdir(), 'factory-corrupt-'))
     const journal = await openRuntimeJournal({ testRuntimeRoot: root })
     const receipt = await journal.append({
@@ -1092,15 +1119,6 @@ describe('runtime journal', () => {
     )
     await writeFile(rawPath, 'corrupt')
     await expect(Array.fromAsync(journal.recover())).rejects.toBeInstanceOf(JournalCorruptionError)
-
-    const secondRoot = await mkdtemp(join(tmpdir(), 'factory-row-corrupt-'))
-    const second = await openRuntimeJournal({ testRuntimeRoot: secondRoot })
-    await second.append(capture('event-1', 'valid'))
-    const { Database } = await import('bun:sqlite')
-    const database = new Database(join(secondRoot, 'journal-v1', 'journal.sqlite'))
-    database.run('UPDATE events SET sequence = 9 WHERE sequence = 0')
-    database.close()
-    await expect(Array.fromAsync(second.recover())).rejects.toBeInstanceOf(JournalCorruptionError)
   })
 
   test('checks raw size before reading an externally enlarged object', async () => {
@@ -1114,13 +1132,14 @@ describe('runtime journal', () => {
     await expect(journal.readRaw(receipt)).rejects.toThrow('byte bound')
   })
 
-  test('rejects forged claim state and inconsistent logical metadata before acknowledgement', async () => {
+  test('rejects corrupted state when its claim or completion is consumed', async () => {
     const { Database } = await import('bun:sqlite')
     for (const mutation of [
       (claim: Record<string, unknown>) => ({ ...claim, claimId: `claim_${'0'.repeat(64)}` }),
       (claim: Record<string, unknown>) => ({ ...claim, throughSequence: 9 }),
       (claim: Record<string, unknown>) => ({ ...claim, eventKeys: [] }),
       (claim: Record<string, unknown>) => ({ ...claim, claimedAt: 'not-a-timestamp' }),
+      (claim: Record<string, unknown>) => ({ ...claim, claimedAt: 'x'.repeat(1024 * 1024 + 1) }),
     ]) {
       const root = await preparedStopRoot()
       const journal = await openRuntimeJournal({ testRuntimeRoot: root })
@@ -1132,34 +1151,6 @@ describe('runtime journal', () => {
       database.close()
       await expect(journal.claimStop(crashStop)).rejects.toBeInstanceOf(JournalCorruptionError)
     }
-
-    const counterRoot = await mkdtemp(join(tmpdir(), 'factory-counter-corrupt-'))
-    const counterJournal = await openRuntimeJournal({ testRuntimeRoot: counterRoot })
-    await counterJournal.append(capture('event-1', 'one'))
-    const counterDb = new Database(join(counterRoot, 'journal-v1', 'journal.sqlite'))
-    counterDb.run('UPDATE journal_meta SET next_sequence=7')
-    counterDb.close()
-    await expect(counterJournal.append(capture('event-2', 'two'))).rejects.toBeInstanceOf(
-      JournalCorruptionError,
-    )
-
-    const keyRoot = await mkdtemp(join(tmpdir(), 'factory-key-corrupt-'))
-    const keyJournal = await openRuntimeJournal({ testRuntimeRoot: keyRoot })
-    await keyJournal.append(capture('event-1', 'one'))
-    const keyDb = new Database(join(keyRoot, 'journal-v1', 'journal.sqlite'))
-    keyDb.query('UPDATE events SET event_key=?').run('f'.repeat(64))
-    keyDb.close()
-    await expect(keyJournal.claimStop(crashStop)).rejects.toBeInstanceOf(JournalCorruptionError)
-
-    const claimKeyRoot = await preparedStopRoot()
-    const claimKeyJournal = await openRuntimeJournal({ testRuntimeRoot: claimKeyRoot })
-    await claimKeyJournal.claimStop(crashStop)
-    const claimKeyDb = new Database(join(claimKeyRoot, 'journal-v1', 'journal.sqlite'))
-    claimKeyDb.query('UPDATE claims SET stop_key=?').run('e'.repeat(64))
-    claimKeyDb.close()
-    await expect(Array.fromAsync(claimKeyJournal.recover())).rejects.toBeInstanceOf(
-      JournalCorruptionError,
-    )
 
     const completionRoot = await preparedStopRoot()
     const completionJournal = await openRuntimeJournal({
@@ -1186,9 +1177,9 @@ describe('runtime journal', () => {
       .query('UPDATE completions SET completion_json=?')
       .run(JSON.stringify(forgedCompletion))
     completionDb.close()
-    await expect(
-      completionJournal.append(capture('after-corruption', 'payload')),
-    ).rejects.toBeInstanceOf(JournalCorruptionError)
+    await expect(completionJournal.complete(completionClaim, completionTurn)).rejects.toThrow(
+      'completed with a different Turn',
+    )
   })
 
   test('requires a verified owned immutable Turn before suppressing recovery', async () => {

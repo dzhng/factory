@@ -10,7 +10,7 @@ const child = Bun.spawn(
     'none',
     '--read-only',
     '--tmpfs',
-    '/tmp:rw,noexec,nosuid,nodev,size=256m',
+    '/tmp:rw,noexec,nosuid,nodev,size=512m',
     '--tmpfs',
     '/disk-full:rw,noexec,nosuid,nodev,size=1m',
     '--mount',

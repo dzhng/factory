@@ -215,11 +215,8 @@ interface Completion {
   turn: RuntimeRecordRef
   completedAt: string
 }
-interface ClaimRange {
-  stopRow: JournalRow
-  rows: JournalRow[]
-}
 interface RecoverySnapshot {
+  sequence: number
   stop: StopIdentity
   claim?: MaterializationClaim
   rows: JournalRow[]
@@ -231,10 +228,10 @@ const EVENT_KINDS: CaptureEventKind[] = ['session-start', 'turn', 'stop', 'sessi
 const MAX_IDENTIFIER_BYTES = 4096
 const MAX_PATH_BYTES = 32 * 1024
 const MAX_RAW_BYTES = 64 * 1024 * 1024
-const MAX_JOURNAL_ROWS = 100_000
+const MAX_INVENTORY_ITEMS = 100_000
 const MAX_RECOVERY_EVENTS = 10_000
 const MAX_RECOVERY_BYTES = 64 * 1024 * 1024
-const MAX_EVENT_METADATA_BYTES = 64 * 1024 * 1024
+const MAX_INVENTORY_METADATA_BYTES = 64 * 1024 * 1024
 const MAX_STATE_METADATA_BYTES = 64 * 1024 * 1024
 const MAX_CLAIM_JSON_BYTES = 1024 * 1024
 const MAX_COMPLETION_JSON_BYTES = 128 * 1024
@@ -322,6 +319,8 @@ export async function openRuntimeJournal(options: RuntimeJournalOptions): Promis
     CREATE TABLE IF NOT EXISTS events(sequence INTEGER PRIMARY KEY, event_key TEXT NOT NULL UNIQUE, provider TEXT NOT NULL, session_id TEXT NOT NULL, generation INTEGER NOT NULL, event_id TEXT NOT NULL, event_kind TEXT NOT NULL, occurred_at TEXT NOT NULL, stop_id TEXT, worktree_path TEXT, raw_sha256 TEXT NOT NULL, byte_length INTEGER NOT NULL, UNIQUE(provider, session_id, generation, stop_id));
     CREATE INDEX IF NOT EXISTS events_by_session_sequence ON events(provider, session_id, generation, sequence);
     CREATE TABLE IF NOT EXISTS claims(stop_key TEXT PRIMARY KEY, claim_json TEXT NOT NULL);
+    CREATE INDEX IF NOT EXISTS claims_by_sequence ON claims(json_extract(claim_json, '$.throughSequence'));
+    CREATE INDEX IF NOT EXISTS events_by_kind_sequence ON events(event_kind, sequence);
     CREATE TABLE IF NOT EXISTS completions(stop_key TEXT PRIMARY KEY, completion_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS lifecycle_completions(event_key TEXT PRIMARY KEY, record_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS capture_preparations(owner_key TEXT PRIMARY KEY, binding TEXT NOT NULL, preparation_json TEXT NOT NULL);
@@ -350,7 +349,6 @@ export async function openRuntimeJournal(options: RuntimeJournalOptions): Promis
       database,
       options,
     )
-    await journal.checkLogicalIntegrity()
     return journal
   } catch (error) {
     database.close()
@@ -373,10 +371,6 @@ class SqliteJournal implements RuntimeJournal {
     private readonly db: Database,
     private readonly options: RuntimeJournalOptions,
   ) {}
-
-  async checkLogicalIntegrity(): Promise<void> {
-    await this.withOperation(() => this.transaction(undefined, () => this.assertLogicalIntegrity()))
-  }
 
   async close(): Promise<void> {
     if (this.closePromise) return this.closePromise
@@ -409,7 +403,6 @@ class SqliteJournal implements RuntimeJournal {
     const rawSha256 = digest(input.raw)
     await this.publishRaw(input.raw, rawSha256)
     const row = await this.transaction('journal', async () => {
-      this.assertLogicalIntegrity()
       const existingValue = stmt(this.db, 'SELECT * FROM events WHERE event_key=?').get(eventKey)
       if (existingValue != null) {
         const existing = parseRow(existingValue)
@@ -423,8 +416,6 @@ class SqliteJournal implements RuntimeJournal {
       if (!Number.isSafeInteger(meta.next_sequence))
         throw new JournalCorruptionError('Next sequence is malformed')
       const sequence = meta.next_sequence as number
-      if (sequence >= MAX_JOURNAL_ROWS)
-        throw new Error(`Journal reached its ${MAX_JOURNAL_ROWS} row bound`)
       stmt(this.db, `INSERT INTO events VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`).run(
         sequence,
         eventKey,
@@ -439,12 +430,6 @@ class SqliteJournal implements RuntimeJournal {
         rawSha256,
         input.raw.byteLength,
       )
-      const metadataBytes = numberField(
-        record(stmt(this.db, EVENT_METADATA_TOTALS_SQL).get(), 'event metadata totals'),
-        'metadata_bytes',
-      )
-      if (metadataBytes > MAX_EVENT_METADATA_BYTES)
-        throw new Error(`Journal reached its ${MAX_EVENT_METADATA_BYTES} event metadata byte bound`)
       stmt(this.db, 'UPDATE journal_meta SET next_sequence=? WHERE singleton=1').run(sequence + 1)
       await this.boundary('journal-transaction-staged')
       return {
@@ -463,7 +448,7 @@ class SqliteJournal implements RuntimeJournal {
       } satisfies JournalRow
     })
     await this.boundary('journal-transaction-committed')
-    await this.verifyRaw(row)
+    await this.readRawUnchecked(row)
     return receipt(row)
   }
 
@@ -536,8 +521,10 @@ class SqliteJournal implements RuntimeJournal {
       validateStop(stop)
       const key = stopKey(stop)
       const result = await this.transaction('claim', async () => {
-        this.assertLogicalIntegrity()
-        const existing = stmt(this.db, 'SELECT claim_json FROM claims WHERE stop_key=?').get(key)
+        const existing = stmt(
+          this.db,
+          `SELECT CASE WHEN length(CAST(claim_json AS BLOB))<=${MAX_CLAIM_JSON_BYTES} THEN claim_json END AS claim_json FROM claims WHERE stop_key=?`,
+        ).get(key)
         if (existing != null)
           return {
             status: 'already-claimed' as const,
@@ -545,39 +532,8 @@ class SqliteJournal implements RuntimeJournal {
               parseClaim(record(existing, 'claim row').claim_json, stop),
             ),
           }
-        const value = stmt(
-          this.db,
-          `SELECT * FROM events WHERE provider=? AND session_id=? AND generation=? AND event_kind='stop' AND stop_id=?`,
-        ).get(stop.provider, stop.sessionId, stop.generation, stop.stopId)
-        if (value == null)
-          throw new Error(`Cannot claim a Stop that is not durably journaled: ${stop.stopId}`)
-        const stopRow = parseRow(value)
-        const priorStop = record(
-          stmt(
-            this.db,
-            `SELECT MAX(sequence) AS sequence FROM events WHERE provider=? AND session_id=? AND generation=? AND event_kind='stop' AND sequence<?`,
-          ).get(stop.provider, stop.sessionId, stop.generation, stopRow.sequence),
-          'prior Stop row',
-        )
-        const priorSequence = priorStop.sequence == null ? -1 : numberField(priorStop, 'sequence')
-        const turnRows = stmt(
-          this.db,
-          `SELECT event_key, byte_length FROM events WHERE provider=? AND session_id=? AND generation=? AND sequence>? AND sequence<=? ORDER BY sequence LIMIT ${MAX_RECOVERY_EVENTS + 1}`,
-        )
-          .all(stop.provider, stop.sessionId, stop.generation, priorSequence, stopRow.sequence)
-          .map(value => {
-            const row = record(value, 'claim event row')
-            const eventKey = stringField(row, 'event_key')
-            const byteLength = numberField(row, 'byte_length')
-            if (!SHA256.test(eventKey) || byteLength < 0 || byteLength > MAX_RAW_BYTES)
-              throw new JournalCorruptionError('Claim event row is malformed')
-            return { eventKey, byteLength }
-          })
-        if (turnRows.length > MAX_RECOVERY_EVENTS)
-          throw new Error(`One Stop exceeds the ${MAX_RECOVERY_EVENTS} event recovery bound`)
-        const rawBytes = turnRows.reduce((sum, row) => sum + row.byteLength, 0)
-        if (!Number.isSafeInteger(rawBytes) || rawBytes > MAX_RECOVERY_BYTES)
-          throw new Error(`One Stop exceeds the ${MAX_RECOVERY_BYTES} raw-byte recovery bound`)
+        const { stopRow, rows: turnRows } = this.readStopRange(stop)
+        assertRecoveryBounds(turnRows)
         const eventKeys = turnRows.map(row => row.eventKey)
         const created: MaterializationClaim = {
           claimId: `claim_${identity(this.scope, key)}`,
@@ -588,7 +544,6 @@ class SqliteJournal implements RuntimeJournal {
         }
         const claimJson = encodeBoundedJson(created, MAX_CLAIM_JSON_BYTES, 'Claim')
         stmt(this.db, 'INSERT INTO claims VALUES(?,?)').run(key, claimJson)
-        this.assertStateCapacity('claims', 'claim_json')
         await this.boundary('claim-transaction-staged')
         return { status: 'acquired' as const, claim: created }
       })
@@ -599,9 +554,10 @@ class SqliteJournal implements RuntimeJournal {
 
   private preparationOwner(owner: CapturePreparationOwner): { key: string; binding: string } {
     if (owner.kind === 'stop') {
-      const value = stmt(this.db, 'SELECT claim_json FROM claims WHERE stop_key=?').get(
-        stopKey(owner.claim.stop),
-      )
+      const value = stmt(
+        this.db,
+        `SELECT CASE WHEN length(CAST(claim_json AS BLOB))<=${MAX_CLAIM_JSON_BYTES} THEN claim_json END AS claim_json FROM claims WHERE stop_key=?`,
+      ).get(stopKey(owner.claim.stop))
       if (value == null) throw new Error('Preparation requires a durable claim')
       const claim = this.validateDurableClaim(
         parseClaim(record(value, 'claim row').claim_json, owner.claim.stop),
@@ -629,7 +585,7 @@ class SqliteJournal implements RuntimeJournal {
     owner: CapturePreparationOwner,
     preparation: CapturePreparation,
   ): Promise<void> {
-    if (preparation.objects.length + preparation.records.length > MAX_JOURNAL_ROWS)
+    if (preparation.objects.length + preparation.records.length > MAX_INVENTORY_ITEMS)
       throw new Error('Capture preparation inventory exceeds its bound')
     const objects: ReturnType<typeof snapshotPreparedObject>[] = []
     const records: ReturnType<typeof snapshotPreparedRecord>[] = []
@@ -708,11 +664,18 @@ class SqliteJournal implements RuntimeJournal {
           authority.binding,
           binding,
         )
-        this.preparationRows()
         await this.boundary('preparation-transaction-staged')
       })
       await this.boundary('preparation-transaction-committed')
     })
+  }
+
+  private preparationRow(key: string): Record<string, unknown> | undefined {
+    const value = stmt(
+      this.db,
+      `SELECT binding, CASE WHEN length(CAST(preparation_json AS BLOB))<=${MAX_COMPLETION_JSON_BYTES} THEN preparation_json END AS preparation_json FROM capture_preparations WHERE owner_key=?`,
+    ).get(key)
+    return value == null ? undefined : record(value, 'capture preparation')
   }
 
   private preparationRows(): Record<string, unknown>[] {
@@ -724,13 +687,13 @@ class SqliteJournal implements RuntimeJournal {
       'capture preparation totals',
     )
     if (
-      numberField(totals, 'row_count') > MAX_JOURNAL_ROWS ||
+      numberField(totals, 'row_count') > MAX_INVENTORY_ITEMS ||
       numberField(totals, 'metadata_bytes') > MAX_STATE_METADATA_BYTES
     )
-      throw new JournalCorruptionError('Capture preparations exceed their metadata bound')
+      throw new Error('Runtime preparation inventory exceeds its metadata bound')
     return stmt(
       this.db,
-      `SELECT owner_key, binding, CASE WHEN length(CAST(preparation_json AS BLOB))<=${MAX_COMPLETION_JSON_BYTES} THEN preparation_json END AS preparation_json FROM capture_preparations ORDER BY owner_key LIMIT ${MAX_JOURNAL_ROWS}`,
+      `SELECT owner_key, binding, CASE WHEN length(CAST(preparation_json AS BLOB))<=${MAX_COMPLETION_JSON_BYTES} THEN preparation_json END AS preparation_json FROM capture_preparations ORDER BY owner_key LIMIT ${MAX_INVENTORY_ITEMS}`,
     )
       .all()
       .map(value => {
@@ -746,8 +709,8 @@ class SqliteJournal implements RuntimeJournal {
     return this.withOperation(async () => {
       const binding = await this.transaction(undefined, () => {
         const authority = this.preparationOwner(owner)
-        const row = this.preparationRows().find(item => item.owner_key === authority.key)
-        if (row === undefined) return undefined
+        const row = this.preparationRow(authority.key)
+        if (!row) return undefined
         if (row.binding !== authority.binding)
           throw new JournalCorruptionError('Capture preparation binding differs')
         return parsePreparationBinding(JSON.parse(stringField(row, 'preparation_json')))
@@ -800,7 +763,7 @@ class SqliteJournal implements RuntimeJournal {
     reference: RuntimeRecordRef,
   ): Promise<void> {
     const authority = this.preparationOwner(owner)
-    const row = this.preparationRows().find(item => item.owner_key === authority.key)
+    const row = this.preparationRow(authority.key)
     if (!row || row.binding !== authority.binding)
       throw new JournalCorruptionError('Completion requires a matching capture preparation')
     const prepared = parsePreparationBinding(JSON.parse(stringField(row, 'preparation_json')))
@@ -829,9 +792,11 @@ class SqliteJournal implements RuntimeJournal {
       if (verifiedBytes.byteLength > MAX_RAW_BYTES || digest(verifiedBytes) !== turn.sha256)
         throw new JournalCorruptionError('Verified immutable Turn bytes do not match the reference')
       await this.transaction('completion', async () => {
-        this.assertLogicalIntegrity()
         const key = stopKey(claim.stop)
-        const claimRow = stmt(this.db, 'SELECT claim_json FROM claims WHERE stop_key=?').get(key)
+        const claimRow = stmt(
+          this.db,
+          `SELECT CASE WHEN length(CAST(claim_json AS BLOB))<=${MAX_CLAIM_JSON_BYTES} THEN claim_json END AS claim_json FROM claims WHERE stop_key=?`,
+        ).get(key)
         if (claimRow == null) throw new Error('Materialization claim is not durable')
         const durable = this.validateDurableClaim(
           parseClaim(record(claimRow, 'claim row').claim_json, claim.stop),
@@ -840,7 +805,7 @@ class SqliteJournal implements RuntimeJournal {
         await this.assertPreparedCompletion({ kind: 'stop', claim }, turn)
         const existingRow = stmt(
           this.db,
-          'SELECT completion_json FROM completions WHERE stop_key=?',
+          `SELECT CASE WHEN length(CAST(completion_json AS BLOB))<=${MAX_COMPLETION_JSON_BYTES} THEN completion_json END AS completion_json FROM completions WHERE stop_key=?`,
         ).get(key)
         if (existingRow != null) {
           const existing = parseCompletion(record(existingRow, 'completion row').completion_json)
@@ -860,59 +825,71 @@ class SqliteJournal implements RuntimeJournal {
           'Completion',
         )
         stmt(this.db, 'INSERT INTO completions VALUES(?,?)').run(key, completionJson)
-        this.assertStateCapacity('completions', 'completion_json')
         await this.boundary('completion-transaction-staged')
       })
       await this.boundary('completion-transaction-committed')
     })
   }
 
+  private async recoveryCutoff(): Promise<number> {
+    return this.withOperation(async () => {
+      const row = record(
+        stmt(this.db, 'SELECT MAX(sequence) AS sequence FROM events').get(),
+        'recovery cutoff',
+      )
+      return row.sequence == null ? -1 : numberField(row, 'sequence')
+    })
+  }
+
   async *recover(): AsyncIterable<RecoveryWork> {
-    const recovered: RecoveryWork[] = []
-    this.enterOperation()
-    try {
-      const snapshots = await this.transaction(undefined, () => this.collectRecovery())
-      for (const snapshot of snapshots) {
-        if (snapshot.limitation) {
-          recovered.push({
-            availability: 'unavailable',
-            stop: snapshot.stop,
-            ...(snapshot.claim ? { claim: snapshot.claim } : {}),
-            events: [],
-            limitation: snapshot.limitation,
-          })
-          continue
-        }
-        for (const candidate of snapshot.rows) await this.verifyRaw(candidate)
-        recovered.push({
-          availability: 'ready',
+    const through = await this.recoveryCutoff()
+    let after = -1
+    while (after < through) {
+      const snapshot = await this.withOperation(() =>
+        this.transaction(undefined, () => this.collectRecovery(after, through)),
+      )
+      if (!snapshot) return
+      after = snapshot.sequence
+      if (snapshot.limitation) {
+        yield {
+          availability: 'unavailable',
           stop: snapshot.stop,
           ...(snapshot.claim ? { claim: snapshot.claim } : {}),
-          events: snapshot.rows.map(durableEvent),
-        })
+          events: [],
+          limitation: snapshot.limitation,
+        }
+        continue
       }
-    } finally {
-      this.leaveOperation()
+      for (const candidate of snapshot.rows) await this.readRaw(candidate)
+      yield {
+        availability: 'ready',
+        stop: snapshot.stop,
+        ...(snapshot.claim ? { claim: snapshot.claim } : {}),
+        events: snapshot.rows.map(durableEvent),
+      }
     }
-    for (const work of recovered) yield work
   }
 
   async *recoverLifecycle(): AsyncIterable<DurableCaptureEvent> {
-    const recovered = await this.withOperation(() =>
-      this.transaction(undefined, () => {
-        this.assertLogicalIntegrity()
-        return this.readRows()
-          .filter(row => row.eventKind === 'session-end')
-          .filter(
-            row =>
-              stmt(this.db, 'SELECT 1 FROM lifecycle_completions WHERE event_key=?').get(
-                row.eventKey,
-              ) == null,
+    const through = await this.recoveryCutoff()
+    let after = -1
+    while (true) {
+      const rows = await this.withOperation(() =>
+        this.transaction(undefined, () =>
+          stmt(
+            this.db,
+            `SELECT e.* FROM events e LEFT JOIN lifecycle_completions l ON l.event_key=e.event_key WHERE e.event_kind='session-end' AND l.event_key IS NULL AND e.sequence>? AND e.sequence<=? ORDER BY e.sequence LIMIT ${DATABASE_PAGE_ROWS}`,
           )
-          .map(durableEvent)
-      }),
-    )
-    for (const event of recovered) yield event
+            .all(after, through)
+            .map(parseRow),
+        ),
+      )
+      if (rows.length === 0) return
+      for (const row of rows) {
+        after = row.sequence
+        yield durableEvent(row)
+      }
+    }
   }
 
   async completeLifecycle(event: DurableCaptureEvent, reference: RuntimeRecordRef): Promise<void> {
@@ -948,64 +925,43 @@ class SqliteJournal implements RuntimeJournal {
           return
         }
         stmt(this.db, 'INSERT INTO lifecycle_completions VALUES(?,?)').run(event.eventKey, encoded)
-        const totals = record(
-          stmt(
-            this.db,
-            'SELECT COALESCE(SUM(length(CAST(event_key AS BLOB)) + length(CAST(record_json AS BLOB))), 0) AS metadata_bytes FROM lifecycle_completions',
-          ).get(),
-          'lifecycle completion totals',
-        )
-        if (numberField(totals, 'metadata_bytes') > MAX_STATE_METADATA_BYTES)
-          throw new Error('lifecycle completion table reached its metadata byte bound')
         await this.boundary('lifecycle-completion-transaction-staged')
       })
       await this.boundary('lifecycle-completion-transaction-committed')
     })
   }
 
-  private collectRecovery(): RecoverySnapshot[] {
-    this.assertLogicalIntegrity()
-    const rows = this.readRows()
-    const ranges = buildClaimRanges(rows)
-    const snapshots: RecoverySnapshot[] = []
-    for (const row of rows.filter(row => row.eventKind === 'stop' && row.stopId)) {
-      const stop = {
-        provider: row.provider,
-        sessionId: row.sessionId,
-        generation: row.generation,
-        stopId: row.stopId!,
-      }
-      const key = stopKey(stop)
-      if (stmt(this.db, 'SELECT 1 FROM completions WHERE stop_key=?').get(key) != null) continue
-      const claimRow = stmt(this.db, 'SELECT claim_json FROM claims WHERE stop_key=?').get(key)
-      const claim =
-        claimRow == null
-          ? undefined
-          : this.validateDurableClaim(
-              parseClaim(record(claimRow, 'claim row').claim_json, stop),
-              rows,
-              ranges,
-            )
-      const selected = ranges.get(key)?.rows
-      if (!selected) throw new JournalCorruptionError('Stop event has no recoverable range')
-      if (
-        claim &&
-        (claim.throughSequence !== row.sequence ||
-          !sameJson(
-            claim.eventKeys,
-            selected.map(candidate => candidate.eventKey),
-          ))
-      )
-        throw new JournalCorruptionError('Claim cutoff does not match its Stop event range')
-      const limitation = recoveryLimitation(selected)
-      snapshots.push({
-        stop,
-        ...(claim ? { claim } : {}),
-        rows: selected,
-        ...(limitation ? { limitation } : {}),
-      })
+  private collectRecovery(after: number, through: number): RecoverySnapshot | undefined {
+    // Unary + removes column affinity so SQLite can use the JSON expression index.
+    const value = stmt(
+      this.db,
+      "SELECT e.* FROM events e LEFT JOIN claims c ON json_extract(c.claim_json, '$.throughSequence')=+e.sequence LEFT JOIN completions done ON done.stop_key=c.stop_key WHERE e.event_kind='stop' AND done.stop_key IS NULL AND e.sequence>? AND e.sequence<=? ORDER BY e.sequence LIMIT 1",
+    ).get(after, through)
+    if (value == null) return undefined
+    const row = parseRow(value)
+    const stop = {
+      provider: row.provider,
+      sessionId: row.sessionId,
+      generation: row.generation,
+      stopId: row.stopId!,
     }
-    return snapshots
+    const stored = stmt(
+      this.db,
+      `SELECT CASE WHEN length(CAST(claim_json AS BLOB))<=${MAX_CLAIM_JSON_BYTES} THEN claim_json END AS claim_json FROM claims WHERE stop_key=?`,
+    ).get(stopKey(stop))
+    const claim =
+      stored == null
+        ? undefined
+        : this.validateDurableClaim(parseClaim(record(stored, 'claim row').claim_json, stop))
+    const { rows } = this.readStopRange(stop)
+    const limitation = recoveryLimitation(rows)
+    return {
+      sequence: row.sequence,
+      stop,
+      ...(claim ? { claim } : {}),
+      rows,
+      ...(limitation ? { limitation } : {}),
+    }
   }
 
   async readRaw(item: DurableCaptureReceipt): Promise<Uint8Array> {
@@ -1035,16 +991,18 @@ class SqliteJournal implements RuntimeJournal {
   ): Promise<readonly { event: DurableCaptureEvent; raw: Uint8Array }[]> {
     return this.withOperation(async () => {
       const selected = await this.transaction(undefined, () => {
-        this.assertLogicalIntegrity()
-        const claimRow = stmt(this.db, 'SELECT claim_json FROM claims WHERE stop_key=?').get(
-          stopKey(claim.stop),
-        )
+        const claimRow = stmt(
+          this.db,
+          `SELECT CASE WHEN length(CAST(claim_json AS BLOB))<=${MAX_CLAIM_JSON_BYTES} THEN claim_json END AS claim_json FROM claims WHERE stop_key=?`,
+        ).get(stopKey(claim.stop))
         if (claimRow == null) throw new Error('Materialization claim is not durable')
         const durable = this.validateDurableClaim(
           parseClaim(record(claimRow, 'claim row').claim_json, claim.stop),
         )
         if (!sameJson(durable, claim)) throw new Error('Claim does not match the durable claim')
-        const rowsByKey = new Map(this.readRows().map(row => [row.eventKey, row]))
+        const rowsByKey = new Map(
+          this.readStopRange(claim.stop).rows.map(row => [row.eventKey, row]),
+        )
         const rows = durable.eventKeys.map(key => {
           const row = rowsByKey.get(key)
           if (!row) throw new JournalCorruptionError(`Claim event is missing: ${key}`)
@@ -1065,7 +1023,7 @@ class SqliteJournal implements RuntimeJournal {
       await syncDirectory(this.objects)
       await syncDirectory(this.temporary)
       const referenced = await this.transaction(undefined, async () => {
-        const hashes = new Set(this.readRows().map(row => row.rawSha256))
+        const hashes = new Set(this.inventoryRows().map(row => row.rawSha256))
         for (const row of this.preparationRows()) {
           const key = stringField(row, 'owner_key')
           const completed = key.startsWith('stop:')
@@ -1079,8 +1037,8 @@ class SqliteJournal implements RuntimeJournal {
           hashes.add(binding.rawSha256)
           for (const item of prepared.objects) hashes.add(item.sha256)
           for (const item of prepared.records) hashes.add(item.rawSha256)
-          if (hashes.size > MAX_JOURNAL_ROWS)
-            throw new JournalCorruptionError('Runtime object inventory exceeds its bound')
+          if (hashes.size > MAX_INVENTORY_ITEMS)
+            throw new Error('Runtime object inventory exceeds its bound')
         }
         return [...hashes]
       })
@@ -1100,15 +1058,15 @@ class SqliteJournal implements RuntimeJournal {
     })
   }
 
-  private readRows(): JournalRow[] {
+  private inventoryRows(): JournalRow[] {
     const totals = record(stmt(this.db, EVENT_METADATA_TOTALS_SQL).get(), 'event metadata totals')
     const rowCount = numberField(totals, 'row_count')
     const metadataBytes = numberField(totals, 'metadata_bytes')
-    if (rowCount > MAX_JOURNAL_ROWS)
-      throw new JournalCorruptionError(`Journal exceeds the ${MAX_JOURNAL_ROWS} row bound`)
-    if (metadataBytes > MAX_EVENT_METADATA_BYTES)
-      throw new JournalCorruptionError(
-        `Journal exceeds the ${MAX_EVENT_METADATA_BYTES} event metadata byte bound`,
+    if (rowCount > MAX_INVENTORY_ITEMS)
+      throw new Error(`Runtime inventory exceeds its ${MAX_INVENTORY_ITEMS} item bound`)
+    if (metadataBytes > MAX_INVENTORY_METADATA_BYTES)
+      throw new Error(
+        `Runtime inventory exceeds its ${MAX_INVENTORY_METADATA_BYTES} metadata byte bound`,
       )
     const rows: JournalRow[] = []
     let afterSequence = -1
@@ -1131,190 +1089,6 @@ class SqliteJournal implements RuntimeJournal {
     if (rows.length !== rowCount)
       throw new JournalCorruptionError('Journal changed while its metadata was being read')
     return rows
-  }
-  private readStateRows(
-    table: 'claims' | 'completions',
-    jsonColumn: 'claim_json' | 'completion_json',
-    maxJsonBytes: number,
-  ): unknown[] {
-    const totals = record(
-      stmt(
-        this.db,
-        `SELECT COUNT(*) AS row_count, COALESCE(SUM(length(CAST(stop_key AS BLOB)) + length(CAST(${jsonColumn} AS BLOB))), 0) AS metadata_bytes FROM ${table}`,
-      ).get(),
-      `${table} metadata totals`,
-    )
-    const rowCount = numberField(totals, 'row_count')
-    const metadataBytes = numberField(totals, 'metadata_bytes')
-    if (rowCount > MAX_JOURNAL_ROWS)
-      throw new JournalCorruptionError(`${table} table exceeds the journal row bound`)
-    if (metadataBytes > MAX_STATE_METADATA_BYTES)
-      throw new JournalCorruptionError(
-        `${table} table exceeds the ${MAX_STATE_METADATA_BYTES} metadata byte bound`,
-      )
-    const rows: Record<string, unknown>[] = []
-    let afterKey = ''
-    while (rows.length < rowCount) {
-      const page = stmt(
-        this.db,
-        `SELECT
-          CASE WHEN length(CAST(stop_key AS BLOB))=64 THEN stop_key END AS stop_key,
-          length(CAST(stop_key AS BLOB)) AS stop_key_bytes,
-          CASE WHEN length(CAST(${jsonColumn} AS BLOB))<=${maxJsonBytes} THEN ${jsonColumn} END AS ${jsonColumn},
-          length(CAST(${jsonColumn} AS BLOB)) AS json_bytes
-        FROM ${table} WHERE stop_key>? ORDER BY stop_key LIMIT ${DATABASE_PAGE_ROWS}`,
-      ).all(afterKey)
-      if (page.length === 0)
-        throw new JournalCorruptionError(`${table} changed while its metadata was being read`)
-      for (const value of page) {
-        const stored = record(value, `${table} row`)
-        if (numberField(stored, 'stop_key_bytes') !== 64)
-          throw new JournalCorruptionError(`${table} row key exceeds its byte bound`)
-        const jsonBytes = numberField(stored, 'json_bytes')
-        if (jsonBytes > maxJsonBytes)
-          throw new JournalCorruptionError(
-            `${table === 'claims' ? 'Claim' : 'Completion'} JSON exceeds its byte bound`,
-          )
-        const key = stringField(stored, 'stop_key')
-        rows.push({ stop_key: key, [jsonColumn]: stored[jsonColumn] })
-        afterKey = key
-      }
-    }
-    if (rows.length !== rowCount)
-      throw new JournalCorruptionError(`${table} changed while its metadata was being read`)
-    return rows
-  }
-  private assertStateCapacity(
-    table: 'claims' | 'completions',
-    jsonColumn: 'claim_json' | 'completion_json',
-  ): void {
-    const totals = record(
-      stmt(
-        this.db,
-        `SELECT COALESCE(SUM(length(CAST(stop_key AS BLOB)) + length(CAST(${jsonColumn} AS BLOB))), 0) AS metadata_bytes FROM ${table}`,
-      ).get(),
-      `${table} metadata totals`,
-    )
-    if (numberField(totals, 'metadata_bytes') > MAX_STATE_METADATA_BYTES)
-      throw new Error(`${table} table reached its metadata byte bound`)
-  }
-  assertLogicalIntegrity(): void {
-    const result = record(stmt(this.db, 'PRAGMA integrity_check').get(), 'integrity result')
-    if (Object.values(result)[0] !== 'ok')
-      throw new JournalCorruptionError(
-        `SQLite integrity check failed: ${String(Object.values(result)[0])}`,
-      )
-    const rows = this.readRows()
-    const meta = record(
-      stmt(this.db, 'SELECT next_sequence FROM journal_meta WHERE singleton=1').get(),
-      'runtime metadata',
-    )
-    if (meta.next_sequence !== rows.length)
-      throw new JournalCorruptionError('Next sequence does not match the contiguous journal')
-    for (const row of rows) {
-      const expected = identity(
-        this.scope,
-        row.provider,
-        row.sessionId,
-        String(row.generation),
-        row.eventId,
-      )
-      if (row.eventKey !== expected)
-        throw new JournalCorruptionError(
-          `Event identity does not match its durable row: ${row.sequence}`,
-        )
-    }
-    const claimRows = this.readStateRows('claims', 'claim_json', MAX_CLAIM_JSON_BYTES)
-    const claimRanges = buildClaimRanges(rows)
-    const claims = new Map<string, MaterializationClaim>()
-    for (const value of claimRows) {
-      const stored = record(value, 'claim row')
-      const key = stringField(stored, 'stop_key')
-      const claim = parseStoredClaim(stored.claim_json)
-      if (key !== stopKey(claim.stop))
-        throw new JournalCorruptionError('Claim row key does not match its Stop identity')
-      this.validateDurableClaim(claim, rows, claimRanges)
-      claims.set(key, claim)
-    }
-    const completionRows = this.readStateRows(
-      'completions',
-      'completion_json',
-      MAX_COMPLETION_JSON_BYTES,
-    )
-    for (const value of completionRows) {
-      const stored = record(value, 'completion row')
-      const key = stringField(stored, 'stop_key')
-      const completion = parseCompletion(stored.completion_json)
-      validateStopAsCorruption(completion.stop)
-      const claim = claims.get(key)
-      if (
-        key !== stopKey(completion.stop) ||
-        !claim ||
-        completion.claimId !== claim.claimId ||
-        !sameJson(completion.stop, claim.stop)
-      )
-        throw new JournalCorruptionError('Completion does not match its durable claim')
-    }
-    const lifecycleTotals = record(
-      stmt(
-        this.db,
-        'SELECT COUNT(*) AS row_count, COALESCE(SUM(length(CAST(event_key AS BLOB)) + length(CAST(record_json AS BLOB))), 0) AS metadata_bytes FROM lifecycle_completions',
-      ).get(),
-      'lifecycle completion totals',
-    )
-    if (
-      numberField(lifecycleTotals, 'row_count') > MAX_JOURNAL_ROWS ||
-      numberField(lifecycleTotals, 'metadata_bytes') > MAX_STATE_METADATA_BYTES
-    )
-      throw new JournalCorruptionError('lifecycle completion table exceeds its bounds')
-    const lifecycleRows = stmt(
-      this.db,
-      `SELECT event_key, CASE WHEN length(CAST(record_json AS BLOB))<=${MAX_COMPLETION_JSON_BYTES} THEN record_json END AS record_json, length(CAST(record_json AS BLOB)) AS json_bytes FROM lifecycle_completions ORDER BY event_key LIMIT ${MAX_JOURNAL_ROWS + 1}`,
-    ).all()
-    if (lifecycleRows.length !== numberField(lifecycleTotals, 'row_count'))
-      throw new JournalCorruptionError('lifecycle completion rows are inconsistent')
-    const events = new Map(rows.map(row => [row.eventKey, row]))
-    for (const stored of this.preparationRows()) {
-      const key = stringField(stored, 'owner_key')
-      const claim = key.startsWith('stop:') ? claims.get(key.slice(5)) : undefined
-      const event = key.startsWith('lifecycle:') ? events.get(key.slice(10)) : undefined
-      const owner = claim ?? (event?.eventKind === 'session-end' ? durableEvent(event) : undefined)
-      if (!owner || digest(new TextEncoder().encode(canonicalJson(owner))) !== stored.binding)
-        throw new JournalCorruptionError('Capture preparation has no matching durable owner')
-      parsePreparationBinding(JSON.parse(stringField(stored, 'preparation_json')))
-    }
-    for (const value of lifecycleRows) {
-      const stored = record(value, 'lifecycle completion row')
-      const key = stringField(stored, 'event_key')
-      if (!SHA256.test(key) || numberField(stored, 'json_bytes') > MAX_COMPLETION_JSON_BYTES)
-        throw new JournalCorruptionError('lifecycle completion row exceeds its bounds')
-      const event = events.get(key)
-      if (event?.eventKind !== 'session-end')
-        throw new JournalCorruptionError('lifecycle completion does not reference SessionEnd')
-      const reference = record(
-        JSON.parse(stringField(stored, 'record_json')),
-        'lifecycle completion reference',
-      )
-      if (
-        !sameJson(Object.keys(reference).sort(), [
-          'path',
-          'repositoryId',
-          'repositoryRoot',
-          'sha256',
-        ]) ||
-        typeof reference.path !== 'string' ||
-        !/^sessions\/(codex|claude)\/[^/]+\/lifecycle\/[a-z][a-z0-9-]*_[0-7][0-9A-HJKMNP-TV-Z]{25}\.json$/.test(
-          reference.path,
-        ) ||
-        typeof reference.sha256 !== 'string' ||
-        !SHA256.test(reference.sha256) ||
-        typeof reference.repositoryRoot !== 'string' ||
-        !isAbsolute(reference.repositoryRoot) ||
-        typeof reference.repositoryId !== 'string' ||
-        !/^repo_[A-Za-z0-9_-]+$/.test(reference.repositoryId)
-      )
-        throw new JournalCorruptionError('lifecycle completion reference is malformed')
-    }
   }
   private async publishRaw(bytes: Uint8Array, sha: string): Promise<void> {
     const directory = join(this.objects, sha.slice(0, 2))
@@ -1353,23 +1127,43 @@ class SqliteJournal implements RuntimeJournal {
       await unlink(temporary).catch(() => undefined)
     }
   }
-  private async verifyRaw(row: JournalRow): Promise<void> {
-    await this.readRawUnchecked(row)
+  private readStopRange(stop: StopIdentity): { stopRow: JournalRow; rows: JournalRow[] } {
+    const value = stmt(
+      this.db,
+      'SELECT * FROM events WHERE provider=? AND session_id=? AND generation=? AND stop_id=?',
+    ).get(stop.provider, stop.sessionId, stop.generation, stop.stopId)
+    if (value == null)
+      throw new Error(`Cannot claim a Stop that is not durably journaled: ${stop.stopId}`)
+    const stopRow = parseRow(value)
+    const prior = record(
+      stmt(
+        this.db,
+        "SELECT MAX(sequence) AS sequence FROM events WHERE provider=? AND session_id=? AND generation=? AND event_kind='stop' AND sequence<?",
+      ).get(stop.provider, stop.sessionId, stop.generation, stopRow.sequence),
+      'prior Stop',
+    )
+    const rows = stmt(
+      this.db,
+      `SELECT * FROM events WHERE provider=? AND session_id=? AND generation=? AND sequence>? AND sequence<=? ORDER BY sequence LIMIT ${MAX_RECOVERY_EVENTS + 1}`,
+    )
+      .all(stop.provider, stop.sessionId, stop.generation, prior.sequence ?? -1, stopRow.sequence)
+      .map(parseRow)
+    return { stopRow, rows }
   }
-  private validateDurableClaim(
-    claim: MaterializationClaim,
-    rows = this.readRows(),
-    ranges = buildClaimRanges(rows),
-  ): MaterializationClaim {
+
+  private validateDurableClaim(claim: MaterializationClaim): MaterializationClaim {
     const expectedClaimId = `claim_${identity(this.scope, stopKey(claim.stop))}`
     if (claim.claimId !== expectedClaimId || !isStrictTimestamp(claim.claimedAt))
       throw new JournalCorruptionError('Claim identity or timestamp is invalid')
-    const range = ranges.get(stopKey(claim.stop))
-    const stopRow = range?.stopRow
-    if (!stopRow || claim.throughSequence !== stopRow.sequence)
+    const { stopRow, rows } = this.readStopRange(claim.stop)
+    if (claim.throughSequence !== stopRow.sequence)
       throw new JournalCorruptionError('Claim cutoff does not match its durable Stop')
-    const expectedKeys = range.rows.map(row => row.eventKey)
-    if (!sameJson(claim.eventKeys, expectedKeys))
+    if (
+      !sameJson(
+        claim.eventKeys,
+        rows.map(row => row.eventKey),
+      )
+    )
       throw new JournalCorruptionError('Claim event range does not match durable rows')
     return claim
   }
@@ -1588,24 +1382,6 @@ function parseClaim(value: unknown, stop: StopIdentity): MaterializationClaim {
     throw new JournalCorruptionError('Claim is malformed or names a different Stop')
   return claim as unknown as MaterializationClaim
 }
-function parseStoredClaim(value: unknown): MaterializationClaim {
-  assertBoundedJson(value, MAX_CLAIM_JSON_BYTES, 'Claim')
-  let decoded: unknown
-  try {
-    decoded = JSON.parse(value)
-  } catch {
-    throw new JournalCorruptionError('Claim JSON is malformed')
-  }
-  const rawStop = record(record(decoded, 'claim').stop, 'claim Stop')
-  const stop = {
-    provider: stringField(rawStop, 'provider') as CaptureProvider,
-    sessionId: stringField(rawStop, 'sessionId'),
-    generation: numberField(rawStop, 'generation'),
-    stopId: stringField(rawStop, 'stopId'),
-  }
-  validateStopAsCorruption(stop)
-  return parseClaim(value, stop)
-}
 function parseCompletion(value: unknown): Completion {
   assertBoundedJson(value, MAX_COMPLETION_JSON_BYTES, 'Completion')
   let parsed: unknown
@@ -1634,13 +1410,6 @@ function parseCompletion(value: unknown): Completion {
   )
     throw new JournalCorruptionError('Completion is malformed')
   return completion as unknown as Completion
-}
-function validateStopAsCorruption(stop: StopIdentity): void {
-  try {
-    validateStop(stop)
-  } catch {
-    throw new JournalCorruptionError('Stored Stop identity is malformed')
-  }
 }
 function assertBoundedJson(
   value: unknown,
@@ -1694,26 +1463,6 @@ function durableEvent(row: JournalRow): DurableCaptureEvent {
     ...(row.stopId === undefined ? {} : { stopId: row.stopId }),
     ...(row.worktreePath === undefined ? {} : { worktreePath: row.worktreePath }),
   }
-}
-function buildClaimRanges(rows: readonly JournalRow[]): Map<string, ClaimRange> {
-  const pending = new Map<string, JournalRow[]>()
-  const ranges = new Map<string, ClaimRange>()
-  for (const row of rows) {
-    const session = identity(row.provider, row.sessionId, String(row.generation))
-    const current = pending.get(session) ?? []
-    current.push(row)
-    if (row.eventKind === 'stop' && row.stopId) {
-      const stop = {
-        provider: row.provider,
-        sessionId: row.sessionId,
-        generation: row.generation,
-        stopId: row.stopId,
-      }
-      ranges.set(stopKey(stop), { stopRow: row, rows: current })
-      pending.set(session, [])
-    } else pending.set(session, current)
-  }
-  return ranges
 }
 function assertRecoveryBounds(rows: readonly JournalRow[]): void {
   const limitation = recoveryLimitation(rows)
@@ -2025,14 +1774,9 @@ export async function inspectRuntimeJournal(
     )
     if (typeof stored.runtime_scope !== 'string')
       throw new JournalCorruptionError('Runtime scope is malformed')
-    new SqliteJournal(
-      join(root, 'objects', 'sha256'),
-      join(root, 'tmp'),
-      join(root, 'diagnostics'),
-      stored.runtime_scope,
-      database,
-      { repositoryRoot },
-    ).assertLogicalIntegrity()
+    const integrity = record(stmt(database, 'PRAGMA integrity_check').get(), 'integrity result')
+    if (Object.values(integrity)[0] !== 'ok')
+      throw new JournalCorruptionError('SQLite integrity check failed')
     pendingStops = numberField(
       record(
         stmt(
@@ -2101,8 +1845,8 @@ async function boundedDirectoryBytes(root: string): Promise<number> {
     const handle = await opendir(directory)
     for await (const entry of handle) {
       visited += 1
-      if (visited > MAX_JOURNAL_ROWS * 3) {
-        throw new JournalCorruptionError('Runtime storage inventory exceeds its bound')
+      if (visited > MAX_INVENTORY_ITEMS * 3) {
+        throw new Error('Runtime storage inventory exceeds its diagnostic bound')
       }
       const path = join(directory, entry.name)
       const info = await lstat(path)
@@ -2118,7 +1862,7 @@ async function boundedDirectoryBytes(root: string): Promise<number> {
       else if (info.isFile()) bytes += info.size
       else throw new JournalCorruptionError('Runtime storage contains an unsupported entry')
       if (!Number.isSafeInteger(bytes)) {
-        throw new JournalCorruptionError('Runtime storage byte count exceeds its bound')
+        throw new Error('Runtime storage byte count exceeds its diagnostic bound')
       }
     }
   }
@@ -2160,7 +1904,7 @@ async function requirePrivateFileReadOnly(path: string, maxBytes: number): Promi
   if ((info.mode & 0o077) !== 0 || (process.getuid !== undefined && info.uid !== process.getuid()))
     throw new JournalCorruptionError(`Runtime file ownership is unsafe: ${path}`)
   if (info.size > maxBytes)
-    throw new JournalCorruptionError(`Runtime file exceeds its byte bound: ${path}`)
+    throw new Error(`Runtime file exceeds its diagnostic byte bound: ${path}`)
 }
 
 async function requireMissingOrPrivateFile(path: string): Promise<void> {

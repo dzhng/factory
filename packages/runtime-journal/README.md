@@ -58,15 +58,18 @@ Callers close a journal handle when its hook invocation or materialization pass
 ends. The package requires Node 22.13 or newer because earlier Node 22 releases
 do not provide the SQLite runtime it uses; Bun uses its built-in SQLite binding.
 
-Recovery is deliberately bounded: a journal lifetime admits 100,000 rows and
-64 MiB of event metadata, while one Turn admits 10,000 events and 64 MiB of raw
-bytes. Claims are capped at 1 MiB, completions at 128 KiB, and each state table
-at 64 MiB. Database metadata is preflighted and read in bounded pages; raw files
-are size-checked before allocation and read incrementally. If one unclaimed Turn
-exceeds its recovery bound, `recover` returns a typed `unavailable` item for that
-Stop and continues yielding other ready Stops. These bounds make corruption or
-runaway provider input visible without letting one bad range starve unrelated
-materialization.
+Capture has no lifetime row or metadata quota. SQLite owns durable ordering;
+operations validate the selected claim, completion, or frozen preparation rather
+than auditing all historical state on each hook. Indexed pending-Stop lookup skips
+completed work, and each recovery pass freezes its starting sequence so arriving
+events belong to a later pass. Recovery reads one Stop range at a time, without
+holding a transaction or journal ownership while the consumer is paused.
+
+One Turn still admits bounded event and raw-byte inventories; oversized Turns
+produce typed `unavailable` work without starving other Sessions. Raw files are
+size-checked before allocation and read incrementally. Private inventory and
+diagnostic reads retain their own bounds; reaching an inspection bound does not
+prevent capture or mean that SQLite history is corrupt.
 
 Post-Stop SessionEnd events have their own completion record so a crash cannot
 strand lifecycle evidence after a Turn is already complete. SessionStart remains
