@@ -26,8 +26,7 @@ type InvalidCredentialReason = Exclude<
 
 dockerDescribe('reviewer credential discovery', () => {
   test('verified metadata stays frozen without rereading disposable bundle files', async () => {
-    const assets = new URL('../../../specs/done/factory-v1/assets/review-plan/', import.meta.url)
-      .pathname
+    const assets = new URL('../../test-harness/fixtures/review-plan/', import.meta.url).pathname
     const report = JSON.parse(await readFile(join(assets, 'report.json'), 'utf8'))
     const root = await mkdtemp(join(tmpdir(), 'factory-frozen-bundle-'))
     try {
