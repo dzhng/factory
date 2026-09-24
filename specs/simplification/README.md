@@ -8,10 +8,11 @@ layer is requested. Do not modify existing user repositories or published tags.
 
 ## Next Agent Prompt
 
-Finish journal work, then run the integrated release and repository
-gates. Baseline is `a474615`. Release, decisions, bundle, harness, and process cuts are
-integrated. Do not create new permanent test journeys, report generators, or
-screenshot galleries for this cleanup.
+Implementation is integrated and committed through `079ac36`; baseline is
+`a474615`. Root build/format/lint/types/tests, both independent code reviews, and
+the browser gate pass. Finish the installed Linux journey after its toolchain
+download, archive this rationale, and retry the GitHub push (HTTPS currently
+times out). Do not add new permanent runners, reports, or screenshot galleries.
 
 - [x] Release: ordinary packaged notices, no semantic license/SBOM gate or
   historical string blacklist. Keep executable identity/integrity needed for
@@ -24,7 +25,7 @@ screenshot galleries for this cleanup.
   full verification during ordinary metadata reads and post-execution checks of
   an irrelevant original bundle. Keep snapshot creation, container-entry,
   recovery, citation and submission validation.
-- [ ] Journal: remove the lifetime sequence ceiling without making pending work
+- [x] Journal: remove the lifetime sequence ceiling without making pending work
   or recovery unbounded. Preserve crash recovery and safe frozen preparations.
 - [x] Harness: one home for live fixtures/current baselines; remove historical
   report tests and obsolete generated assets. Consolidate overlapping browser
