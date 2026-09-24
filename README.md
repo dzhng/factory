@@ -21,6 +21,8 @@ The [evidence sanitization rationale](specs/done/evidence-sanitization/README.md
 records the committable-data boundary and its verification evidence.
 The complementary [choice-audit rationale](specs/done/choice-audit-reviewer/README.md)
 explains cited, standalone judgments of agent-made choices.
+The [simplicity rationale](specs/done/simplification/README.md) explains which
+facts are stored, which checks remain, and which machinery is deliberately absent.
 
 The [security model](SECURITY.md) owns repository trust, credentials, container
 isolation, and local interface policy. The implementation follows these ownership
