@@ -1,66 +1,27 @@
-# Coding conventions and best practices
+# Working on Factory
 
-Follow the main project README in the repository root. It is the map to the
-project's architecture and verification documentation.
+Read the root README and the README of each package you change. Read
+`SECURITY.md` before security-shaped decisions; it owns the trust model.
 
-If any folder you are working in contains a `README.md`, read it before
-continuing—the READMEs are written for you.
+Keep this personal tool simple. Prefer deleting duplicated state and unused
+machinery over adding guards, compatibility layers, or process artifacts.
+Explain changed API contracts and schemas plainly.
 
-## Security decisions
+## Verification
 
-`SECURITY.md` is the canonical security model. Read it **before** deciding
-anything security-shaped—credentials, repository trust, hooks, Docker mounts,
-container networking, evidence visibility, or localhost exposure—and before
-reporting a security finding in a design or review.
+For behavior changes, demonstrate a failing test before the fix, then green.
+Use the narrowest existing test while iterating. Extend existing journeys rather
+than creating a new runner or committed report for every feature.
 
-It settles most of these questions already. In particular, running a checked-out
-repository is the repository trust decision, while the host and an ephemeral
-reviewer container remain separate trust domains.
+Tests that touch provider homes/configuration, hooks, `.factory`, or provider CLIs
+run in the disposable Docker environment. Never mutate live developer settings
+or take desktop focus. Mock external boundaries, not internal collaborators.
 
-## Communicating with the user
-
-The user is very technical but does not read the code day to day. Responding in
-code or pointing at files is fine; introduce a component briefly before naming
-its internals.
-
-API seams and schemas are the most important things to surface. When work
-touches an interface between components, lead with what that contract means and
-how it changed.
-
-## Testing changes
-
-Before implementation work on behavior changes or bug fixes, invoke
-[`write-tests`](.agents/skills/write-tests/SKILL.md) and follow its red/green
-workflow. Use it for test additions or revisions too.
-
-Any test that writes provider configuration, touches a home directory, installs
-hooks, creates `.factory` data, or invokes Codex or Claude runs inside the
-project's Docker test environment. Never mutate the developer's live provider
-configuration while testing. Use mocks only at external boundaries.
-
-### Run the narrowest runner that answers your question
-
-The root `bun run test` is a closeout gate, not a feedback loop. While iterating,
-start with one named test, then one test file, then the owning workspace. Use the
-repository-wide gate once near handoff or release.
-
-## Visual UI changes
-
-For visual changes, use the real browser workbench and deterministic fixtures.
-Use [`screenshot-critique`](.agents/skills/screenshot-critique/SKILL.md) for an
-unprimed second opinion and
-[`compare-screenshots`](.agents/skills/compare-screenshots/SKILL.md) whenever a
-prior or reference image exists.
-
-## Big changes end with their own release-shaped journey
-
-A full spec or major feature should end with its own journey in
-`packages/test-harness`. Exercise the installed CLI and real local boundaries;
-do not treat a mocked path as release evidence. Run the repository-wide build,
-format, lint, type, test, and platform gates once at closeout.
+Use the real browser workbench for UI changes; preserve current baselines unless
+the appearance intentionally changes. Review the diff and affected docs, then
+run repository build, format, lint, types, tests, and relevant platform checks at
+closeout. Exercise the installed CLI for release changes.
 
 ## Milestones
 
-Commit each green implementation checkpoint as a focused change and push it to
-the active upstream branch. Do not accumulate completed milestones only in a
-local worktree.
+Commit each green checkpoint and push it to the active upstream branch.
