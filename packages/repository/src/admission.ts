@@ -129,7 +129,7 @@ function assertPreparedValue(value: JsonValue, sanitizer: Sanitizer, field = '',
   }
   if (value === null || typeof value !== 'object') return
   if (value.encoding === 'base64' && typeof value.bytes === 'string') {
-    const decoded = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(
+    const decoded = new TextDecoder('utf-8', { ignoreBOM: true }).decode(
       Buffer.from(value.bytes, 'base64'),
     )
     if (sanitizer.text(decoded).redacted)

@@ -10,6 +10,7 @@ import {
   initializeRepositoryStore,
   openRepositoryStore,
 } from '@factory/repository'
+import { restorePreparedObject } from '@factory/repository/internal/admission'
 import {
   openVerifiedReviewBundle,
   readVerifiedReviewBundle,
@@ -32,12 +33,12 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })))
 })
 
-async function fixture() {
+async function fixture(incremental = false) {
   const assets = join(import.meta.dir, '../../../specs/done/factory-v1/assets/review-plan')
   const report = JSON.parse(await readFile(join(assets, 'report.json'), 'utf8'))
   const bundle = await openVerifiedReviewBundle(
-    join(assets, 'complete-bundle'),
-    report.bundles.complete,
+    join(assets, incremental ? 'pr-incremental-bundle' : 'complete-bundle'),
+    incremental ? report.bundles.pullRequestIncremental : report.bundles.complete,
   )
   const verified = await readVerifiedReviewBundle(bundle)
   const root = await mkdtemp(join(tmpdir(), 'factory-safe-review-'))
@@ -57,7 +58,11 @@ async function fixture() {
   const context = await store.preparePublication()
   for (const reference of verified.authority.inventory) {
     const bytes = await readFile(join(verified.path, '.factory', objectOwnedPath(reference.sha256)))
-    await store.putObject(context.prepareObject(bytes, reference))
+    await store.putObject(
+      incremental
+        ? restorePreparedObject(root, reference, bytes)
+        : context.prepareObject(bytes, reference),
+    )
   }
   for (const record of verified.authority.records) {
     await store.createImmutable(
@@ -69,6 +74,57 @@ async function fixture() {
   }
   return { root, store, bundle, verified }
 }
+
+test('publication imports prior-ledger citations for decision recovery', async () => {
+  const { root, store, bundle, verified } = await fixture(true)
+  const prior = verified.manifest.plan.priorLedger!.object
+  await expect(store.getObject(prior)).rejects.toThrow()
+  const priorPath = verified.manifest.plan.priorLedger!.path
+  const priorLedger = JSON.parse(await readFile(join(root, '.factory', priorPath), 'utf8'))
+  const context = await store.preparePublication()
+  await store.createImmutable(
+    context.prepareRecord(
+      priorPath.replace(/ledger.json$/, 'submissions.jsonl') as ReturnType<typeof makeOwnedPath>,
+      Buffer.from(
+        canonicalJson({ kind: 'audit-summary', summary: priorLedger.summary }) +
+          canonicalJson({ kind: 'finish' }),
+      ),
+    ),
+  )
+  const evidence = [{ object: prior }]
+  const prepared = await validateReview(
+    bundle,
+    sealReviewerRawAttempt({
+      reviewId: 'review_00000000000000000000000009',
+      bundleSha256: verified.sha256,
+      submissions: Buffer.from(
+        canonicalJson({ kind: 'choice', choice: { ...writerChoice, evidence } }) +
+          summarySubmissions(evidence),
+      ),
+      providerOutput: new Uint8Array(),
+      termination: 'completed',
+      exitCode: 0,
+      outputTruncated: false,
+      reviewer: { settings: verified.manifest.plan.policies.reviewer },
+      imageDigest: `sha256:${'b'.repeat(64)}`,
+      providerCliVersion: 'fixture',
+      hostPlatform: 'linux',
+      startedAt: '2026-09-05T00:00:00Z',
+      completedAt: '2026-09-05T00:00:01Z',
+    }),
+    { sanitizer: await discoverRepositorySanitizer(root) },
+  )
+  await acceptReview(prepared, store)
+  expect(await store.getObject(prior)).toEqual(Buffer.from(canonicalJson(priorLedger)))
+  const before = await store.readRecords()
+  for (const record of before.records.filter(record =>
+    record.path.startsWith('decisions/observations/'),
+  ))
+    await rm(join(root, '.factory', record.path))
+  expect(await recoverDecisionObservations(store)).toBeGreaterThan(0)
+  expect(await store.readRecords()).toEqual(before)
+  expect(await recoverDecisionObservations(store)).toBe(0)
+})
 
 test('review publication prepares prose before ledger and decision identity', async () => {
   const { root, store, bundle, verified } = await fixture()

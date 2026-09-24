@@ -322,6 +322,21 @@ describe.serial('safe Git observation', () => {
     expect(manifest.limitations).toContainEqual(
       expect.objectContaining({ detail: '1 ignored path(s) excluded' }),
     )
+    const store = await initializeRepositoryStore(
+      root,
+      {
+        schemaVersion: 1,
+        format: 'factory-repository',
+        minimumReaderVersion: '0.1.0',
+        repositoryId: 'repo_test',
+        createdAt: '2026-09-05T00:00:00Z',
+      },
+      {},
+    )
+    const preparation = await store.preparePublication()
+    const reference = result.observation.codeManifest!
+    await store.putObject(preparation.prepareObject(await objects.get(reference), reference))
+    expect(await store.getObject(reference)).toEqual(await objects.get(reference))
   })
 
   test('honors the developer global ignore file without enabling executable Git config', async () => {
