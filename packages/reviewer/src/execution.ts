@@ -91,7 +91,7 @@ export function reviewerExecutionFailureTermination(
 async function immutableBundleSnapshot(
   bundle: VerifiedReviewBundle,
   runtimeRoot: string,
-): Promise<{ bundle: VerifiedReviewBundle; root: string }> {
+): Promise<string> {
   const verified = await readVerifiedReviewBundle(bundle)
   const root = await mkdtemp(join(runtimeRoot, 'review-input-'))
   await chmod(root, 0o755)
@@ -122,7 +122,8 @@ async function immutableBundleSnapshot(
         await destination.close()
       }
     }
-    return { bundle: await openVerifiedReviewBundle(root, verified.sha256), root }
+    await openVerifiedReviewBundle(root, verified.sha256)
+    return root
   } catch (error) {
     await rm(root, { recursive: true, force: true })
     throw error
@@ -171,8 +172,7 @@ export const dockerReviewerExecutor: ReviewerExecutor = {
     try {
       outputHostPath = await mkdtemp(`${input.runtimeRoot}/review-output-`)
       await chmod(outputHostPath, 0o777)
-      const snapshot = await immutableBundleSnapshot(bundle, input.runtimeRoot)
-      snapshotRoot = snapshot.root
+      snapshotRoot = await immutableBundleSnapshot(bundle, input.runtimeRoot)
       const credential =
         input.credential === undefined
           ? undefined
@@ -180,7 +180,7 @@ export const dockerReviewerExecutor: ReviewerExecutor = {
       credentialRoot = credential?.root
       const plan = planReviewerIsolation({
         provider: choice.settings.provider,
-        bundleHostPath: snapshot.root,
+        bundleHostPath: snapshotRoot,
         outputHostPath,
         auth: credential === undefined ? [] : [credential.mount],
       })
@@ -202,8 +202,6 @@ export const dockerReviewerExecutor: ReviewerExecutor = {
       })
       const response = await readSubmissionPrefix(`${outputHostPath}/submissions.jsonl`)
       const providerOutput = await readSubmissionPrefix(`${outputHostPath}/response.txt`)
-      await readVerifiedReviewBundle(snapshot.bundle)
-      await readVerifiedReviewBundle(bundle)
       return sealReviewerRawAttempt({
         reviewId: input.reviewId,
         bundleSha256: before.sha256,
@@ -228,7 +226,6 @@ export const dockerReviewerExecutor: ReviewerExecutor = {
       })
     } catch (error) {
       if (error instanceof ReviewerCleanupUnprovenError) throw error
-      await readVerifiedReviewBundle(bundle)
       return sealReviewerRawAttempt({
         reviewId: input.reviewId,
         bundleSha256: before.sha256,

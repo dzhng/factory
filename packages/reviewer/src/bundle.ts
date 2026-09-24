@@ -58,11 +58,6 @@ export async function readVerifiedReviewBundle(
 ): Promise<Readonly<VerifiedReviewBundleState>> {
   const state = states.get(bundle)
   if (state === undefined) throw new TypeError('review bundle capability is not verified')
-  const verification = await verifyBundle(state.path, state.sha256)
-  if (!verification.valid) throw new Error(`review bundle changed: ${verification.reason}`)
-  if (canonicalJson(verification.manifest) !== canonicalJson(state.manifest)) {
-    throw new Error('review bundle changed after verification')
-  }
   return snapshot(state)
 }
 

@@ -20,7 +20,8 @@ identity-bound read-only mount. The test harness owns fake images, live journeys
 and human-readable reports.
 
 Bundle verification mints a private capability only for a `ready` plan. The
-execution boundary re-verifies that exact digest before using credentials or
+capability retains verified metadata; reading it does not rescan disposable files.
+The execution boundary re-verifies that exact digest before using credentials or
 starting Docker, so a path or caller-built object cannot authorize a review.
 Automatic selection chooses one reviewer from exact attempted Session evidence;
 weak context may inform analysis but cannot choose whose harness reviews it.

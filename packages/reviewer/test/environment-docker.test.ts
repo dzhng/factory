@@ -1,11 +1,13 @@
 import { describe, expect, test } from 'bun:test'
-import { chmod, mkdir, mkdtemp, readFile, stat, symlink, writeFile } from 'node:fs/promises'
+import { chmod, cp, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import {
   inspectReviewerEnvironment,
   materializeReviewerCredential,
+  openVerifiedReviewBundle,
+  readVerifiedReviewBundle,
   resolveReviewerAuthentication,
   type ReviewerCommandResult,
 } from '../src/index'
@@ -23,6 +25,26 @@ type InvalidCredentialReason = Exclude<
 >
 
 dockerDescribe('reviewer credential discovery', () => {
+  test('verified metadata stays frozen without rereading disposable bundle files', async () => {
+    const assets = new URL('../../../specs/done/factory-v1/assets/review-plan/', import.meta.url)
+      .pathname
+    const report = JSON.parse(await readFile(join(assets, 'report.json'), 'utf8'))
+    const root = await mkdtemp(join(tmpdir(), 'factory-frozen-bundle-'))
+    try {
+      await cp(join(assets, 'complete-bundle'), root, { recursive: true })
+      const bundle = await openVerifiedReviewBundle(root, report.bundles.complete)
+      const before = await readVerifiedReviewBundle(bundle)
+      const changed = await readVerifiedReviewBundle(bundle)
+      changed.manifest.files = []
+      await chmod(join(root, 'bundle.json'), 0o600)
+      await writeFile(join(root, 'bundle.json'), '{}')
+      expect(await readVerifiedReviewBundle(bundle)).toEqual(before)
+      await expect(openVerifiedReviewBundle(root, report.bundles.complete)).rejects.toThrow()
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   test('uses conventional CLI credentials without Factory-specific setup', async () => {
     expect(process.getuid?.()).not.toBe(0)
     const home = await mkdtemp(join(tmpdir(), 'factory-reviewer-cli-home-'))

@@ -186,6 +186,11 @@ snapshot, change set, PR and canonical-branch observations, review-policy
 versions, prior ledger, and known limitations. The reviewer must not reach
 outside that bundle for repository state.
 
+Verified bundle metadata is retained in memory. Execution copies and verifies
+the declared bytes before credentials are used, then the container verifies its
+read-only snapshot on entry. Acceptance uses that verified authority, not the
+continued availability of the original disposable bundle directory.
+
 The image's Factory submission server uses stdio, opens no listener, and performs
 no network operations. It resolves compact evidence handles only from the verified
 bundle and appends bounded canonical events in the existing output directory.
