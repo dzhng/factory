@@ -13,6 +13,7 @@ export async function releaseFixture(
     target?: ReleaseTarget
     version?: string
     executable?: Uint8Array
+    executableSha256?: string
     extra?: Record<string, string>
     validSbom?: boolean
   } = {},
@@ -76,7 +77,11 @@ export async function releaseFixture(
     `${JSON.stringify({
       schemaVersion: 1,
       release: identity,
-      artifact: { file: 'factory', bytes: executable.byteLength, sha256: digest(executable) },
+      artifact: {
+        file: 'factory',
+        bytes: executable.byteLength,
+        sha256: options.executableSha256 ?? digest(executable),
+      },
       build: { bunVersion: '1.3.14' },
       license: {
         concluded: 'MIT',

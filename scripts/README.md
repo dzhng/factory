@@ -2,7 +2,10 @@
 
 Native executables are the distribution authority. The release builder embeds
 the exact clean checkout identity; the artifact verifier checks the archive,
-inventory, executable, and license metadata before those bytes can be packaged.
+inventory, and executable before those bytes can be packaged or installed.
+Release archives retain their metadata shape for existing standalone upgraders.
+New upgrade verification does not interpret license or SBOM contents. The builder
+uses the platform tar implementation.
 
 The [release workflow](../.github/workflows/publish.yml) runs on stable `v*`
 tags. It reuses CI's quality and native build jobs, then packages those exact

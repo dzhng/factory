@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdir, stat, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, stat, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 
 import { verifyReleaseArtifact } from '../packages/cli/src/release-manifest'
@@ -56,6 +56,7 @@ const result = await Bun.build({
   minify: true,
 })
 if (!result.success) throw new AggregateError(result.logs, 'release compilation failed')
+await chmod(executablePath, 0o755)
 
 const executable = Bun.file(executablePath)
 const executableBytes = await executable.bytes()
@@ -146,12 +147,14 @@ const manifest = {
 }
 for (const [name, value] of metadataEntries) {
   await writeFile(join(targetRoot, name), value, { flag: 'wx', mode: 0o644 })
+  await chmod(join(targetRoot, name), 0o644)
 }
 const manifestBytes = encode(`${JSON.stringify(manifest, null, 2)}\n`)
 await writeFile(join(targetRoot, 'manifest.json'), manifestBytes, {
   flag: 'wx',
   mode: 0o644,
 })
+await chmod(join(targetRoot, 'manifest.json'), 0o644)
 const archivePath = join(outputRoot, `${stem}.tar.gz`)
 const adjacentManifestPath = join(outputRoot, `${stem}.json`)
 if ((await Bun.file(archivePath).exists()) || (await Bun.file(adjacentManifestPath).exists())) {
@@ -159,13 +162,10 @@ if ((await Bun.file(archivePath).exists()) || (await Bun.file(adjacentManifestPa
 }
 await writeFile(
   archivePath,
-  createReleaseArchive([
-    { name: 'factory', bytes: executableBytes, mode: 0o755 },
-    { name: 'manifest.json', bytes: manifestBytes, mode: 0o644 },
-    { name: 'LICENSE', bytes: licenseBytes, mode: 0o644 },
-    { name: 'THIRD_PARTY_NOTICES.md', bytes: noticesBytes, mode: 0o644 },
-    { name: bunLicenseName, bytes: bunLicenseBytes, mode: 0o644 },
-    { name: sbomFile, bytes: sbomBytes, mode: 0o644 },
+  createReleaseArchive(targetRoot, [
+    'factory',
+    'manifest.json',
+    ...metadataEntries.map(([name]) => name),
   ]),
   { flag: 'wx', mode: 0o644 },
 )

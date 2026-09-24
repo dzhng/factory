@@ -39,6 +39,15 @@ describe('release artifact verification', () => {
     ).rejects.toThrow('target mismatch')
   })
 
+  test('rejects altered archive bytes', async () => {
+    const value = await releaseFixture()
+    const archive = value.archive.slice()
+    archive[archive.length - 1] = archive[archive.length - 1]! ^ 1
+    await expect(
+      verifyReleaseArtifact({ ...value, archive, expectedTarget: value.identity.target }),
+    ).rejects.toThrow('archive digest mismatch')
+  })
+
   test('rejects a manifest that lacks the caller trusted digest', async () => {
     const value = await releaseFixture()
     expect(
@@ -50,19 +59,25 @@ describe('release artifact verification', () => {
     ).rejects.toThrow('trusted release manifest digest mismatch')
   })
 
-  test('rejects package-shaped JSON without an SPDX document identity', async () => {
-    const value = await releaseFixture({ validSbom: false })
-    expect(
-      verifyReleaseArtifact({ ...value, expectedTarget: value.identity.target }),
-    ).rejects.toThrow('release SBOM')
+  test('rejects executable bytes that disagree with the trusted manifest', async () => {
+    const value = await releaseFixture({ executableSha256: '0'.repeat(64) })
+    await expect(
+      verifyReleaseArtifact({
+        ...value,
+        expectedTarget: value.identity.target,
+      }),
+    ).rejects.toThrow('executable digest mismatch')
   })
 
-  test('rejects prohibited executable bytes without embedding them in release builds', async () => {
+  test('accepts executable content independently of historical names or SPDX metadata', async () => {
     const value = await releaseFixture({
       executable: new TextEncoder().encode('coding-agent-plugin'),
+      validSbom: false,
     })
-    expect(
-      verifyReleaseArtifact({ ...value, expectedTarget: value.identity.target }),
-    ).rejects.toThrow('prohibited legacy donor name')
+    const verified = await verifyReleaseArtifact({
+      ...value,
+      expectedTarget: value.identity.target,
+    })
+    expect(verified.executable).toEqual(value.executable)
   })
 })

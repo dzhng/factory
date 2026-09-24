@@ -40,6 +40,10 @@ test('npm package preserves both verified executables and exposes a factory laun
       const binary = join(output, 'native', platform, 'factory')
       expect(await readFile(binary, 'utf8')).toBe('test executable')
       expect((await stat(binary)).mode & 0o777).toBe(0o755)
+      expect(await readFile(join(output, 'native', platform, 'LICENSE'), 'utf8')).toBe('MIT')
+      expect(
+        await readFile(join(output, 'native', platform, 'BUN-1.3.14-LICENSE.md'), 'utf8'),
+      ).toBe('Bun license inventory')
     }
     const rejected = Bun.spawn(
       [
