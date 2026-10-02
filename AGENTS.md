@@ -42,7 +42,11 @@ Don't wait on a long run. Start it in the background and keep working. Give it a
 
 Look at the actual output. A passing check is not evidence that something reads well to the person in front of it. Use the real browser workbench for interface changes, and keep current baselines unless the appearance is meant to change.
 
-For any visual change, get a second opinion from someone who hasn't seen the work, judge before against after, and show the user the shots.
+For any visual change:
+
+- get an unprimed second opinion with [`screenshot-critique`](.agents/skills/screenshot-critique/SKILL.md);
+- judge before against after with [`compare-screenshots`](.agents/skills/compare-screenshots/SKILL.md);
+- show the user with [`preview-shots`](.agents/skills/preview-shots/SKILL.md).
 
 ## Product boundary
 
@@ -68,6 +72,6 @@ Every parallel checkout is a full copy, and installed dependencies and build out
 
 ## Skills
 
-Skills hold the procedures behind these principles. Load the one that covers your work before you start. Keep them current: when a pass learns a lesson (a gotcha, a pattern that paid off, a rejected approach), add it to the owning skill in the same commit.
+Skills hold the procedures behind these principles. Load the one that covers your work before you start. Keep them current: when a pass learns a lesson (a gotcha, a pattern that paid off, a rejected approach), add it to the owning skill in the same commit, following [`write-skills`](.agents/skills/write-skills/SKILL.md).
 
 Before changing this file, invoke [`audit-agents`](.agents/skills/audit-agents/SKILL.md).
