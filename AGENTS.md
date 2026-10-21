@@ -24,6 +24,8 @@ A change that reaches the whole system (a portable record format, the shared san
 
 Every expensive run must answer a question a cheaper one can't. Container reviews, browser journeys and checks of the installed command are the expensive runs here; do only the ones a change can move. A release change is proved on the installed command. Reuse a result that is still valid, and rerun only what a change could have invalidated. Docs and data that no code reads need no run at all.
 
+Default to end-to-end or system-level tests for regression coverage; use a unit test only for specific, complex business logic when fast feedback will materially speed development.
+
 Write the test first. Before changing behaviour or fixing a bug, invoke [`write-tests`](.agents/skills/write-tests/SKILL.md) and show the test failing before the fix. Test what the product does and how it fails, not how the code is shaped.
 
 Extend an existing journey before creating a new runner or a committed report for a feature. Mock external boundaries, not internal collaborators.
