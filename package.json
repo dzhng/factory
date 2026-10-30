@@ -29,7 +29,7 @@
     "lab:installed-audit": "bun run packages/test-harness/src/run-installed-audit.ts",
     "lab:reviewer-isolation": "bun run --cwd packages/test-harness lab:reviewer-isolation",
     "test": "turbo test --continue && bun test scripts/*.test.ts",
-    "prepare": "husky"
+    "prepare": "node scripts/install-git-hooks.mjs"
   },
   "devDependencies": {
     "@types/bun": "1.3.14",
@@ -39,7 +39,6 @@
     "turbo": "2.10.3",
     "typescript": "5.9.2",
     "linguist-languages": "9.5.0",
-    "husky": "9.1.7",
     "lint-staged": "17.6.0"
   },
   "engines": {
