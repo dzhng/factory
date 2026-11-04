@@ -26,7 +26,7 @@ Every expensive run must answer a question a cheaper one can't. Container review
 
 Default to end-to-end or system-level tests for regression coverage; use a unit test only for specific, complex business logic when fast feedback will materially speed development.
 
-Write the test first. Before changing behaviour or fixing a bug, invoke [`write-tests`](.agents/skills/write-tests/SKILL.md) and show the test failing before the fix. Test what the product does and how it fails, not how the code is shaped.
+Write the test first. Before changing behaviour or fixing a bug, invoke [`write-tests`](.agents/skills/write-tests/SKILL.md) and show the test failing before the fix. Test what the product does and how it fails. Never test presentation as a string: wording and styling are no more logic than a marketing headline.
 
 Extend an existing journey before creating a new runner or a committed report for a feature. Mock external boundaries, not internal collaborators.
 
